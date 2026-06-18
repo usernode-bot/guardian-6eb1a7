@@ -1,19 +1,10 @@
-import { Pool } from 'pg';
-
-interface RpcResponse {
-  jsonrpc: string;
-  id: number;
-  result?: string | object | null;
-  error?: { code: number; message: string };
-}
-
 // Example RPC responses for mock endpoints:
 // eth_blockNumber: { "jsonrpc": "2.0", "id": 1, "result": "0x123abc" }
 // eth_getBlockByNumber: { "jsonrpc": "2.0", "id": 1, "result": { "timestamp": "0x667c8f0a" } }
 // net_peerCount: { "jsonrpc": "2.0", "id": 1, "result": "0xc" } (12 in decimal)
 // eth_syncing: { "jsonrpc": "2.0", "id": 1, "result": false }
 
-async function callRpc(rpcUrl: string, method: string, params: any[] = []): Promise<RpcResponse> {
+async function callRpc(rpcUrl, method, params = []) {
   const payload = {
     jsonrpc: '2.0',
     id: 1,
@@ -34,11 +25,11 @@ async function callRpc(rpcUrl: string, method: string, params: any[] = []): Prom
   return response.json();
 }
 
-function hexToDecimal(hex: string): number {
+function hexToDecimal(hex) {
   return parseInt(hex, 16);
 }
 
-async function pollMetrics(pool: Pool, rpcUrl: string): Promise<void> {
+async function pollMetrics(pool, rpcUrl) {
   try {
     // Fetch peer count (net_peerCount)
     let peerCount = '0';
@@ -48,7 +39,7 @@ async function pollMetrics(pool: Pool, rpcUrl: string): Promise<void> {
         peerCount = String(hexToDecimal(String(peerResp.result)));
       }
     } catch (err) {
-      console.error('[RPC Poller] net_peerCount failed:', (err as Error).message);
+      console.error('[RPC Poller] net_peerCount failed:', err.message);
     }
 
     // Fetch node status (eth_syncing)
@@ -63,7 +54,7 @@ async function pollMetrics(pool: Pool, rpcUrl: string): Promise<void> {
         nodeStatus = 'online';
       }
     } catch (err) {
-      console.error('[RPC Poller] eth_syncing failed:', (err as Error).message);
+      console.error('[RPC Poller] eth_syncing failed:', err.message);
     }
 
     // Fetch block height (eth_blockNumber)
@@ -74,7 +65,7 @@ async function pollMetrics(pool: Pool, rpcUrl: string): Promise<void> {
         blockHeight = String(hexToDecimal(String(blockNumResp.result)));
       }
     } catch (err) {
-      console.error('[RPC Poller] eth_blockNumber failed:', (err as Error).message);
+      console.error('[RPC Poller] eth_blockNumber failed:', err.message);
     }
 
     // Fetch latest block timestamp (eth_getBlockByNumber)
@@ -82,14 +73,14 @@ async function pollMetrics(pool: Pool, rpcUrl: string): Promise<void> {
     try {
       const blockResp = await callRpc(rpcUrl, 'eth_getBlockByNumber', ['latest', false]);
       if (blockResp.result && typeof blockResp.result === 'object') {
-        const block = blockResp.result as any;
+        const block = blockResp.result;
         if (block.timestamp) {
           const timestamp = hexToDecimal(String(block.timestamp));
           blockTimestamp = new Date(timestamp * 1000).toISOString();
         }
       }
     } catch (err) {
-      console.error('[RPC Poller] eth_getBlockByNumber failed:', (err as Error).message);
+      console.error('[RPC Poller] eth_getBlockByNumber failed:', err.message);
     }
 
     // Insert metrics into database
@@ -120,11 +111,11 @@ async function pollMetrics(pool: Pool, rpcUrl: string): Promise<void> {
 
     console.log('[RPC Poller] Metrics updated: peers=' + peerCount + ', status=' + nodeStatus);
   } catch (err) {
-    console.error('[RPC Poller] Poll cycle failed:', (err as Error).message);
+    console.error('[RPC Poller] Poll cycle failed:', err.message);
   }
 }
 
-export async function startRpcPoller(pool: Pool, rpcUrl: string, interval: number = 5000): Promise<void> {
+async function startRpcPoller(pool, rpcUrl, interval = 5000) {
   console.log(`[RPC Poller] Starting with URL: ${rpcUrl}, interval: ${interval}ms`);
 
   // Try initial poll to verify connection
@@ -132,7 +123,7 @@ export async function startRpcPoller(pool: Pool, rpcUrl: string, interval: numbe
     await pollMetrics(pool, rpcUrl);
     console.log('[RPC Poller] Initial connection successful');
   } catch (err) {
-    console.error('[RPC Poller] Initial connection failed:', (err as Error).message);
+    console.error('[RPC Poller] Initial connection failed:', err.message);
     throw err;
   }
 
@@ -144,7 +135,7 @@ export async function startRpcPoller(pool: Pool, rpcUrl: string, interval: numbe
   }, interval);
 }
 
-export async function seedDemoMetrics(pool: Pool): Promise<void> {
+async function seedDemoMetrics(pool) {
   const now = new Date();
   const twoSecondsAgo = new Date(now.getTime() - 2000);
 
@@ -165,3 +156,5 @@ export async function seedDemoMetrics(pool: Pool): Promise<void> {
 
   console.log('[RPC Poller] Demo metrics seeded');
 }
+
+module.exports = { startRpcPoller, seedDemoMetrics };
