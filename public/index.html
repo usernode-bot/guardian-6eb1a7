@@ -66,9 +66,11 @@
   <title>Guardian</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
+  <script src="guardian-lifecycle.js"></script>
   <script src="guardian-hero.js"></script>
   <script src="node-status-card.js"></script>
   <script src="fg-progress-card.js"></script>
+  <script src="evolution-progress-card.js"></script>
   <style>
     body {
       background-color: #0a0a0f;
@@ -111,6 +113,7 @@
       <!-- Home Screen -->
       <section id="screen-home">
         <div id="guardian-hero-container"></div>
+        <div id="evolution-progress-container"></div>
         <div id="node-status-container"></div>
         <div id="fg-progress-container"></div>
       </section>
@@ -225,7 +228,8 @@
       const mockGuardian = {
         id: '001',
         name: 'Guardian #001',
-        status: 'ONLINE'
+        status: 'ONLINE',
+        totalFGHours: 12
       };
 
       // Mount GuardianHero component to Home screen
@@ -233,6 +237,13 @@
       if (container) {
         const heroElement = createGuardianHero(mockGuardian);
         container.appendChild(heroElement);
+      }
+
+      // Mount EvolutionProgressCard component to Home screen
+      const evolutionContainer = document.getElementById('evolution-progress-container');
+      if (evolutionContainer) {
+        const evolutionElement = createEvolutionProgressCard(mockGuardian.totalFGHours);
+        evolutionContainer.appendChild(evolutionElement);
       }
 
       // Mock NodeStatus data
