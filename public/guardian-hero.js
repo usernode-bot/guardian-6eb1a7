@@ -21,7 +21,7 @@ function createGuardianHero(guardian) {
 
   // Avatar (dynamic emoji based on stage)
   const avatar = document.createElement('div');
-  avatar.className = 'text-8xl';
+  avatar.className = 'text-4xl';
   avatar.textContent = stageInfo.emoji;
 
   // Name
