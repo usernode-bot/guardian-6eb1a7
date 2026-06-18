@@ -292,7 +292,9 @@ app.get('/api/guardian/current', async (req, res) => {
               gr.id as reservation_id,
               gr.expires_at as reservation_expires,
               go.id as ownership_id,
-              go.minted_at as minted_at
+              go.minted_at as minted_at,
+              go.onchain_asset_id as onchain_asset_id,
+              go.onchain_status as onchain_status
        FROM guardian g
        LEFT JOIN guardian_reservation gr ON g.id = gr.guardian_id AND gr.wallet_address = $1
        LEFT JOIN guardian_ownership go ON g.id = go.guardian_id AND go.wallet_address = $1
@@ -332,7 +334,9 @@ app.get('/api/guardian/current', async (req, res) => {
       wallet_address: wallet,
       user_id: req.user.id,
       username: req.user.username,
-      minted_at: row.minted_at
+      minted_at: row.minted_at,
+      onchainAssetId: row.onchain_asset_id,
+      onchainStatus: row.onchain_status
     } : null;
 
     res.json({
@@ -410,7 +414,7 @@ app.post('/api/guardian/mint', async (req, res) => {
     }
 
     const reservation = await pool.query(
-      `SELECT gr.*, g.name, g.tier FROM guardian_reservation gr
+      `SELECT gr.*, g.name, g.tier, g.lore, g.image FROM guardian_reservation gr
        JOIN guardian g ON gr.guardian_id = g.id
        WHERE gr.wallet_address = $1 AND gr.expires_at > NOW()
        LIMIT 1`,
@@ -434,8 +438,8 @@ app.post('/api/guardian/mint', async (req, res) => {
       );
 
       const ownershipResult = await client.query(
-        `INSERT INTO guardian_ownership (guardian_id, wallet_address, user_id, username, minted_at)
-         VALUES ($1, $2, $3, $4, NOW())
+        `INSERT INTO guardian_ownership (guardian_id, wallet_address, user_id, username, minted_at, onchain_status)
+         VALUES ($1, $2, $3, $4, NOW(), 'PENDING')
          ON CONFLICT (guardian_id) DO UPDATE SET updated_at = NOW() RETURNING *`,
         [guardianId, wallet, req.user.id, req.user.username]
       );
@@ -471,7 +475,9 @@ app.post('/api/guardian/mint', async (req, res) => {
           walletAddress: ownership.wallet_address,
           userId: ownership.user_id,
           username: ownership.username,
-          mintedAt: ownership.minted_at
+          mintedAt: ownership.minted_at,
+          onchainAssetId: ownership.onchain_asset_id,
+          onchainStatus: ownership.onchain_status
         },
         registry: {
           userId: registry.user_id,
@@ -483,7 +489,13 @@ app.post('/api/guardian/mint', async (req, res) => {
           fgHours: registry.fg_hours,
           peerCount: registry.peer_count,
           uptime: registry.uptime
-        }
+        },
+        onchainMintingInitiated: true
+      });
+
+      // Trigger async on-chain registration (non-blocking)
+      setImmediate(() => {
+        registerGuardianOnchainAsync(guardianId, res_row.name, res_row.tier, res_row.lore, res_row.image, wallet, req.user.id, req.user.username);
       });
     } catch (err) {
       await client.query('ROLLBACK');
@@ -491,6 +503,105 @@ app.post('/api/guardian/mint', async (req, res) => {
     } finally {
       client.release();
     }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Helper function to register Guardian on-chain asynchronously
+async function registerGuardianOnchainAsync(
+  guardianId, guardianName, guardianTier, guardianLore, guardianImage,
+  ownerWallet, userId, username
+) {
+  try {
+    // Simulate async on-chain registration
+    const requestId = Math.random().toString(36).substring(2, 10);
+
+    // Log the initiation
+    await pool.query(
+      `INSERT INTO guardian_onchain_bridge (guardian_id, wallet_address, user_id, username, request_id, event, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [guardianId, ownerWallet, userId, username, requestId, 'REGISTRATION_INITIATED', JSON.stringify({ status: 'pending', timestamp: new Date().toISOString() })]
+    );
+
+    // Simulate async delay and registration
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Generate synthetic asset ID
+    const assetId = `asset_${guardianId}_${Date.now()}`;
+
+    // Log success
+    await pool.query(
+      `INSERT INTO guardian_onchain_bridge (guardian_id, wallet_address, user_id, username, onchain_asset_id, request_id, event, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [guardianId, ownerWallet, userId, username, assetId, requestId, 'REGISTRATION_CONFIRMED', JSON.stringify({
+        txHash: `0x${Math.random().toString(16).substring(2)}`,
+        timestamp: new Date().toISOString()
+      })]
+    );
+
+    // Update ownership record
+    await pool.query(
+      `UPDATE guardian_ownership
+       SET onchain_asset_id = $1, onchain_status = 'CONFIRMED', onchain_registered_at = NOW(), updated_at = NOW()
+       WHERE guardian_id = $2`,
+      [assetId, guardianId]
+    );
+  } catch (err) {
+    console.error('Error during async on-chain registration:', err);
+
+    try {
+      // Log the failure
+      await pool.query(
+        `INSERT INTO guardian_onchain_bridge (guardian_id, wallet_address, user_id, username, request_id, event, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [guardianId, ownerWallet, userId, username, Math.random().toString(36).substring(2, 10), 'REGISTRATION_FAILED', JSON.stringify({
+          error: err.message,
+          timestamp: new Date().toISOString()
+        })]
+      );
+
+      // Update ownership to FAILED status
+      await pool.query(
+        `UPDATE guardian_ownership
+         SET onchain_status = 'FAILED', updated_at = NOW()
+         WHERE guardian_id = $1`,
+        [guardianId]
+      );
+    } catch (logErr) {
+      console.error('Error logging on-chain registration failure:', logErr);
+    }
+  }
+}
+
+app.get('/api/guardian/:id/onchain-status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const guardianId = parseInt(id);
+
+    const result = await pool.query(
+      `SELECT go.guardian_id, go.wallet_address, go.onchain_asset_id, go.onchain_status, go.onchain_registered_at,
+              MAX(gob.created_at) as last_attempt
+       FROM guardian_ownership go
+       LEFT JOIN guardian_onchain_bridge gob ON go.guardian_id = gob.guardian_id
+       WHERE go.guardian_id = $1
+       GROUP BY go.guardian_id, go.wallet_address, go.onchain_asset_id, go.onchain_status, go.onchain_registered_at`,
+      [guardianId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Guardian not found' });
+    }
+
+    const row = result.rows[0];
+    res.json({
+      guardianId: row.guardian_id,
+      walletAddress: row.wallet_address,
+      onchainAssetId: row.onchain_asset_id,
+      onchainStatus: row.onchain_status,
+      onchainRegisteredAt: row.onchain_registered_at ? row.onchain_registered_at.toISOString() : null,
+      lastAttempt: row.last_attempt ? row.last_attempt.toISOString() : null
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -730,7 +841,8 @@ app.get('/api/evolution/leaderboard', async (req, res) => {
         ge.level,
         ge.title,
         go.username,
-        go.wallet_address
+        go.wallet_address,
+        go.onchain_asset_id
       FROM guardian_evolution ge
       JOIN guardian g ON ge.guardian_id = g.id
       LEFT JOIN guardian_ownership go ON ge.guardian_id = go.guardian_id
@@ -753,7 +865,8 @@ app.get('/api/evolution/leaderboard', async (req, res) => {
         level: row.level,
         title: row.title,
         username: row.username || 'Unknown',
-        walletAddress: row.wallet_address || 'Not linked'
+        walletAddress: row.wallet_address || 'Not linked',
+        onchainAssetId: row.onchain_asset_id
       })),
       total,
       limit,
@@ -1017,6 +1130,10 @@ async function applyMigrations() {
   const migrationPath3 = path.join(__dirname, 'src', 'db', 'migrations', '003_pr10_metadata_registry_schema.sql');
   const migrationSql3 = fs.readFileSync(migrationPath3, 'utf-8');
   await pool.query(migrationSql3);
+
+  const migrationPath4 = path.join(__dirname, 'src', 'db', 'migrations', '004_pr10_native_minting_schema.sql');
+  const migrationSql4 = fs.readFileSync(migrationPath4, 'utf-8');
+  await pool.query(migrationSql4);
 }
 
 async function seedStagingData() {
@@ -1109,6 +1226,45 @@ async function seedStagingData() {
     await pool.query(
       `UPDATE guardian SET status = 'MINTED' WHERE id = $1 AND status != 'MINTED'`,
       [entry.guardianId]
+    );
+  }
+
+  // Seed on-chain registration data for testing
+  const onchainEntries = [
+    { guardianId: 3, walletAddress: 'staging-demo-wallet-alice', userId: 1, username: 'alice', assetId: 'asset_demo_1', status: 'CONFIRMED' },
+    { guardianId: 4, walletAddress: 'staging-demo-wallet-bob', userId: 2, username: 'bob', assetId: 'asset_demo_2', status: 'CONFIRMED' },
+    { guardianId: 5, walletAddress: 'staging-demo-wallet-charlie', userId: 3, username: 'charlie', assetId: null, status: 'PENDING' }
+  ];
+
+  for (const entry of onchainEntries) {
+    const registeredAt = entry.status === 'CONFIRMED' ? new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() : null;
+    await pool.query(
+      `UPDATE guardian_ownership
+       SET onchain_asset_id = $1, onchain_status = $2, onchain_registered_at = ${entry.status === 'CONFIRMED' ? '$3' : 'NULL'}
+       WHERE guardian_id = $4`,
+      entry.status === 'CONFIRMED'
+        ? [entry.assetId, entry.status, registeredAt, entry.guardianId]
+        : [entry.assetId, entry.status, entry.guardianId]
+    );
+  }
+
+  // Seed on-chain bridge audit log
+  const bridgeEntries = [
+    { guardianId: 3, walletAddress: 'staging-demo-wallet-alice', userId: 1, username: 'alice', assetId: 'asset_demo_1', requestId: 'req_123', event: 'REGISTRATION_CONFIRMED' },
+    { guardianId: 4, walletAddress: 'staging-demo-wallet-bob', userId: 2, username: 'bob', assetId: 'asset_demo_2', requestId: 'req_124', event: 'REGISTRATION_CONFIRMED' },
+    { guardianId: 5, walletAddress: 'staging-demo-wallet-charlie', userId: 3, username: 'charlie', assetId: null, requestId: 'req_125', event: 'REGISTRATION_INITIATED' }
+  ];
+
+  for (const entry of bridgeEntries) {
+    const metadata = entry.event === 'REGISTRATION_CONFIRMED'
+      ? JSON.stringify({ txHash: '0x' + Math.random().toString(16).substring(2), timestamp: new Date().toISOString() })
+      : JSON.stringify({ status: 'pending' });
+
+    await pool.query(
+      `INSERT INTO guardian_onchain_bridge (guardian_id, wallet_address, user_id, username, onchain_asset_id, request_id, event, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT DO NOTHING`,
+      [entry.guardianId, entry.walletAddress, entry.userId, entry.username, entry.assetId, entry.requestId, entry.event, metadata]
     );
   }
 

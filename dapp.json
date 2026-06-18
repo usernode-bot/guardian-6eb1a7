@@ -106,6 +106,16 @@
       "name": "Evolution API endpoint returns guardian record",
       "path": "/api/evolution/guardian/1",
       "expectText": "contribution_score"
+    },
+    {
+      "name": "Onchain status API returns asset status",
+      "path": "/api/guardian/3/onchain-status",
+      "expectText": "onchainStatus"
+    },
+    {
+      "name": "Evolution leaderboard includes onchain asset IDs",
+      "path": "/api/evolution/leaderboard",
+      "expectText": "onchainAssetId"
     }
   ]
 }
