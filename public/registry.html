@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guardian Metadata Registry</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class' }</script>
+  <style>
+    body { background-color: #0a0a0f; }
+  </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen">
+  <script>
+    // usernode-dev-console@1
+    (function () {
+      if (window.__usernodeDevConsole) return;
+      window.__usernodeDevConsole = true;
+      var S = '__usernodeDevConsole';
+      function serialize(v, depth) {
+        depth = depth || 0;
+        try {
+          if (v === undefined) return 'undefined';
+          if (v === null) return 'null';
+          if (typeof v === 'string') return v;
+          if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+          if (typeof v === 'function') return '[Function ' + (v.name || 'anonymous') + ']';
+          if (v instanceof Error) return (v.stack || (v.name + ': ' + v.message));
+          if (depth > 3) return '[…]';
+          var seen = new WeakSet();
+          return JSON.stringify(v, function (k, val) {
+            if (typeof val === 'object' && val !== null) {
+              if (seen.has(val)) return '[Circular]';
+              seen.add(val);
+            }
+            if (typeof val === 'function') return '[Function ' + (val.name || 'anonymous') + ']';
+            if (val instanceof Error) return val.stack || (val.name + ': ' + val.message);
+            return val;
+          });
+        } catch (e) { try { return String(v); } catch (_) { return '[unserializable]'; } }
+      }
+      function post(level, args, meta) {
+        try {
+          var payload = {
+            sentinel: S,
+            level: level,
+            args: Array.prototype.slice.call(args).map(function (a) { return serialize(a); }),
+            ts: Date.now(),
+            url: location.href,
+          };
+          if (meta) for (var k in meta) payload[k] = meta[k];
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage(payload, '*');
+          }
+        } catch (_) {}
+      }
+      ['log','info','warn','error','debug'].forEach(function (level) {
+        var orig = console[level] ? console[level].bind(console) : function () {};
+        console[level] = function () { post(level, arguments); orig.apply(null, arguments); };
+      });
+      window.addEventListener('error', function (e) {
+        var msg = (e.error && (e.error.stack || e.error.message)) || e.message || 'Error';
+        post('error', [msg], { source: e.filename || '', line: e.lineno || 0, col: e.colno || 0, kind: 'error' });
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        var r = e.reason;
+        var msg = (r && (r.stack || r.message)) || String(r);
+        post('error', [msg], { kind: 'unhandledrejection' });
+      });
+    })();
+  </script>
+
+  <div class="min-h-screen bg-zinc-950 p-4 md:p-8">
+    <div class="max-w-6xl mx-auto">
+      <div class="mb-8">
+        <h1 class="text-4xl font-bold mb-2">Guardian Metadata Registry</h1>
+        <p class="text-zinc-400">Browse all registered Guardians and their metadata</p>
+      </div>
+
+      <div class="mb-6 flex flex-col md:flex-row gap-4">
+        <input
+          type="text"
+          id="searchInput"
+          placeholder="Search by username or Guardian name..."
+          class="flex-1 px-4 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-100 placeholder-zinc-500"
+        />
+        <select
+          id="stageFilter"
+          class="px-4 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-100"
+        >
+          <option value="">All Stages</option>
+          <option value="INITIATE">INITIATE</option>
+          <option value="AWAKENED">AWAKENED</option>
+          <option value="ASCENDANT">ASCENDANT</option>
+          <option value="GUARDIAN">GUARDIAN</option>
+          <option value="MYTHIC">MYTHIC</option>
+        </select>
+        <select
+          id="limitSelect"
+          class="px-4 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-100"
+        >
+          <option value="10">10 per page</option>
+          <option value="25">25 per page</option>
+          <option value="50" selected>50 per page</option>
+          <option value="100">100 per page</option>
+        </select>
+      </div>
+
+      <div class="bg-zinc-900 rounded-lg border border-zinc-700 overflow-hidden">
+        <table class="w-full">
+          <thead class="bg-zinc-800 border-b border-zinc-700">
+            <tr>
+              <th class="px-6 py-3 text-left text-sm font-semibold">Rank</th>
+              <th class="px-6 py-3 text-left text-sm font-semibold">Username</th>
+              <th class="px-6 py-3 text-left text-sm font-semibold">Guardian</th>
+              <th class="px-6 py-3 text-left text-sm font-semibold">Tier</th>
+              <th class="px-6 py-3 text-left text-sm font-semibold">Stage</th>
+              <th class="px-6 py-3 text-left text-sm font-semibold">Score</th>
+              <th class="px-6 py-3 text-left text-sm font-semibold">Level</th>
+              <th class="px-6 py-3 text-left text-sm font-semibold">FG Hours</th>
+              <th class="px-6 py-3 text-left text-sm font-semibold">Peers</th>
+              <th class="px-6 py-3 text-left text-sm font-semibold">Uptime</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            <tr><td colspan="10" class="px-6 py-8 text-center text-zinc-400">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-6 flex items-center justify-between">
+        <div class="text-sm text-zinc-400">
+          <span id="entryCount">0</span> entries shown
+        </div>
+        <div class="flex gap-2">
+          <button
+            id="prevBtn"
+            class="px-4 py-2 rounded-lg bg-purple-600 text-white font-semibold hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Previous
+          </button>
+          <button
+            id="nextBtn"
+            class="px-4 py-2 rounded-lg bg-purple-600 text-white font-semibold hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentOffset = 0;
+    let currentLimit = 50;
+    let totalEntries = 0;
+
+    async function fetchRegistry() {
+      const search = document.getElementById('searchInput').value;
+      const stage = document.getElementById('stageFilter').value;
+      const limit = parseInt(document.getElementById('limitSelect').value);
+
+      currentLimit = limit;
+
+      const params = new URLSearchParams({
+        limit,
+        offset: currentOffset,
+        ...(search && { search }),
+        ...(stage && { stage })
+      });
+
+      try {
+        const response = await fetch(`/api/metadata/registry?${params}`);
+        if (!response.ok) throw new Error('Failed to fetch');
+
+        const data = await response.json();
+        renderTable(data.entries);
+        totalEntries = data.total;
+        updatePagination();
+      } catch (err) {
+        console.error(err);
+        document.getElementById('tableBody').innerHTML =
+          `<tr><td colspan="10" class="px-6 py-8 text-center text-red-400">Error loading registry</td></tr>`;
+      }
+    }
+
+    function renderTable(entries) {
+      if (entries.length === 0) {
+        document.getElementById('tableBody').innerHTML =
+          `<tr><td colspan="10" class="px-6 py-8 text-center text-zinc-400">No entries found</td></tr>`;
+        return;
+      }
+
+      const tierColors = {
+        COMMON: 'text-gray-400',
+        RARE: 'text-blue-400',
+        EPIC: 'text-purple-400',
+        LEGENDARY: 'text-yellow-400',
+        MYTHIC: 'text-red-400'
+      };
+
+      const stageColors = {
+        INITIATE: 'bg-gray-700',
+        AWAKENED: 'bg-blue-700',
+        ASCENDANT: 'bg-purple-700',
+        GUARDIAN: 'bg-yellow-700',
+        MYTHIC: 'bg-red-700'
+      };
+
+      document.getElementById('tableBody').innerHTML = entries.map(entry => `
+        <tr class="border-b border-zinc-700 hover:bg-zinc-800 transition-colors">
+          <td class="px-6 py-4 text-sm">#${entry.rank}</td>
+          <td class="px-6 py-4 text-sm font-medium">${entry.username}</td>
+          <td class="px-6 py-4 text-sm">${entry.guardianName}</td>
+          <td class="px-6 py-4 text-sm"><span class="${tierColors[entry.guardianTier] || ''}">${entry.guardianTier}</span></td>
+          <td class="px-6 py-4 text-sm">
+            <span class="px-2 py-1 rounded text-xs font-semibold ${stageColors[entry.stage]} text-white">
+              ${entry.stage}
+            </span>
+          </td>
+          <td class="px-6 py-4 text-sm font-semibold">${entry.contributionScore}</td>
+          <td class="px-6 py-4 text-sm">${entry.level}</td>
+          <td class="px-6 py-4 text-sm">${entry.fgHours}</td>
+          <td class="px-6 py-4 text-sm">${entry.peerCount}</td>
+          <td class="px-6 py-4 text-sm">${entry.uptime}%</td>
+        </tr>
+      `).join('');
+
+      document.getElementById('entryCount').textContent = entries.length;
+    }
+
+    function updatePagination() {
+      const prevBtn = document.getElementById('prevBtn');
+      const nextBtn = document.getElementById('nextBtn');
+
+      prevBtn.disabled = currentOffset === 0;
+      nextBtn.disabled = currentOffset + currentLimit >= totalEntries;
+    }
+
+    document.getElementById('searchInput').addEventListener('input', () => {
+      currentOffset = 0;
+      fetchRegistry();
+    });
+
+    document.getElementById('stageFilter').addEventListener('change', () => {
+      currentOffset = 0;
+      fetchRegistry();
+    });
+
+    document.getElementById('limitSelect').addEventListener('change', () => {
+      currentOffset = 0;
+      fetchRegistry();
+    });
+
+    document.getElementById('prevBtn').addEventListener('click', () => {
+      currentOffset = Math.max(0, currentOffset - currentLimit);
+      fetchRegistry();
+    });
+
+    document.getElementById('nextBtn').addEventListener('click', () => {
+      currentOffset += currentLimit;
+      fetchRegistry();
+    });
+
+    // Load on init
+    fetchRegistry();
+  </script>
+</body>
+</html>
