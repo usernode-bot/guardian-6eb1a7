@@ -116,7 +116,13 @@ class ProfileMenu {
         <div class="text-sm font-semibold text-zinc-100">${this.escapeHtml(this.user.username)}</div>
       </div>
       ${walletSection}
-      <div class="px-4 py-3 border-t border-zinc-700">
+      <div class="px-4 py-3 border-t border-zinc-700 flex flex-col gap-2">
+        <button
+          id="switch-wallet-btn"
+          class="w-full px-3 py-2 text-sm font-medium text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 rounded transition-colors"
+        >
+          Sign in with different wallet
+        </button>
         <button
           id="signout-btn"
           class="w-full px-3 py-2 text-sm font-medium text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 rounded transition-colors"
@@ -125,6 +131,11 @@ class ProfileMenu {
         </button>
       </div>
     `;
+
+    const switchWalletBtn = document.getElementById('switch-wallet-btn');
+    if (switchWalletBtn) {
+      switchWalletBtn.addEventListener('click', () => this.switchWallet());
+    }
 
     const signoutBtn = document.getElementById('signout-btn');
     if (signoutBtn) {
@@ -181,6 +192,21 @@ class ProfileMenu {
 
     profileMenu.classList.add('hidden');
     this.menuOpen = false;
+  }
+
+  switchWallet() {
+    // Close the profile menu
+    this.closeMenu();
+
+    // Show the auth confirmation modal again
+    const modal = document.getElementById('auth-confirmation-modal');
+    if (modal) {
+      modal.classList.remove('hidden');
+      // Trigger modal to re-extract and display wallet address
+      if (window.authConfirmationModal) {
+        window.authConfirmationModal.showModal();
+      }
+    }
   }
 
   signOut() {

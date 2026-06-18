@@ -7,6 +7,7 @@ class AuthConfirmationModal {
     this.cancelBtn = null;
     this.confirmBtn = null;
     this.walletDisplay = null;
+    this.listenersSetUp = false;
   }
 
   init() {
@@ -24,7 +25,10 @@ class AuthConfirmationModal {
 
     if (this.token) {
       this.showModal();
-      this.setupEventListeners();
+      if (!this.listenersSetUp) {
+        this.setupEventListeners();
+        this.listenersSetUp = true;
+      }
     }
   }
 
