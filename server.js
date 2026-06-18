@@ -398,6 +398,104 @@ app.get('/api/supply/stats', async (req, res) => {
   }
 });
 
+app.post('/api/guardian/mint', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const wallet = req.user.usernode_pubkey;
+    if (!wallet) {
+      return res.status(400).json({ error: 'Wallet not linked' });
+    }
+
+    const reservation = await pool.query(
+      `SELECT gr.*, g.name, g.tier FROM guardian_reservation gr
+       JOIN guardian g ON gr.guardian_id = g.id
+       WHERE gr.wallet_address = $1 AND gr.expires_at > NOW()
+       LIMIT 1`,
+      [wallet]
+    );
+
+    if (reservation.rows.length === 0) {
+      return res.status(404).json({ error: 'No active reservation found' });
+    }
+
+    const res_row = reservation.rows[0];
+    const guardianId = res_row.guardian_id;
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      await client.query(
+        `UPDATE guardian SET status = 'MINTED' WHERE id = $1`,
+        [guardianId]
+      );
+
+      const ownershipResult = await client.query(
+        `INSERT INTO guardian_ownership (guardian_id, wallet_address, user_id, username, minted_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (guardian_id) DO UPDATE SET updated_at = NOW() RETURNING *`,
+        [guardianId, wallet, req.user.id, req.user.username]
+      );
+
+      const ownership = ownershipResult.rows[0];
+
+      await client.query(
+        `DELETE FROM guardian_reservation WHERE guardian_id = $1`,
+        [guardianId]
+      );
+
+      await client.query(
+        `INSERT INTO guardian_audit_log (guardian_id, wallet_address, user_id, username, event, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [guardianId, wallet, req.user.id, req.user.username, 'MINTED', JSON.stringify({ guardianName: res_row.name, guardianTier: res_row.tier })]
+      );
+
+      const registryResult = await client.query(
+        `INSERT INTO guardian_metadata_registry (user_id, username, guardian_id, contribution_score, level, stage, fg_hours, peer_count, uptime)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (user_id) DO UPDATE SET guardian_id = $3 RETURNING *`,
+        [req.user.id, req.user.username, guardianId, 0, 1, 'INITIATE', 0, 0, 0.0]
+      );
+
+      const registry = registryResult.rows[0];
+
+      await client.query('COMMIT');
+
+      res.json({
+        success: true,
+        ownership: {
+          guardianId: ownership.guardian_id,
+          walletAddress: ownership.wallet_address,
+          userId: ownership.user_id,
+          username: ownership.username,
+          mintedAt: ownership.minted_at
+        },
+        registry: {
+          userId: registry.user_id,
+          username: registry.username,
+          guardianId: registry.guardian_id,
+          contributionScore: registry.contribution_score,
+          level: registry.level,
+          stage: registry.stage,
+          fgHours: registry.fg_hours,
+          peerCount: registry.peer_count,
+          uptime: registry.uptime
+        }
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/guardian/history', async (req, res) => {
   try {
     if (!req.user) {
@@ -545,6 +643,28 @@ app.post('/api/evolution/update', async (req, res) => {
           `INSERT INTO guardian_evolution_history (guardian_id, old_stage, new_stage, old_level, new_level, score_at_transition)
            VALUES ($1, $2, $3, $4, $5, $6)`,
           [guardianId, oldStage, newStage, oldLevel, newLevel, newScore]
+        );
+      }
+
+      const ownershipCheck = await client.query(
+        `SELECT user_id, username FROM guardian_ownership WHERE guardian_id = $1`,
+        [guardianId]
+      );
+
+      if (ownershipCheck.rows.length > 0) {
+        const owner = ownershipCheck.rows[0];
+        await client.query(
+          `INSERT INTO guardian_metadata_registry (user_id, username, guardian_id, contribution_score, level, stage, fg_hours, peer_count, uptime)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           ON CONFLICT (user_id) DO UPDATE SET
+             contribution_score = $4,
+             level = $5,
+             stage = $6,
+             fg_hours = $7,
+             peer_count = $8,
+             uptime = $9,
+             updated_at = NOW()`,
+          [owner.user_id, owner.username, guardianId, newScore, newLevel, newStage, fgHours, peerCount, uptime]
         );
       }
 
@@ -760,6 +880,7 @@ app.get('/api/metadata/registry', async (req, res) => {
         gmr.guardian_id,
         g.name as guardian_name,
         g.tier as guardian_tier,
+        g.image as guardian_image,
         gmr.contribution_score,
         gmr.level,
         gmr.stage,
@@ -792,6 +913,7 @@ app.get('/api/metadata/registry', async (req, res) => {
         guardianId: row.guardian_id,
         guardianName: row.guardian_name,
         guardianTier: row.guardian_tier,
+        guardianImage: row.guardian_image,
         contributionScore: row.contribution_score,
         level: row.level,
         stage: row.stage,
@@ -819,6 +941,7 @@ app.get('/api/metadata/registry/:username', async (req, res) => {
         gmr.guardian_id,
         g.name as guardian_name,
         g.tier as guardian_tier,
+        g.image as guardian_image,
         gmr.contribution_score,
         gmr.level,
         gmr.stage,
@@ -828,7 +951,7 @@ app.get('/api/metadata/registry/:username', async (req, res) => {
         gmr.updated_at
       FROM guardian_metadata_registry gmr
       JOIN guardian g ON gmr.guardian_id = g.id
-      WHERE gmr.username = $1`,
+      WHERE LOWER(gmr.username) = LOWER($1)`,
       [username]
     );
 
@@ -843,6 +966,7 @@ app.get('/api/metadata/registry/:username', async (req, res) => {
       guardianId: row.guardian_id,
       guardianName: row.guardian_name,
       guardianTier: row.guardian_tier,
+      guardianImage: row.guardian_image,
       contributionScore: row.contribution_score,
       level: row.level,
       stage: row.stage,
@@ -967,7 +1091,28 @@ async function seedStagingData() {
     );
   }
 
-  // Seed metadata registry entries
+  // Seed ownership records (one per demo user)
+  const ownershipEntries = [
+    { guardianId: 3, walletAddress: 'staging-demo-wallet-alice', userId: 1, username: 'alice' },
+    { guardianId: 4, walletAddress: 'staging-demo-wallet-bob', userId: 2, username: 'bob' },
+    { guardianId: 5, walletAddress: 'staging-demo-wallet-charlie', userId: 3, username: 'charlie' }
+  ];
+
+  for (const entry of ownershipEntries) {
+    await pool.query(
+      `INSERT INTO guardian_ownership (guardian_id, wallet_address, user_id, username, minted_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (guardian_id) DO NOTHING`,
+      [entry.guardianId, entry.walletAddress, entry.userId, entry.username]
+    );
+
+    await pool.query(
+      `UPDATE guardian SET status = 'MINTED' WHERE id = $1 AND status != 'MINTED'`,
+      [entry.guardianId]
+    );
+  }
+
+  // Seed metadata registry entries (synced from ownership + evolution)
   const registryEntries = [
     { userId: 1, username: 'alice', guardianId: 3, score: 150, level: 2, stage: 'AWAKENED', fgHours: 100, peerCount: 5, uptime: 95.5 },
     { userId: 2, username: 'bob', guardianId: 4, score: 350, level: 3, stage: 'ASCENDANT', fgHours: 250, peerCount: 12, uptime: 98.0 },
@@ -978,7 +1123,15 @@ async function seedStagingData() {
     await pool.query(
       `INSERT INTO guardian_metadata_registry (user_id, username, guardian_id, contribution_score, level, stage, fg_hours, peer_count, uptime)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       ON CONFLICT (user_id) DO NOTHING`,
+       ON CONFLICT (user_id) DO UPDATE SET
+         guardian_id = $3,
+         contribution_score = $4,
+         level = $5,
+         stage = $6,
+         fg_hours = $7,
+         peer_count = $8,
+         uptime = $9,
+         updated_at = NOW()`,
       [entry.userId, entry.username, entry.guardianId, entry.score, entry.level, entry.stage, entry.fgHours, entry.peerCount, entry.uptime]
     );
   }
