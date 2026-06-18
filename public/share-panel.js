@@ -6,6 +6,7 @@ class SharePanel {
     this.peerId = null;
     this.peerUsername = null;
     this.connectionState = 'idle'; // idle, connecting, connected, error
+    this.walletModal = typeof WalletConfirmationModal !== 'undefined' ? new WalletConfirmationModal() : null;
     this.init();
   }
 
@@ -97,17 +98,25 @@ class SharePanel {
       // Set up ICE candidate handling
       this.peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
-          fetch('/api/signaling/ice-candidate', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-usernode-token': this.getToken()
-            },
-            body: JSON.stringify({
-              to_user_id: this.peerId,
-              candidate: event.candidate
-            })
-          }).catch(err => console.error('Error sending ICE candidate:', err));
+          const sendIceCandidate = async () => {
+            const response = await fetchWithWalletConfirmation(
+              '/api/signaling/ice-candidate',
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-usernode-token': this.getToken()
+                },
+                body: JSON.stringify({
+                  to_user_id: this.peerId,
+                  candidate: event.candidate
+                })
+              },
+              'Send ICE candidate to peer'
+            );
+            if (response.status === 499) return; // Silent cancel
+          };
+          sendIceCandidate().catch(err => console.error('Error sending ICE candidate:', err));
         }
       };
 
@@ -145,17 +154,25 @@ class SharePanel {
       this.peerUsername = peer.username;
 
       // Send offer via signaling server
-      const offerResponse = await fetch('/api/signaling/offer', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-usernode-token': this.getToken()
+      const offerResponse = await fetchWithWalletConfirmation(
+        '/api/signaling/offer',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-usernode-token': this.getToken()
+          },
+          body: JSON.stringify({
+            to_user_id: this.peerId,
+            offer: offer
+          })
         },
-        body: JSON.stringify({
-          to_user_id: this.peerId,
-          offer: offer
-        })
-      });
+        'Send peer connection offer'
+      );
+
+      if (offerResponse.status === 499) {
+        throw new Error('User cancelled peer connection');
+      }
 
       if (!offerResponse.ok) {
         throw new Error('Failed to send offer to peer');
@@ -181,17 +198,25 @@ class SharePanel {
 
         this.peerConnection.onicecandidate = (event) => {
           if (event.candidate) {
-            fetch('/api/signaling/ice-candidate', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-usernode-token': this.getToken()
-              },
-              body: JSON.stringify({
-                to_user_id: this.peerId,
-                candidate: event.candidate
-              })
-            }).catch(err => console.error('Error sending ICE candidate:', err));
+            const sendIceCandidate = async () => {
+              const response = await fetchWithWalletConfirmation(
+                '/api/signaling/ice-candidate',
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'x-usernode-token': this.getToken()
+                  },
+                  body: JSON.stringify({
+                    to_user_id: this.peerId,
+                    candidate: event.candidate
+                  })
+                },
+                'Send ICE candidate to peer'
+              );
+              if (response.status === 499) return; // Silent cancel
+            };
+            sendIceCandidate().catch(err => console.error('Error sending ICE candidate:', err));
           }
         };
 
@@ -214,17 +239,25 @@ class SharePanel {
       await this.peerConnection.setLocalDescription(answer);
 
       // Send answer via signaling server
-      await fetch('/api/signaling/answer', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-usernode-token': this.getToken()
+      const answerResponse = await fetchWithWalletConfirmation(
+        '/api/signaling/answer',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-usernode-token': this.getToken()
+          },
+          body: JSON.stringify({
+            to_user_id: this.peerId,
+            answer: answer
+          })
         },
-        body: JSON.stringify({
-          to_user_id: this.peerId,
-          answer: answer
-        })
-      });
+        'Send peer connection answer'
+      );
+
+      if (answerResponse.status === 499) {
+        throw new Error('User cancelled peer connection answer');
+      }
 
       this.setConnectionState('connecting');
       this.updateStatusDisplay();
