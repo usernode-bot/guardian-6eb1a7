@@ -23,7 +23,7 @@ const STAGE_CONFIG = [
 ];
 
 /**
- * Determine the Guardian's stage based on total FG hours.
+ * Determine the Guardian's stage based on total Foreground hours.
  * @param {number} totalFGHours
  * @returns {"EGG" | "BABY" | "GUARDIAN" | "EVOLVED"}
  */
