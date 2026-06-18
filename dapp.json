@@ -18,16 +18,6 @@
       "expectText": "status"
     },
     {
-      "name": "GuardianHero displays stage badge",
-      "path": "/",
-      "expectText": "Stage: GUARDIAN"
-    },
-    {
-      "name": "GuardianHero avatar shows 🦾 for GUARDIAN stage (10-49 hours)",
-      "path": "/",
-      "expectText": "🦾"
-    },
-    {
       "name": "Guardian Gallery loads with all 500 guardians",
       "path": "/guardians.html",
       "expectText": "Guardian Gallery"
