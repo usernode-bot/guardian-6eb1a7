@@ -76,6 +76,16 @@
       "name": "Guardian Gallery shows allocation stats",
       "path": "/guardians.html",
       "expectText": "Available"
+    },
+    {
+      "name": "Supply stats API returns guardian counts",
+      "path": "/api/supply/stats",
+      "expectText": "total"
+    },
+    {
+      "name": "Guardian history API returns audit log",
+      "path": "/api/guardian/history",
+      "expectText": "events"
     }
   ]
 }
