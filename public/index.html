@@ -69,7 +69,6 @@
   <script src="guardian-lifecycle.js"></script>
   <script src="guardian-hero.js"></script>
   <script src="node-status-card.js"></script>
-  <script src="fg-progress-card.js"></script>
   <script src="evolution-progress-card.js"></script>
   <script src="signaling-client.js"></script>
   <script src="share-panel.js"></script>
@@ -117,7 +116,6 @@
         <div id="guardian-hero-container"></div>
         <div id="evolution-progress-container"></div>
         <div id="node-status-container"></div>
-        <div id="fg-progress-container"></div>
       </section>
 
       <!-- Guardian Screen -->
@@ -279,22 +277,6 @@
       if (nodeStatusContainer) {
         const cardElement = createNodeStatusCard(mockNodeStatus);
         nodeStatusContainer.appendChild(cardElement);
-      }
-
-      // Mock FGProgress data
-      // Check if demo=eligible param is set to show eligible state
-      const demoEligible = params.get('demo') === 'eligible';
-      /** @type {FGProgress} */
-      const mockFGProgress = {
-        currentMinutes: demoEligible ? 60 : 42,
-        requiredMinutes: 60
-      };
-
-      // Mount FGProgressCard component to Home screen
-      const fgProgressContainer = document.getElementById('fg-progress-container');
-      if (fgProgressContainer) {
-        const fgCardElement = createFGProgressCard(mockFGProgress);
-        fgProgressContainer.appendChild(fgCardElement);
       }
 
       switchTab('home');
