@@ -68,6 +68,7 @@
   <script>tailwind.config = { darkMode: 'class' }</script>
   <script src="guardian-hero.js"></script>
   <script src="node-status-card.js"></script>
+  <script src="fg-progress-card.js"></script>
   <style>
     body {
       background-color: #0a0a0f;
@@ -111,6 +112,7 @@
       <section id="screen-home">
         <div id="guardian-hero-container"></div>
         <div id="node-status-container"></div>
+        <div id="fg-progress-container"></div>
       </section>
 
       <!-- Guardian Screen -->
@@ -246,6 +248,20 @@
       if (nodeStatusContainer) {
         const cardElement = createNodeStatusCard(mockNodeStatus);
         nodeStatusContainer.appendChild(cardElement);
+      }
+
+      // Mock FGProgress data
+      /** @type {FGProgress} */
+      const mockFGProgress = {
+        currentMinutes: 42,
+        requiredMinutes: 60
+      };
+
+      // Mount FGProgressCard component to Home screen
+      const fgProgressContainer = document.getElementById('fg-progress-container');
+      if (fgProgressContainer) {
+        const fgCardElement = createFGProgressCard(mockFGProgress);
+        fgProgressContainer.appendChild(fgCardElement);
       }
 
       switchTab('home');
