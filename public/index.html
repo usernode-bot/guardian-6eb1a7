@@ -71,6 +71,9 @@
   <script src="node-status-card.js"></script>
   <script src="fg-progress-card.js"></script>
   <script src="evolution-progress-card.js"></script>
+  <script src="signaling-client.js"></script>
+  <script src="online-panel.js"></script>
+  <script src="share-panel.js"></script>
   <style>
     body {
       background-color: #0a0a0f;
@@ -135,6 +138,16 @@
         <p class="text-zinc-400">Placeholder for network screen</p>
       </section>
 
+      <!-- Online Screen -->
+      <section id="screen-online" class="hidden">
+        <div id="online-panel-container"></div>
+      </section>
+
+      <!-- Share Screen -->
+      <section id="screen-share" class="hidden">
+        <div id="share-panel-container"></div>
+      </section>
+
       <!-- Evolution Screen -->
       <section id="screen-evolution" class="hidden">
         <iframe id="evolution-frame" class="w-full h-screen border-0"></iframe>
@@ -178,6 +191,16 @@
         </svg>
       </div>
       <div class="nav-label">Network</div>
+    </div>
+
+    <div class="nav-item" data-tab="online">
+      <div class="nav-icon">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+        </svg>
+        <span class="text-xs absolute -top-1 -right-1 bg-green-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]" id="online-badge">0</span>
+      </div>
+      <div class="nav-label">Online</div>
     </div>
 
     <div class="nav-item" data-tab="evolution">
@@ -256,6 +279,44 @@
       localStorage.setItem('usernode-token', token);
     }
 
+    // Initialize WebSocket signaling client and panels
+    async function initializeP2P() {
+      if (!token) return;
+
+      try {
+        await window.signalingClient.connect(
+          token,
+          1, // guardianId - will be enhanced later
+          'Guardian', // guardianName
+          'RARE' // guardianTier
+        );
+
+        // Initialize panels once connected
+        const onlinePanel = new OnlinePanel('online-panel-container');
+        const sharePanel = new SharePanel('share-panel-container');
+
+        // Update badge count
+        window.signalingClient.on('online', () => {
+          updateOnlineBadge();
+        });
+
+        window.signalingClient.on('offline', () => {
+          updateOnlineBadge();
+        });
+
+        updateOnlineBadge();
+      } catch (err) {
+        console.error('P2P initialization error:', err);
+      }
+    }
+
+    function updateOnlineBadge() {
+      const badge = document.getElementById('online-badge');
+      if (badge && window.signalingClient.users) {
+        badge.textContent = window.signalingClient.users.length;
+      }
+    }
+
     // Initialize on load
     document.addEventListener('DOMContentLoaded', () => {
       // Mock Guardian data
@@ -313,6 +374,7 @@
       }
 
       switchTab('home');
+      initializeP2P();
     });
   </script>
 </body>
