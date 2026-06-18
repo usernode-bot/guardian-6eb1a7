@@ -19,14 +19,14 @@
  * @property {string} id
  * @property {string} name
  * @property {GuardianTier} tier
- * @property {number} fgHours - FG runtime in hours
+ * @property {number} fgHours - Foreground runtime in hours
  * @property {number} peerCount - Number of peers
  * @property {number} createdAt - Timestamp when allocated
  */
 
 /**
  * @typedef {Object} UserNodeContext
- * @property {number} fgHours - Full Graph runtime in hours
+ * @property {number} fgHours - Foreground runtime in hours
  * @property {number} peerCount - Number of connected peers
  */
 

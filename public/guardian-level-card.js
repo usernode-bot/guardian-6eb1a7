@@ -60,7 +60,7 @@ function createGuardianLevelCard(evolution) {
     return item;
   };
 
-  breakdown.appendChild(createBreakdownItem('FG Hours', fgHours));
+  breakdown.appendChild(createBreakdownItem('Foreground Hours', fgHours));
   breakdown.appendChild(createBreakdownItem('Peers', peerCount));
   breakdown.appendChild(createBreakdownItem('Uptime', uptime));
 
