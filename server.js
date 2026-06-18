@@ -269,32 +269,57 @@ app.get('/api/node', async (req, res) => {
 });
 
 app.get('/api/wallet', async (req, res) => {
+  const logPrefix = '[wallet-api]';
   try {
+    console.log(`${logPrefix} Processing wallet balance request`);
+
+    // Step 1: Extract usernode_pubkey from JWT token
     const usernodeAddress = req.user ? (req.user.usernode_pubkey || null) : null;
+    console.log(`${logPrefix} Step 1 - Extract usernode_pubkey: ${usernodeAddress ? 'success' : 'no address'}`);
+
+    if (usernodeAddress) {
+      console.log(`${logPrefix}   Usernode address: ${usernodeAddress.substring(0, 8)}...${usernodeAddress.substring(usernodeAddress.length - 6)}`);
+    }
 
     if (!usernodeAddress) {
+      console.log(`${logPrefix} No usernode address found, returning null balance`);
       return res.json({
         address: null,
         balance: null
       });
     }
 
+    // Step 2: Convert Usernode address to Ethereum format
+    console.log(`${logPrefix} Step 2 - Convert address to Ethereum format`);
     const ethAddress = convertUsernodeToEthereumAddress(usernodeAddress);
+
     if (!ethAddress) {
-      console.error('Failed to convert Usernode address to Ethereum format:', usernodeAddress);
+      console.error(`${logPrefix}   ERROR: Address conversion failed for ${usernodeAddress}`);
       return res.json({
         address: usernodeAddress,
         balance: null
       });
     }
 
+    console.log(`${logPrefix}   Converted to Ethereum address: ${ethAddress}`);
+
+    // Step 3: Check if TESTNET_RPC_URL is configured
+    console.log(`${logPrefix} Step 3 - Check TESTNET_RPC_URL environment variable`);
     const rpcUrl = process.env.TESTNET_RPC_URL;
+
     if (!rpcUrl) {
+      console.log(`${logPrefix}   WARNING: TESTNET_RPC_URL not configured, cannot fetch balance`);
       return res.json({
         address: usernodeAddress,
         balance: null
       });
     }
+
+    console.log(`${logPrefix}   RPC URL configured: ${rpcUrl.substring(0, 30)}...`);
+
+    // Step 4: Make JSON-RPC call to fetch balance
+    console.log(`${logPrefix} Step 4 - Fetching balance from RPC endpoint`);
+    console.log(`${logPrefix}   Calling eth_getBalance for address: ${ethAddress}`);
 
     try {
       const rpcResponse = await fetch(rpcUrl, {
@@ -308,18 +333,37 @@ app.get('/api/wallet', async (req, res) => {
         })
       });
 
+      console.log(`${logPrefix}   RPC HTTP response: ${rpcResponse.status} ${rpcResponse.statusText}`);
+
       if (!rpcResponse.ok) {
-        console.error(`RPC error: HTTP ${rpcResponse.status}`);
+        console.error(`${logPrefix}   ERROR: RPC endpoint returned HTTP ${rpcResponse.status}`);
+        const responseText = await rpcResponse.text();
+        console.error(`${logPrefix}   Response body: ${responseText.substring(0, 200)}`);
         return res.json({
           address: usernodeAddress,
           balance: null
         });
       }
 
-      const rpcData = await rpcResponse.json();
+      // Step 5: Parse balance from RPC response
+      console.log(`${logPrefix} Step 5 - Parsing balance from RPC response`);
+      let rpcData;
+
+      try {
+        rpcData = await rpcResponse.json();
+        console.log(`${logPrefix}   Successfully parsed RPC response`);
+      } catch (parseErr) {
+        console.error(`${logPrefix}   ERROR: Failed to parse RPC response as JSON: ${parseErr.message}`);
+        return res.json({
+          address: usernodeAddress,
+          balance: null
+        });
+      }
 
       if (rpcData.error) {
-        console.error(`RPC error: ${rpcData.error.message}`);
+        console.error(`${logPrefix}   ERROR: RPC returned error response`);
+        console.error(`${logPrefix}   RPC error code: ${rpcData.error.code || 'unknown'}`);
+        console.error(`${logPrefix}   RPC error message: ${rpcData.error.message}`);
         return res.json({
           address: usernodeAddress,
           balance: null
@@ -327,29 +371,52 @@ app.get('/api/wallet', async (req, res) => {
       }
 
       if (!rpcData.result) {
-        console.error('RPC returned no balance result');
+        console.error(`${logPrefix}   ERROR: RPC response missing 'result' field`);
+        console.log(`${logPrefix}   RPC response keys: ${Object.keys(rpcData).join(', ')}`);
         return res.json({
           address: usernodeAddress,
           balance: null
         });
       }
 
-      const balanceWei = BigInt(rpcData.result);
-      const balanceEth = Number(balanceWei) / 1e18;
-      const formattedBalance = balanceEth.toFixed(4).replace(/\.?0+$/, '') || '0';
+      console.log(`${logPrefix}   Balance result from RPC: ${rpcData.result}`);
 
+      // Convert balance from wei to ETH
+      let balanceWei, balanceEth, formattedBalance;
+
+      try {
+        balanceWei = BigInt(rpcData.result);
+        console.log(`${logPrefix}   Parsed balance in wei: ${balanceWei.toString()}`);
+
+        balanceEth = Number(balanceWei) / 1e18;
+        console.log(`${logPrefix}   Converted to ETH: ${balanceEth}`);
+
+        formattedBalance = balanceEth.toFixed(4).replace(/\.?0+$/, '') || '0';
+        console.log(`${logPrefix}   Formatted balance: ${formattedBalance} ETH`);
+      } catch (conversionErr) {
+        console.error(`${logPrefix}   ERROR: Failed to convert balance from wei to ETH: ${conversionErr.message}`);
+        return res.json({
+          address: usernodeAddress,
+          balance: null
+        });
+      }
+
+      console.log(`${logPrefix} SUCCESS: Returning balance ${formattedBalance} ETH`);
       res.json({
         address: usernodeAddress,
         balance: `${formattedBalance} ETH`
       });
-    } catch (err) {
-      console.error('Error fetching balance from RPC:', err.message);
+    } catch (rpcErr) {
+      console.error(`${logPrefix} Step 4 ERROR: Network or RPC call error: ${rpcErr.message}`);
+      console.error(`${logPrefix}   Error stack: ${rpcErr.stack}`);
       res.json({
         address: usernodeAddress,
         balance: null
       });
     }
   } catch (err) {
+    console.error(`${logPrefix} CRITICAL ERROR in wallet endpoint: ${err.message}`);
+    console.error(`${logPrefix}   Error stack: ${err.stack}`);
     res.status(500).json({ error: err.message });
   }
 });
