@@ -66,6 +66,7 @@
   <title>Guardian</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
+  <script src="guardian-hero.js"></script>
   <style>
     body {
       background-color: #0a0a0f;
@@ -106,9 +107,8 @@
   <div class="flex-1 flex items-center justify-center">
     <div class="w-full max-w-md mx-auto px-4">
       <!-- Home Screen -->
-      <section id="screen-home" class="text-center">
-        <h1 class="text-4xl font-bold mb-4">Home</h1>
-        <p class="text-zinc-400">Placeholder for home screen</p>
+      <section id="screen-home">
+        <div id="guardian-hero-container"></div>
       </section>
 
       <!-- Guardian Screen -->
@@ -216,6 +216,21 @@
 
     // Initialize on load
     document.addEventListener('DOMContentLoaded', () => {
+      // Mock Guardian data
+      /** @type {Guardian} */
+      const mockGuardian = {
+        id: '001',
+        name: 'Guardian #001',
+        status: 'ONLINE'
+      };
+
+      // Mount GuardianHero component to Home screen
+      const container = document.getElementById('guardian-hero-container');
+      if (container) {
+        const heroElement = createGuardianHero(mockGuardian);
+        container.appendChild(heroElement);
+      }
+
       switchTab('home');
     });
   </script>
