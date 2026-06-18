@@ -86,6 +86,26 @@
       "name": "Guardian history API returns audit log",
       "path": "/api/guardian/history",
       "expectText": "events"
+    },
+    {
+      "name": "Evolution page loads with guardian data",
+      "path": "/evolution.html",
+      "expectText": "Guardian Evolution"
+    },
+    {
+      "name": "Evolution page displays level card",
+      "path": "/evolution.html",
+      "expectText": "Level"
+    },
+    {
+      "name": "Evolution leaderboard API returns top contributors",
+      "path": "/api/evolution/leaderboard",
+      "expectText": "entries"
+    },
+    {
+      "name": "Evolution API endpoint returns guardian record",
+      "path": "/api/evolution/guardian/1",
+      "expectText": "contribution_score"
     }
   ]
 }
