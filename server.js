@@ -18,7 +18,7 @@ const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 // Paths that stay open without authentication. Add a path here (and add it
 // with `app.get`/`app.post` below) if you deliberately want it public.
 // Everything else requires a valid platform-issued JWT.
-const PUBLIC_API_PATHS = new Set(['/health', '/api/node', '/api/fg', '/api/eligibility', '/favicon.ico', '/api/guardians']);
+const PUBLIC_API_PATHS = new Set(['/health', '/api/node', '/api/fg', '/api/eligibility', '/api/user/guardian', '/favicon.ico', '/api/guardians']);
 
 app.use(express.json());
 
@@ -45,6 +45,32 @@ app.use((req, res, next) => {
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 // Guardian API routes
+// User's Guardian (home screen display)
+app.get('/api/user/guardian', async (req, res) => {
+  try {
+    const userId = req.user?.id || '-1';
+    const guardians = guardianService.getAllGuardians();
+    const fgData = await fgService.getFGData(userId);
+
+    // Return first unallocated guardian with status and FG hours for home screen
+    const guardian = guardians.find(g => !g.allocated) || guardians[0];
+
+    res.json({
+      id: guardian.id,
+      name: guardian.name,
+      title: guardian.title,
+      tier: guardian.tier,
+      lore: guardian.lore,
+      image: guardian.image,
+      allocated: guardian.allocated,
+      status: 'ONLINE',
+      totalFGHours: fgData.fgHours
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/guardian', async (req, res) => {
   try {
     res.json({

@@ -230,97 +230,114 @@
 
     // Initialize on load
     document.addEventListener('DOMContentLoaded', async () => {
+      // Create fallback objects
+      const fallbackGuardian = {
+        id: '001',
+        name: 'Guardian #001',
+        title: 'Guardian of the Forge',
+        tier: 'COMMON',
+        lore: 'A steadfast protector of the network nodes.',
+        image: '⚔️',
+        allocated: false,
+        status: 'ONLINE',
+        totalFGHours: 12
+      };
+
+      const fallbackFG = {
+        fgHours: 12,
+        sessions: [],
+        duration: 43200
+      };
+
+      const fallbackNodeStatus = {
+        peers: 23,
+        uptime: '2h 14m',
+        fgActive: true
+      };
+
+      const fallbackEligibility = {
+        eligible: true,
+        reasons: []
+      };
+
+      // Initialize with fallbacks
+      let guardian = fallbackGuardian;
+      let fg = fallbackFG;
+      let nodeStatus = fallbackNodeStatus;
+      let eligibility = fallbackEligibility;
+
       try {
         // Fetch real data from backend
-        const guardianRes = await fetch('/api/guardian?token=' + token);
+        const guardianRes = await fetch('/api/user/guardian?token=' + token);
+        if (guardianRes.ok) {
+          const data = await guardianRes.json();
+          if (data && data.name) {
+            guardian = data;
+          }
+        }
+
         const fgRes = await fetch('/api/fg?token=' + token, {
           headers: { 'x-usernode-token': token }
         });
+        if (fgRes.ok) {
+          const data = await fgRes.json();
+          if (data && data.fgHours !== undefined) {
+            fg = data;
+          }
+        }
+
         const eligibilityRes = await fetch('/api/eligibility?token=' + token, {
           headers: { 'x-usernode-token': token }
         });
+        if (eligibilityRes.ok) {
+          const data = await eligibilityRes.json();
+          if (data && data.eligible !== undefined) {
+            eligibility = data;
+          }
+        }
+
         const nodeRes = await fetch('/api/node?token=' + token);
-
-        // Parse responses with fallbacks
-        const guardian = guardianRes.ok ? await guardianRes.json() : {
-          id: '001',
-          name: 'Guardian #001',
-          status: 'ONLINE',
-          totalFGHours: 12
-        };
-
-        const fg = fgRes.ok ? await fgRes.json() : { fgHours: 12, sessions: [], duration: 43200 };
-        const eligibility = eligibilityRes.ok ? await eligibilityRes.json() : { eligible: true, reasons: [] };
-        const nodeStatus = nodeRes.ok ? await nodeRes.json() : { peers: 23, uptime: '2h 14m', fgActive: true };
-
-        // Mount GuardianHero component to Home screen
-        const container = document.getElementById('guardian-hero-container');
-        if (container) {
-          const heroElement = createGuardianHero(guardian);
-          container.appendChild(heroElement);
+        if (nodeRes.ok) {
+          const data = await nodeRes.json();
+          if (data && data.peers !== undefined) {
+            nodeStatus = data;
+          }
         }
-
-        // Mount EvolutionProgressCard component to Home screen
-        const evolutionContainer = document.getElementById('evolution-progress-container');
-        if (evolutionContainer) {
-          const evolutionElement = createEvolutionProgressCard(guardian.totalFGHours);
-          evolutionContainer.appendChild(evolutionElement);
-        }
-
-        // Mount NodeStatusCard component to Home screen
-        const nodeStatusContainer = document.getElementById('node-status-container');
-        if (nodeStatusContainer) {
-          const cardElement = createNodeStatusCard(nodeStatus);
-          nodeStatusContainer.appendChild(cardElement);
-        }
-
-        // Mount FGProgressCard component to Home screen
-        const fgProgressContainer = document.getElementById('fg-progress-container');
-        if (fgProgressContainer) {
-          const fgCardElement = createFGProgressCard({
-            currentMinutes: fg.fgHours * 60,
-            requiredMinutes: 60
-          });
-          fgProgressContainer.appendChild(fgCardElement);
-        }
-
       } catch (err) {
         console.error('Error loading data:', err);
-        // Render with mock data on error
-        const guardian = {
-          id: '001',
-          name: 'Guardian #001',
-          status: 'ONLINE',
-          totalFGHours: 12
-        };
-        const nodeStatus = {
-          peers: 23,
-          uptime: '2h 14m',
-          fgActive: true
-        };
+        // Use fallback values
+      }
 
-        const container = document.getElementById('guardian-hero-container');
-        if (container) {
-          container.appendChild(createGuardianHero(guardian));
-        }
+      // Always render components with valid data
+      // Mount GuardianHero component to Home screen
+      const container = document.getElementById('guardian-hero-container');
+      if (container) {
+        const heroElement = createGuardianHero(guardian);
+        container.appendChild(heroElement);
+      }
 
-        const evolutionContainer = document.getElementById('evolution-progress-container');
-        if (evolutionContainer) {
-          evolutionContainer.appendChild(createEvolutionProgressCard(guardian.totalFGHours));
-        }
+      // Mount EvolutionProgressCard component to Home screen
+      const evolutionContainer = document.getElementById('evolution-progress-container');
+      if (evolutionContainer) {
+        const evolutionElement = createEvolutionProgressCard(guardian.totalFGHours);
+        evolutionContainer.appendChild(evolutionElement);
+      }
 
-        const nodeStatusContainer = document.getElementById('node-status-container');
-        if (nodeStatusContainer) {
-          nodeStatusContainer.appendChild(createNodeStatusCard(nodeStatus));
-        }
+      // Mount NodeStatusCard component to Home screen
+      const nodeStatusContainer = document.getElementById('node-status-container');
+      if (nodeStatusContainer) {
+        const cardElement = createNodeStatusCard(nodeStatus);
+        nodeStatusContainer.appendChild(cardElement);
+      }
 
-        const fgProgressContainer = document.getElementById('fg-progress-container');
-        if (fgProgressContainer) {
-          fgProgressContainer.appendChild(createFGProgressCard({
-            currentMinutes: 42,
-            requiredMinutes: 60
-          }));
-        }
+      // Mount FGProgressCard component to Home screen
+      const fgProgressContainer = document.getElementById('fg-progress-container');
+      if (fgProgressContainer) {
+        const fgCardElement = createFGProgressCard({
+          currentMinutes: fg.fgHours * 60,
+          requiredMinutes: 60
+        });
+        fgProgressContainer.appendChild(fgCardElement);
       }
 
       switchTab('home');
