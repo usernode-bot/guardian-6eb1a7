@@ -136,11 +136,6 @@
         <div id="share-panel-container"></div>
       </section>
 
-      <!-- Evolution Screen -->
-      <section id="screen-evolution" class="hidden">
-        <iframe id="evolution-frame" class="w-full h-screen border-0"></iframe>
-      </section>
-
       <!-- Settings Screen -->
       <section id="screen-settings" class="text-center hidden">
         <h1 class="text-4xl font-bold mb-4">Settings</h1>
@@ -223,17 +218,6 @@
       const screen = document.getElementById(screenId);
       if (screen) {
         screen.classList.remove('hidden');
-      }
-
-      // Handle evolution frame
-      if (tabId === 'evolution') {
-        const frame = document.getElementById('evolution-frame');
-        if (!frame.src) {
-          frame.src = '/evolution.html' + (token ? '?token=' + encodeURIComponent(token) : '');
-          frame.addEventListener('load', () => {
-            localStorage.setItem('usernode-token', token);
-          });
-        }
       }
 
       // Add active class to selected nav item
