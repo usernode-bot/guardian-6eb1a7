@@ -71,6 +71,8 @@
   <script src="node-status-card.js"></script>
   <script src="fg-progress-card.js"></script>
   <script src="evolution-progress-card.js"></script>
+  <script src="eligibility-check.js"></script>
+  <script src="fg-tracking-card.js"></script>
   <style>
     body {
       background-color: #0a0a0f;
@@ -227,59 +229,98 @@
     }
 
     // Initialize on load
-    document.addEventListener('DOMContentLoaded', () => {
-      // Mock Guardian data
-      /** @type {Guardian} */
-      const mockGuardian = {
-        id: '001',
-        name: 'Guardian #001',
-        status: 'ONLINE',
-        totalFGHours: 12
-      };
+    document.addEventListener('DOMContentLoaded', async () => {
+      try {
+        // Fetch real data from backend
+        const guardianRes = await fetch('/api/guardian?token=' + token);
+        const fgRes = await fetch('/api/fg?token=' + token, {
+          headers: { 'x-usernode-token': token }
+        });
+        const eligibilityRes = await fetch('/api/eligibility?token=' + token, {
+          headers: { 'x-usernode-token': token }
+        });
+        const nodeRes = await fetch('/api/node?token=' + token);
 
-      // Mount GuardianHero component to Home screen
-      const container = document.getElementById('guardian-hero-container');
-      if (container) {
-        const heroElement = createGuardianHero(mockGuardian);
-        container.appendChild(heroElement);
-      }
+        // Parse responses with fallbacks
+        const guardian = guardianRes.ok ? await guardianRes.json() : {
+          id: '001',
+          name: 'Guardian #001',
+          status: 'ONLINE',
+          totalFGHours: 12
+        };
 
-      // Mount EvolutionProgressCard component to Home screen
-      const evolutionContainer = document.getElementById('evolution-progress-container');
-      if (evolutionContainer) {
-        const evolutionElement = createEvolutionProgressCard(mockGuardian.totalFGHours);
-        evolutionContainer.appendChild(evolutionElement);
-      }
+        const fg = fgRes.ok ? await fgRes.json() : { fgHours: 12, sessions: [], duration: 43200 };
+        const eligibility = eligibilityRes.ok ? await eligibilityRes.json() : { eligible: true, reasons: [] };
+        const nodeStatus = nodeRes.ok ? await nodeRes.json() : { peers: 23, uptime: '2h 14m', fgActive: true };
 
-      // Mock NodeStatus data
-      /** @type {NodeStatus} */
-      const mockNodeStatus = {
-        peers: 23,
-        uptime: '2h 14m',
-        fgActive: true
-      };
+        // Mount GuardianHero component to Home screen
+        const container = document.getElementById('guardian-hero-container');
+        if (container) {
+          const heroElement = createGuardianHero(guardian);
+          container.appendChild(heroElement);
+        }
 
-      // Mount NodeStatusCard component to Home screen
-      const nodeStatusContainer = document.getElementById('node-status-container');
-      if (nodeStatusContainer) {
-        const cardElement = createNodeStatusCard(mockNodeStatus);
-        nodeStatusContainer.appendChild(cardElement);
-      }
+        // Mount EvolutionProgressCard component to Home screen
+        const evolutionContainer = document.getElementById('evolution-progress-container');
+        if (evolutionContainer) {
+          const evolutionElement = createEvolutionProgressCard(guardian.totalFGHours);
+          evolutionContainer.appendChild(evolutionElement);
+        }
 
-      // Mock FGProgress data
-      // Check if demo=eligible param is set to show eligible state
-      const demoEligible = params.get('demo') === 'eligible';
-      /** @type {FGProgress} */
-      const mockFGProgress = {
-        currentMinutes: demoEligible ? 60 : 42,
-        requiredMinutes: 60
-      };
+        // Mount NodeStatusCard component to Home screen
+        const nodeStatusContainer = document.getElementById('node-status-container');
+        if (nodeStatusContainer) {
+          const cardElement = createNodeStatusCard(nodeStatus);
+          nodeStatusContainer.appendChild(cardElement);
+        }
 
-      // Mount FGProgressCard component to Home screen
-      const fgProgressContainer = document.getElementById('fg-progress-container');
-      if (fgProgressContainer) {
-        const fgCardElement = createFGProgressCard(mockFGProgress);
-        fgProgressContainer.appendChild(fgCardElement);
+        // Mount FGProgressCard component to Home screen
+        const fgProgressContainer = document.getElementById('fg-progress-container');
+        if (fgProgressContainer) {
+          const fgCardElement = createFGProgressCard({
+            currentMinutes: fg.fgHours * 60,
+            requiredMinutes: 60
+          });
+          fgProgressContainer.appendChild(fgCardElement);
+        }
+
+      } catch (err) {
+        console.error('Error loading data:', err);
+        // Render with mock data on error
+        const guardian = {
+          id: '001',
+          name: 'Guardian #001',
+          status: 'ONLINE',
+          totalFGHours: 12
+        };
+        const nodeStatus = {
+          peers: 23,
+          uptime: '2h 14m',
+          fgActive: true
+        };
+
+        const container = document.getElementById('guardian-hero-container');
+        if (container) {
+          container.appendChild(createGuardianHero(guardian));
+        }
+
+        const evolutionContainer = document.getElementById('evolution-progress-container');
+        if (evolutionContainer) {
+          evolutionContainer.appendChild(createEvolutionProgressCard(guardian.totalFGHours));
+        }
+
+        const nodeStatusContainer = document.getElementById('node-status-container');
+        if (nodeStatusContainer) {
+          nodeStatusContainer.appendChild(createNodeStatusCard(nodeStatus));
+        }
+
+        const fgProgressContainer = document.getElementById('fg-progress-container');
+        if (fgProgressContainer) {
+          fgProgressContainer.appendChild(createFGProgressCard({
+            currentMinutes: 42,
+            requiredMinutes: 60
+          }));
+        }
       }
 
       switchTab('home');

@@ -1,4 +1,4 @@
-export const GUARDIAN_NAMES: string[] = [
+const GUARDIAN_NAMES = [
   'Aegis',
   'Nyra',
   'Orion',
@@ -52,7 +52,7 @@ export const GUARDIAN_NAMES: string[] = [
   'Yara',
 ];
 
-export function getGuardianName(index: number): string {
+function getGuardianName(index) {
   const baseNames = GUARDIAN_NAMES;
   const cycleIndex = index % baseNames.length;
   const cycle = Math.floor(index / baseNames.length);
@@ -63,3 +63,8 @@ export function getGuardianName(index: number): string {
 
   return `${baseNames[cycleIndex]} ${cycle}`;
 }
+
+module.exports = {
+  GUARDIAN_NAMES,
+  getGuardianName
+};

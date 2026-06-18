@@ -157,9 +157,9 @@
       }
 
       for (const guardian of filteredGuardians) {
-        const card = createGuardianCard(guardian, guardian.allocated, () => {
+        const card = createGuardianCard(guardian, guardian.allocated, !guardian.allocated ? () => {
           showGuardianDetail(guardian);
-        });
+        } : null);
         gridContainer.appendChild(card);
       }
     }
@@ -192,12 +192,6 @@
           <p class="text-sm text-zinc-300 text-center italic">${guardian.lore}</p>
           <div class="flex gap-2 pt-4">
             <button
-              class="flex-1 px-4 py-2 rounded-lg bg-purple-600 text-white font-semibold hover:bg-purple-700 transition-colors"
-              onclick="mintGuardian('${guardian.id}')"
-            >
-              Select Guardian
-            </button>
-            <button
               class="flex-1 px-4 py-2 rounded-lg bg-zinc-800 text-zinc-100 font-semibold hover:bg-zinc-700 transition-colors"
               onclick="this.parentElement.parentElement.parentElement.remove()"
             >
@@ -215,31 +209,6 @@
           modal.remove();
         }
       });
-    }
-
-    async function mintGuardian(guardianId) {
-      try {
-        const response = await fetch('/api/guardians/allocate', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({})
-        });
-        if (!response.ok) {
-          console.error('Failed to allocate guardian:', response.status);
-          return;
-        }
-        const data = await response.json();
-        console.log('Guardian allocated:', data.guardian);
-
-        // Close modal and reload
-        const modal = document.querySelector('.fixed.inset-0');
-        if (modal) modal.remove();
-
-        // Reload guardians to update allocated status
-        await loadGuardians();
-      } catch (err) {
-        console.error('Error allocating guardian:', err);
-      }
     }
 
     // Event listeners
