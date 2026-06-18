@@ -61,6 +61,21 @@
       "name": "EvolutionProgressCard displays next stage emoji",
       "path": "/",
       "expectText": "⚡🤖"
+    },
+    {
+      "name": "Guardian Gallery loads with all 500 guardians",
+      "path": "/guardians.html",
+      "expectText": "Guardian Gallery"
+    },
+    {
+      "name": "Guardian Gallery displays guardian cards",
+      "path": "/guardians.html",
+      "expectSelector": ".tier-filter"
+    },
+    {
+      "name": "Guardian Gallery shows allocation stats",
+      "path": "/guardians.html",
+      "expectText": "Available"
     }
   ]
 }
