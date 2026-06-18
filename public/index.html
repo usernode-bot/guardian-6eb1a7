@@ -67,6 +67,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
   <script src="guardian-hero.js"></script>
+  <script src="node-status-card.js"></script>
   <style>
     body {
       background-color: #0a0a0f;
@@ -109,6 +110,7 @@
       <!-- Home Screen -->
       <section id="screen-home">
         <div id="guardian-hero-container"></div>
+        <div id="node-status-container"></div>
       </section>
 
       <!-- Guardian Screen -->
@@ -229,6 +231,21 @@
       if (container) {
         const heroElement = createGuardianHero(mockGuardian);
         container.appendChild(heroElement);
+      }
+
+      // Mock NodeStatus data
+      /** @type {NodeStatus} */
+      const mockNodeStatus = {
+        peers: 23,
+        uptime: '2h 14m',
+        fgActive: true
+      };
+
+      // Mount NodeStatusCard component to Home screen
+      const nodeStatusContainer = document.getElementById('node-status-container');
+      if (nodeStatusContainer) {
+        const cardElement = createNodeStatusCard(mockNodeStatus);
+        nodeStatusContainer.appendChild(cardElement);
       }
 
       switchTab('home');
