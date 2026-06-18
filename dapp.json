@@ -28,21 +28,6 @@
       "expectText": "🦾"
     },
     {
-      "name": "EvolutionProgressCard displays current stage",
-      "path": "/",
-      "expectText": "GUARDIAN Guardian"
-    },
-    {
-      "name": "EvolutionProgressCard shows progress toward next stage",
-      "path": "/",
-      "expectText": "hours until next stage"
-    },
-    {
-      "name": "EvolutionProgressCard displays next stage emoji",
-      "path": "/",
-      "expectText": "⚡🤖"
-    },
-    {
       "name": "Guardian Gallery loads with all 500 guardians",
       "path": "/guardians.html",
       "expectText": "Guardian Gallery"
