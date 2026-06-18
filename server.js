@@ -10,7 +10,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const JWT_SECRET = process.env.JWT_SECRET;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 
-const PUBLIC_API_PATHS = new Set(['/health', '/api/node', '/favicon.ico', '/api/guardians', '/api/evolution/leaderboard']);
+const PUBLIC_API_PATHS = new Set(['/health', '/api/node', '/favicon.ico', '/api/guardians', '/api/evolution/leaderboard', '/api/metadata/registry']);
 
 function generateGuardianPool() {
   const tierCounts = { COMMON: 300, RARE: 120, EPIC: 60, LEGENDARY: 18, MYTHIC: 2 };
@@ -658,6 +658,212 @@ app.get('/api/evolution/history/:guardianId', async (req, res) => {
   }
 });
 
+// Guardian Metadata Registry API endpoints
+app.post('/api/metadata/registry', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { guardianId, owner, score, level, stage, fgHours, peerCount, uptime } = req.body;
+
+    if (owner !== req.user.username) {
+      return res.status(400).json({ error: 'Owner must match authenticated user' });
+    }
+
+    if (typeof level !== 'number' || typeof fgHours !== 'number' || typeof peerCount !== 'number' || typeof uptime !== 'number') {
+      return res.status(400).json({ error: 'Invalid numeric fields' });
+    }
+
+    if (level < 0 || fgHours < 0 || peerCount < 0 || uptime < 0) {
+      return res.status(400).json({ error: 'Numeric fields must be non-negative' });
+    }
+
+    const validStages = ['INITIATE', 'AWAKENED', 'ASCENDANT', 'GUARDIAN', 'MYTHIC'];
+    if (!validStages.includes(stage)) {
+      return res.status(400).json({ error: 'Invalid stage value' });
+    }
+
+    const ownership = await pool.query(
+      `SELECT guardian_id FROM guardian_ownership WHERE guardian_id = $1 AND user_id = $2`,
+      [guardianId, req.user.id]
+    );
+
+    if (ownership.rows.length === 0) {
+      return res.status(404).json({ error: 'Guardian not found for this user' });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO guardian_metadata_registry (user_id, username, guardian_id, contribution_score, level, stage, fg_hours, peer_count, uptime, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         contribution_score = $4,
+         level = $5,
+         stage = $6,
+         fg_hours = $7,
+         peer_count = $8,
+         uptime = $9,
+         updated_at = NOW()
+       RETURNING *`,
+      [req.user.id, req.user.username, guardianId, score, level, stage, fgHours, peerCount, uptime]
+    );
+
+    const registry = result.rows[0];
+    res.json({
+      success: true,
+      registry: {
+        userId: registry.user_id,
+        username: registry.username,
+        guardianId: registry.guardian_id,
+        contributionScore: registry.contribution_score,
+        level: registry.level,
+        stage: registry.stage,
+        fgHours: registry.fg_hours,
+        peerCount: registry.peer_count,
+        uptime: registry.uptime,
+        updatedAt: registry.updated_at
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/metadata/registry', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+    const offset = parseInt(req.query.offset) || 0;
+    const search = req.query.search ? `%${req.query.search.toLowerCase()}%` : null;
+    const stageFilter = req.query.stage || null;
+
+    let whereClause = '';
+    const params = [];
+
+    if (search) {
+      whereClause += `(LOWER(gmr.username) LIKE $${params.length + 1} OR LOWER(g.name) LIKE $${params.length + 1})`;
+      params.push(search);
+    }
+
+    if (stageFilter) {
+      if (whereClause) whereClause += ' AND ';
+      whereClause += `gmr.stage = $${params.length + 1}`;
+      params.push(stageFilter);
+    }
+
+    const whereSQL = whereClause ? `WHERE ${whereClause}` : '';
+
+    const entries = await pool.query(
+      `SELECT
+        ROW_NUMBER() OVER (ORDER BY gmr.contribution_score DESC) as rank,
+        gmr.user_id,
+        gmr.username,
+        gmr.guardian_id,
+        g.name as guardian_name,
+        g.tier as guardian_tier,
+        gmr.contribution_score,
+        gmr.level,
+        gmr.stage,
+        gmr.fg_hours,
+        gmr.peer_count,
+        gmr.uptime,
+        gmr.updated_at
+      FROM guardian_metadata_registry gmr
+      JOIN guardian g ON gmr.guardian_id = g.id
+      ${whereSQL}
+      ORDER BY gmr.contribution_score DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset]
+    );
+
+    const totalResult = await pool.query(
+      `SELECT COUNT(*) as count FROM guardian_metadata_registry gmr
+       JOIN guardian g ON gmr.guardian_id = g.id
+       ${whereSQL}`,
+      params
+    );
+
+    const total = parseInt(totalResult.rows[0]?.count || 0);
+
+    res.json({
+      entries: entries.rows.map(row => ({
+        rank: row.rank,
+        userId: row.user_id,
+        username: row.username,
+        guardianId: row.guardian_id,
+        guardianName: row.guardian_name,
+        guardianTier: row.guardian_tier,
+        contributionScore: row.contribution_score,
+        level: row.level,
+        stage: row.stage,
+        fgHours: row.fg_hours,
+        peerCount: row.peer_count,
+        uptime: row.uptime,
+        updatedAt: row.updated_at
+      })),
+      total,
+      limit,
+      offset
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/metadata/registry/:username', async (req, res) => {
+  try {
+    const { username } = req.params;
+    const result = await pool.query(
+      `SELECT
+        gmr.user_id,
+        gmr.username,
+        gmr.guardian_id,
+        g.name as guardian_name,
+        g.tier as guardian_tier,
+        gmr.contribution_score,
+        gmr.level,
+        gmr.stage,
+        gmr.fg_hours,
+        gmr.peer_count,
+        gmr.uptime,
+        gmr.updated_at
+      FROM guardian_metadata_registry gmr
+      JOIN guardian g ON gmr.guardian_id = g.id
+      WHERE gmr.username = $1`,
+      [username]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found in registry' });
+    }
+
+    const row = result.rows[0];
+    res.json({
+      userId: row.user_id,
+      username: row.username,
+      guardianId: row.guardian_id,
+      guardianName: row.guardian_name,
+      guardianTier: row.guardian_tier,
+      contributionScore: row.contribution_score,
+      level: row.level,
+      stage: row.stage,
+      fgHours: row.fg_hours,
+      peerCount: row.peer_count,
+      uptime: row.uptime,
+      updatedAt: row.updated_at
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/registry', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'registry.html'));
+});
+
+app.get('/registry/my-metadata', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'metadata-edit.html'));
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/favicon.ico', (req, res) => res.sendFile(path.join(__dirname, 'public', 'favicon.ico')));
 
@@ -683,6 +889,10 @@ async function applyMigrations() {
   const migrationPath2 = path.join(__dirname, 'src', 'db', 'migrations', '002_pr9_evolution_schema.sql');
   const migrationSql2 = fs.readFileSync(migrationPath2, 'utf-8');
   await pool.query(migrationSql2);
+
+  const migrationPath3 = path.join(__dirname, 'src', 'db', 'migrations', '003_pr10_metadata_registry_schema.sql');
+  const migrationSql3 = fs.readFileSync(migrationPath3, 'utf-8');
+  await pool.query(migrationSql3);
 }
 
 async function seedStagingData() {
@@ -754,6 +964,22 @@ async function seedStagingData() {
        VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT DO NOTHING`,
       [entry.guardianId, entry.oldStage, entry.newStage, entry.oldLevel, entry.newLevel, entry.score]
+    );
+  }
+
+  // Seed metadata registry entries
+  const registryEntries = [
+    { userId: 1, username: 'alice', guardianId: 3, score: 150, level: 2, stage: 'AWAKENED', fgHours: 100, peerCount: 5, uptime: 95.5 },
+    { userId: 2, username: 'bob', guardianId: 4, score: 350, level: 3, stage: 'ASCENDANT', fgHours: 250, peerCount: 12, uptime: 98.0 },
+    { userId: 3, username: 'charlie', guardianId: 5, score: 750, level: 4, stage: 'GUARDIAN', fgHours: 500, peerCount: 20, uptime: 99.8 }
+  ];
+
+  for (const entry of registryEntries) {
+    await pool.query(
+      `INSERT INTO guardian_metadata_registry (user_id, username, guardian_id, contribution_score, level, stage, fg_hours, peer_count, uptime)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (user_id) DO NOTHING`,
+      [entry.userId, entry.username, entry.guardianId, entry.score, entry.level, entry.stage, entry.fgHours, entry.peerCount, entry.uptime]
     );
   }
 }
