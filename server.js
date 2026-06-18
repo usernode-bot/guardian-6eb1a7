@@ -112,12 +112,53 @@ app.post('/api/guardian', async (req, res) => {
 
 app.get('/api/node', async (req, res) => {
   try {
+    let metrics = {};
+
+    try {
+      // Fetch latest metrics from guardian_node_metrics table
+      const result = await pool.query(
+        `SELECT DISTINCT ON (metric_name) metric_name, value
+         FROM guardian_node_metrics
+         ORDER BY metric_name, created_at DESC`
+      );
+
+      for (const row of result.rows) {
+        metrics[row.metric_name] = row.value;
+      }
+    } catch (queryErr) {
+      // Table might not exist yet (e.g., during startup before migrations complete)
+      // Fall through to fallback values below
+      console.log('[/api/node] Metrics table not available, using fallback values');
+    }
+
+    // If no metrics in staging, try to seed demo metrics immediately
+    if (IS_STAGING && Object.keys(metrics).length === 0) {
+      try {
+        const { seedDemoMetrics } = require('./src/polling/rpc-poller');
+        await seedDemoMetrics(pool);
+        // Re-fetch after seeding
+        const refreshed = await pool.query(
+          `SELECT DISTINCT ON (metric_name) metric_name, value
+           FROM guardian_node_metrics
+           ORDER BY metric_name, created_at DESC`
+        );
+        metrics = {};
+        for (const row of refreshed.rows) {
+          metrics[row.metric_name] = row.value;
+        }
+      } catch (seedErr) {
+        // RPC poller module not available or seeding failed
+        // Use fallback values instead
+        console.log('[/api/node] Demo metrics seeding unavailable, using fallback values:', seedErr.message);
+      }
+    }
+
     res.json({
-      status: 'online',
-      uptimeSeconds: 259200,
-      peers: 12,
-      blockHeight: 1234567,
-      lastBlockTime: '2 min ago'
+      status: metrics.node_status || 'online',
+      uptimeSeconds: parseInt(metrics.uptime_seconds || '259200'),
+      peers: parseInt(metrics.peer_count || '12'),
+      blockHeight: parseInt(metrics.block_height || '1234567'),
+      lastBlockTime: metrics.block_timestamp || '2 min ago'
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
