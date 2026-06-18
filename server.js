@@ -96,7 +96,7 @@ app.get('/api/wallet', async (req, res) => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.get('/favicon.ico', (req, res) => res.status(404).end());
+app.get('/favicon.ico', (req, res) => res.sendFile(path.join(__dirname, 'public', 'favicon.ico')));
 
 // HTML shell: serve the app if authenticated, otherwise an "open in Usernode"
 // landing page so stray visits to the staging URL don't reveal the app.
