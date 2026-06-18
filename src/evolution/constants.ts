@@ -4,7 +4,6 @@ export const STAGE_THRESHOLDS: StageThreshold[] = [
   { stage: 'INITIATE', minScore: 0, maxScore: 100 },
   { stage: 'AWAKENED', minScore: 101, maxScore: 250 },
   { stage: 'ASCENDANT', minScore: 251, maxScore: 500 },
-  { stage: 'GUARDIAN', minScore: 501, maxScore: 1000 },
   { stage: 'MYTHIC', minScore: 1001, maxScore: Infinity }
 ];
 
@@ -50,13 +49,6 @@ export const TRAIT_CONFIGS: Record<EvolutionStage, TraitConfig> = {
     armorTier: 'Knight Plate',
     weaponTier: 'Enchanted Blade',
     emoji: '✨'
-  },
-  GUARDIAN: {
-    stage: 'GUARDIAN',
-    aura: 'Plasma Aura',
-    armorTier: 'Celestial Armor',
-    weaponTier: 'Plasma Sword',
-    emoji: '⚡'
   },
   MYTHIC: {
     stage: 'MYTHIC',
