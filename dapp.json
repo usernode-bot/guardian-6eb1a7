@@ -106,6 +106,16 @@
       "name": "Evolution API endpoint returns guardian record",
       "path": "/api/evolution/guardian/1",
       "expectText": "contribution_score"
+    },
+    {
+      "name": "Node API returns live metrics from RPC poller",
+      "path": "/api/node",
+      "expectText": "peers"
+    },
+    {
+      "name": "Node metrics table stores peer count and status",
+      "path": "/api/node",
+      "expectText": "status"
     }
   ]
 }
