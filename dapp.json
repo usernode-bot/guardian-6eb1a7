@@ -56,6 +56,11 @@
       "name": "Signaling endpoints accept WebRTC offers",
       "path": "/api/signaling/offer",
       "expectText": "error"
+    },
+    {
+      "name": "Auth confirmation modal shows on app load with token",
+      "path": "/",
+      "expectText": "Confirm Sign In"
     }
   ]
 }

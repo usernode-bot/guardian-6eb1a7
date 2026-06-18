@@ -197,5 +197,14 @@ class ProfileMenu {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  new ProfileMenu();
+  const profileMenu = new ProfileMenu();
+  window.profileMenu = profileMenu;
+
+  // If auth confirmation modal is not needed (no token), initialize immediately
+  // Otherwise, initialization will be triggered by auth confirmation modal
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('token') || localStorage.getItem('usernode-token');
+  if (!token) {
+    profileMenu.init();
+  }
 });
