@@ -3,8 +3,6 @@ class SignalingClient {
     this.ws = null;
     this.userId = null;
     this.callbacks = {
-      online: [],
-      offline: [],
       peer_offer: [],
       peer_answer: [],
       ice_candidate: [],
@@ -38,10 +36,6 @@ class SignalingClient {
             this.userId = msg.user_id;
             this.callbacks.registered.forEach(cb => cb(msg));
             resolve(msg);
-          } else if (msg.type === 'online') {
-            this.callbacks.online.forEach(cb => cb(msg));
-          } else if (msg.type === 'offline') {
-            this.callbacks.offline.forEach(cb => cb(msg));
           } else if (msg.type === 'peer_offer') {
             this.callbacks.peer_offer.forEach(cb => cb(msg));
           } else if (msg.type === 'peer_answer') {

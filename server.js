@@ -161,7 +161,7 @@ app.get('/api/node', async (req, res) => {
     }
 
     res.json({
-      status: metrics.node_status || 'online',
+      status: metrics.node_status || 'running',
       uptimeSeconds: parseInt(metrics.uptime_seconds || '259200'),
       peers: parseInt(metrics.peer_count || '12'),
       blockHeight: parseInt(metrics.block_height || '1234567'),
@@ -1028,26 +1028,7 @@ app.get('/api/metadata/registry/:username', async (req, res) => {
   }
 });
 
-// P2P Presence & Signaling API
-app.get('/api/presence/online', async (req, res) => {
-  try {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Not authenticated' });
-    }
-
-    const result = await pool.query(
-      `SELECT user_id, username, guardian_id, guardian_name, guardian_tier, connected_at, last_heartbeat
-       FROM user_online_session
-       WHERE last_heartbeat > NOW() - interval '2 minutes'
-       ORDER BY connected_at DESC`
-    );
-
-    res.json({ users: result.rows });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
+// P2P Signaling API
 app.post('/api/signaling/offer', async (req, res) => {
   try {
     if (!req.user) {
@@ -1175,26 +1156,12 @@ async function applyMigrations() {
   const migrationPath4 = path.join(__dirname, 'src', 'db', 'migrations', '004_p2p_presence_schema.sql');
   const migrationSql4 = fs.readFileSync(migrationPath4, 'utf-8');
   await pool.query(migrationSql4);
+
+  const migrationPath5 = path.join(__dirname, 'src', 'db', 'migrations', '005_drop_presence_schema.sql');
+  const migrationSql5 = fs.readFileSync(migrationPath5, 'utf-8');
+  await pool.query(migrationSql5);
 }
 
-async function cleanupExpiredSessions() {
-  try {
-    await pool.query(
-      `DELETE FROM user_online_session WHERE last_heartbeat < NOW() - interval '2 minutes'`
-    );
-  } catch (err) {
-    console.error('Cleanup worker error:', err);
-  }
-}
-
-function broadcastPresence(type, userData) {
-  const msg = JSON.stringify({ type, ...userData });
-  for (const client of allClients) {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(msg);
-    }
-  }
-}
 
 async function seedStagingData() {
   if (!IS_STAGING) return;
@@ -1313,24 +1280,6 @@ async function seedStagingData() {
     );
   }
 
-  // Seed online sessions for testing the Online panel
-  const onlineUsers = [
-    { userId: 1, username: 'alice', guardianId: 3, guardianName: 'Orion', guardianTier: 'RARE', walletAddress: 'staging-demo-wallet-alice' },
-    { userId: 2, username: 'bob', guardianId: 4, guardianName: 'Zenith', guardianTier: 'EPIC', walletAddress: 'staging-demo-wallet-bob' },
-    { userId: 3, username: 'charlie', guardianId: 5, guardianName: 'Atlas', guardianTier: 'LEGENDARY', walletAddress: 'staging-demo-wallet-charlie' },
-    { userId: 4, username: 'diana', guardianId: 7, guardianName: 'Nova', guardianTier: 'COMMON', walletAddress: 'staging-demo-wallet-diana' },
-    { userId: 5, username: 'eve', guardianId: 10, guardianName: 'Cipher', guardianTier: 'RARE', walletAddress: 'staging-demo-wallet-eve' }
-  ];
-
-  for (const user of onlineUsers) {
-    const sessionToken = `staging-token-${user.userId}-${Date.now()}`;
-    await pool.query(
-      `INSERT INTO user_online_session (user_id, username, wallet_address, session_token, guardian_id, guardian_name, guardian_tier, last_heartbeat)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-       ON CONFLICT (session_token) DO NOTHING`,
-      [user.userId, user.username, user.walletAddress, sessionToken, user.guardianId, user.guardianName, user.guardianTier]
-    );
-  }
 }
 
 function startCleanupWorker() {
@@ -1408,46 +1357,18 @@ async function start() {
 
             // Store session in database
             const sessionToken = `session-${userId}-${Date.now()}-${Math.random()}`;
-            await pool.query(
-              `INSERT INTO user_online_session (user_id, username, session_token, guardian_id, guardian_name, guardian_tier, wallet_address, last_heartbeat)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-               ON CONFLICT DO NOTHING`,
-              [userId, username, sessionToken, guardianId, guardianName, guardianTier, user.usernode_pubkey || null]
-            );
 
-            // Store connection
+            // Store connection for P2P signaling
             wsConnections.set(userId, { socket: ws, sessionToken, username, guardian_id: guardianId, guardian_name: guardianName, guardian_tier: guardianTier });
             ws.userId = userId;
             ws.sessionToken = sessionToken;
 
-            // Broadcast online event to all clients
-            broadcastPresence('online', {
-              user_id: userId,
-              username,
-              guardian_name: guardianName,
-              guardian_tier: guardianTier,
-              connected_at: new Date().toISOString()
-            });
-
             ws.send(JSON.stringify({ type: 'registered', user_id: userId }));
           } else if (msg.type === 'heartbeat') {
-            if (ws.sessionToken) {
-              await pool.query(
-                `UPDATE user_online_session SET last_heartbeat = NOW() WHERE session_token = $1`,
-                [ws.sessionToken]
-              );
-            }
+            // Heartbeat acknowledged, connection still active
           } else if (msg.type === 'unregister') {
-            if (ws.userId && ws.sessionToken) {
-              await pool.query(
-                `DELETE FROM user_online_session WHERE session_token = $1`,
-                [ws.sessionToken]
-              );
+            if (ws.userId) {
               wsConnections.delete(ws.userId);
-              broadcastPresence('offline', {
-                user_id: ws.userId,
-                username: msg.username
-              });
             }
           }
         } catch (err) {
@@ -1456,24 +1377,10 @@ async function start() {
         }
       });
 
-      ws.on('close', async () => {
+      ws.on('close', () => {
         allClients.delete(ws);
-        if (ws.userId && ws.sessionToken) {
-          try {
-            const result = await pool.query(
-              `DELETE FROM user_online_session WHERE session_token = $1 RETURNING username`,
-              [ws.sessionToken]
-            );
-            wsConnections.delete(ws.userId);
-            if (result.rows.length > 0) {
-              broadcastPresence('offline', {
-                user_id: ws.userId,
-                username: result.rows[0].username
-              });
-            }
-          } catch (err) {
-            console.error('WebSocket close cleanup error:', err);
-          }
+        if (ws.userId) {
+          wsConnections.delete(ws.userId);
         }
       });
 
@@ -1491,11 +1398,6 @@ async function start() {
       await applyMigrations();
       await seedStagingData();
       startCleanupWorker();
-
-      // Start session cleanup worker (every 60 seconds)
-      setInterval(() => {
-        cleanupExpiredSessions().catch(err => console.error('Session cleanup error:', err));
-      }, 60 * 1000);
 
       console.log('Migrations and seeding complete');
     } catch (err) {

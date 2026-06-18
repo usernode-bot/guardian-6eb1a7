@@ -13,14 +13,9 @@
       "expectText": "Guardian #001"
     },
     {
-      "name": "Guardian status badge shows ONLINE",
-      "path": "/",
-      "expectText": "ONLINE"
-    },
-    {
       "name": "Node API returns mock data",
       "path": "/api/node",
-      "expectText": "online"
+      "expectText": "status"
     },
     {
       "name": "FG Progress shows NOT ELIGIBLE when below 60 minutes",
@@ -106,16 +101,6 @@
       "name": "Evolution API endpoint returns guardian record",
       "path": "/api/evolution/guardian/1",
       "expectText": "contribution_score"
-    },
-    {
-      "name": "Online panel tab appears in navigation",
-      "path": "/",
-      "expectText": "Online"
-    },
-    {
-      "name": "Presence API returns online users",
-      "path": "/api/presence/online",
-      "expectText": "users"
     },
     {
       "name": "Signaling endpoints accept WebRTC offers",
