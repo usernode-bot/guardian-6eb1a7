@@ -10,7 +10,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const JWT_SECRET = process.env.JWT_SECRET;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 
-const PUBLIC_API_PATHS = new Set(['/health', '/api/node', '/favicon.ico', '/api/guardians']);
+const PUBLIC_API_PATHS = new Set(['/health', '/api/node', '/favicon.ico', '/api/guardians', '/api/evolution/leaderboard']);
 
 function generateGuardianPool() {
   const tierCounts = { COMMON: 300, RARE: 120, EPIC: 60, LEGENDARY: 18, MYTHIC: 2 };
@@ -465,6 +465,199 @@ app.post('/api/guardian/cleanup', async (req, res) => {
   }
 });
 
+// Evolution Engine API endpoints
+app.post('/api/evolution/update', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const wallet = req.user.usernode_pubkey;
+    if (!wallet) {
+      return res.status(400).json({ error: 'Wallet not linked' });
+    }
+
+    const { fgHours, peerCount, uptime } = req.body;
+
+    if (typeof fgHours !== 'number' || typeof peerCount !== 'number' || typeof uptime !== 'number') {
+      return res.status(400).json({ error: 'Invalid metrics' });
+    }
+
+    const ownership = await pool.query(
+      `SELECT guardian_id FROM guardian_ownership WHERE wallet_address = $1`,
+      [wallet]
+    );
+
+    if (ownership.rows.length === 0) {
+      return res.status(404).json({ error: 'No guardian assigned to wallet' });
+    }
+
+    const guardianId = ownership.rows[0].guardian_id;
+
+    const { calculateContributionScore } = require('./src/evolution/score.service');
+    const { checkLevelProgression } = require('./src/evolution/level.service');
+    const { checkStageProgression, calculateStage } = require('./src/evolution/stages.service');
+    const { calculateTitle } = require('./src/evolution/title.service');
+    const { getTraitsForStage } = require('./src/evolution/traits.service');
+
+    const currentResult = await pool.query(
+      `SELECT * FROM guardian_evolution WHERE guardian_id = $1`,
+      [guardianId]
+    );
+
+    const current = currentResult.rows[0];
+    const oldScore = current?.contribution_score || 0;
+    const oldLevel = current?.level || 1;
+    const oldStage = current?.stage || 'INITIATE';
+    const oldTitle = current?.title || '';
+
+    const newScore = calculateContributionScore({ fgHours, peerCount, uptime });
+    const { levelChanged, newLevel } = checkLevelProgression(oldScore, newScore);
+    const { stageChanged, newStage } = checkStageProgression(oldScore, newScore);
+    const newTitle = calculateTitle(newScore);
+    const titleChanged = oldTitle !== newTitle;
+
+    const traits = getTraitsForStage(newStage);
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      if (!current) {
+        await client.query(
+          `INSERT INTO guardian_evolution (
+            guardian_id, contribution_score, level, stage, title, aura, armor_tier, weapon_tier, last_score_recalc_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+          [guardianId, newScore, newLevel, newStage, newTitle, traits.aura, traits.armorTier, traits.weaponTier]
+        );
+      } else {
+        await client.query(
+          `UPDATE guardian_evolution
+           SET contribution_score = $2, level = $3, stage = $4, title = $5,
+               aura = $6, armor_tier = $7, weapon_tier = $8, last_score_recalc_at = NOW(), updated_at = NOW()
+           WHERE guardian_id = $1`,
+          [guardianId, newScore, newLevel, newStage, newTitle, traits.aura, traits.armorTier, traits.weaponTier]
+        );
+      }
+
+      if (stageChanged && oldStage !== newStage) {
+        await client.query(
+          `INSERT INTO guardian_evolution_history (guardian_id, old_stage, new_stage, old_level, new_level, score_at_transition)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [guardianId, oldStage, newStage, oldLevel, newLevel, newScore]
+        );
+      }
+
+      await client.query('COMMIT');
+
+      res.json({
+        guardianId,
+        oldScore,
+        newScore,
+        oldLevel,
+        newLevel,
+        oldStage,
+        newStage,
+        oldTitle,
+        newTitle,
+        levelChanged,
+        stageChanged,
+        titleChanged,
+        updatedAt: new Date()
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/evolution/guardian/:guardianId', async (req, res) => {
+  try {
+    const { guardianId } = req.params;
+    const result = await pool.query(
+      `SELECT * FROM guardian_evolution WHERE guardian_id = $1`,
+      [parseInt(guardianId)]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Evolution record not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/evolution/leaderboard', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+    const offset = parseInt(req.query.offset) || 0;
+
+    const entries = await pool.query(
+      `SELECT
+        ROW_NUMBER() OVER (ORDER BY ge.contribution_score DESC) as rank,
+        ge.guardian_id,
+        g.name,
+        g.tier,
+        ge.stage,
+        ge.contribution_score,
+        ge.level,
+        ge.title,
+        go.username,
+        go.wallet_address
+      FROM guardian_evolution ge
+      JOIN guardian g ON ge.guardian_id = g.id
+      LEFT JOIN guardian_ownership go ON ge.guardian_id = go.guardian_id
+      ORDER BY ge.contribution_score DESC
+      LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    );
+
+    const totalResult = await pool.query(`SELECT COUNT(*) as count FROM guardian_evolution`);
+    const total = totalResult.rows[0]?.count || 0;
+
+    res.json({
+      entries: entries.rows.map(row => ({
+        rank: row.rank,
+        guardianId: row.guardian_id,
+        guardianName: row.name,
+        guardianTier: row.tier,
+        stage: row.stage,
+        contributionScore: row.contribution_score,
+        level: row.level,
+        title: row.title,
+        username: row.username || 'Unknown',
+        walletAddress: row.wallet_address || 'Not linked'
+      })),
+      total,
+      limit,
+      offset
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/evolution/history/:guardianId', async (req, res) => {
+  try {
+    const { guardianId } = req.params;
+    const result = await pool.query(
+      `SELECT * FROM guardian_evolution_history WHERE guardian_id = $1 ORDER BY created_at DESC`,
+      [parseInt(guardianId)]
+    );
+
+    res.json({ history: result.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/favicon.ico', (req, res) => res.sendFile(path.join(__dirname, 'public', 'favicon.ico')));
 
@@ -483,9 +676,13 @@ app.get('*', (req, res) => {
 });
 
 async function applyMigrations() {
-  const migrationPath = path.join(__dirname, 'src', 'db', 'migrations', '001_pr8_schema.sql');
-  const migrationSql = fs.readFileSync(migrationPath, 'utf-8');
-  await pool.query(migrationSql);
+  const migrationPath1 = path.join(__dirname, 'src', 'db', 'migrations', '001_pr8_schema.sql');
+  const migrationSql1 = fs.readFileSync(migrationPath1, 'utf-8');
+  await pool.query(migrationSql1);
+
+  const migrationPath2 = path.join(__dirname, 'src', 'db', 'migrations', '002_pr9_evolution_schema.sql');
+  const migrationSql2 = fs.readFileSync(migrationPath2, 'utf-8');
+  await pool.query(migrationSql2);
 }
 
 async function seedStagingData() {
@@ -513,6 +710,52 @@ async function seedStagingData() {
   await pool.query(
     `UPDATE guardian SET status = 'RESERVED' WHERE id = 2 AND status = 'AVAILABLE'`
   );
+
+  // Seed evolution data for testing
+  const stagingDemoScores = [
+    { guardianId: 1, score: 50, stage: 'INITIATE', level: 1, title: 'Node Wanderer' },
+    { guardianId: 3, score: 150, stage: 'AWAKENED', level: 2, title: 'Network Scout' },
+    { guardianId: 4, score: 350, stage: 'ASCENDANT', level: 3, title: 'Protocol Guardian' },
+    { guardianId: 5, score: 750, stage: 'GUARDIAN', level: 4, title: 'Core Defender' },
+    { guardianId: 6, score: 1500, stage: 'MYTHIC', level: 5, title: 'Legend Keeper' }
+  ];
+
+  const traitsByStage = {
+    INITIATE: { aura: 'Gray Aura', armor_tier: 'Novice Leather', weapon_tier: 'Wooden Staff' },
+    AWAKENED: { aura: 'Blue Aura', armor_tier: 'Apprentice Chain', weapon_tier: 'Iron Sword' },
+    ASCENDANT: { aura: 'Gold Aura', armor_tier: 'Knight Plate', weapon_tier: 'Enchanted Blade' },
+    GUARDIAN: { aura: 'Plasma Aura', armor_tier: 'Celestial Armor', weapon_tier: 'Plasma Sword' },
+    MYTHIC: { aura: 'Celestial Aura', armor_tier: 'Legendary Divinity Plate', weapon_tier: 'Cosmic Spear' }
+  };
+
+  for (const demo of stagingDemoScores) {
+    const traits = traitsByStage[demo.stage];
+    await pool.query(
+      `INSERT INTO guardian_evolution (guardian_id, contribution_score, level, stage, title, aura, armor_tier, weapon_tier, last_score_recalc_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+       ON CONFLICT (guardian_id) DO NOTHING`,
+      [demo.guardianId, demo.score, demo.level, demo.stage, demo.title, traits.aura, traits.armor_tier, traits.weapon_tier]
+    );
+  }
+
+  // Seed evolution history for first few guardians
+  const historyEntries = [
+    { guardianId: 3, oldStage: 'INITIATE', newStage: 'AWAKENED', oldLevel: 1, newLevel: 2, score: 150 },
+    { guardianId: 4, oldStage: 'INITIATE', newStage: 'AWAKENED', oldLevel: 1, newLevel: 2, score: 150 },
+    { guardianId: 4, oldStage: 'AWAKENED', newStage: 'ASCENDANT', oldLevel: 2, newLevel: 3, score: 350 },
+    { guardianId: 5, oldStage: 'INITIATE', newStage: 'AWAKENED', oldLevel: 1, newLevel: 2, score: 150 },
+    { guardianId: 5, oldStage: 'AWAKENED', newStage: 'ASCENDANT', oldLevel: 2, newLevel: 3, score: 350 },
+    { guardianId: 5, oldStage: 'ASCENDANT', newStage: 'GUARDIAN', oldLevel: 3, newLevel: 4, score: 750 }
+  ];
+
+  for (const entry of historyEntries) {
+    await pool.query(
+      `INSERT INTO guardian_evolution_history (guardian_id, old_stage, new_stage, old_level, new_level, score_at_transition)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT DO NOTHING`,
+      [entry.guardianId, entry.oldStage, entry.newStage, entry.oldLevel, entry.newLevel, entry.score]
+    );
+  }
 }
 
 function startCleanupWorker() {

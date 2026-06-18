@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guardian Evolution</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js"></script>
+  <script>
+    // usernode-dev-console@1
+    (function () {
+      const logs = [];
+      const errors = [];
+      const originalLog = console.log;
+      const originalError = console.error;
+      console.log = function (...args) {
+        logs.push(args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '));
+        originalLog.apply(console, args);
+      };
+      console.error = function (...args) {
+        errors.push(args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '));
+        originalError.apply(console, args);
+      };
+      window.addEventListener('error', function (e) {
+        errors.push(e.message);
+      });
+      window.usernode = window.usernode || {};
+      window.usernode.logs = logs;
+      window.usernode.errors = errors;
+    })();
+  </script>
+</head>
+<body class="bg-zinc-950 text-zinc-100 font-sans">
+  <div id="app" class="min-h-screen">
+    <div class="p-4 sm:p-6 max-w-6xl mx-auto">
+      <!-- Header -->
+      <div class="mb-8">
+        <h1 class="text-3xl font-bold mb-2">Guardian Evolution</h1>
+        <p class="text-zinc-400">Track your Guardian's progress and evolution</p>
+      </div>
+
+      <!-- Guardian Profile Header -->
+      <div id="guardian-profile" class="mb-8"></div>
+
+      <!-- Cards Grid -->
+      <div id="cards-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8"></div>
+
+      <!-- Timeline -->
+      <div id="timeline-container" class="mb-8"></div>
+
+      <!-- Leaderboard -->
+      <div id="leaderboard-container"></div>
+
+      <!-- Loading state -->
+      <div id="loading" class="text-center py-8 text-zinc-400">
+        Loading your Guardian's evolution data...
+      </div>
+    </div>
+  </div>
+
+  <script src="guardian-level-card.js"></script>
+  <script src="guardian-stage-card.js"></script>
+  <script src="contribution-score-card.js"></script>
+  <script src="evolution-timeline.js"></script>
+  <script src="leaderboard-table.js"></script>
+
+  <script>
+    async function loadEvolution() {
+      try {
+        const token = new URLSearchParams(window.location.search).get('token') || localStorage.getItem('usernode-token');
+        if (!token) {
+          document.getElementById('loading').textContent = 'Not authenticated. Please access this page through Usernode.';
+          return;
+        }
+
+        // Try to get current user's guardian
+        let guardianId = null;
+        try {
+          const ownershipRes = await fetch('/api/guardian/current', {
+            headers: { 'x-usernode-token': token }
+          });
+          const ownership = await ownershipRes.json();
+          if (ownership.guardian) {
+            guardianId = ownership.guardian.id;
+          }
+        } catch (err) {
+          console.log('Could not fetch current guardian:', err);
+        }
+
+        if (!guardianId) {
+          document.getElementById('loading').textContent = 'No Guardian assigned to your wallet yet.';
+          return;
+        }
+
+        // Fetch evolution data
+        const evolutionRes = await fetch(`/api/evolution/guardian/${guardianId}`, {
+          headers: { 'x-usernode-token': token }
+        });
+
+        if (!evolutionRes.ok) {
+          // Create default evolution record
+          const metricsRes = await fetch('/api/node');
+          const nodeData = await metricsRes.json();
+
+          const updateRes = await fetch('/api/evolution/update', {
+            method: 'POST',
+            headers: {
+              'x-usernode-token': token,
+              'content-type': 'application/json'
+            },
+            body: JSON.stringify({
+              fgHours: 0,
+              peerCount: 0,
+              uptime: 0
+            })
+          });
+
+          if (!updateRes.ok) {
+            throw new Error('Failed to initialize evolution');
+          }
+
+          const evolution = await updateRes.json();
+          await displayEvolution(evolution, guardianId, token);
+        } else {
+          const evolution = await evolutionRes.json();
+          await displayEvolution(evolution, guardianId, token);
+        }
+      } catch (err) {
+        console.error('Error loading evolution:', err);
+        document.getElementById('loading').textContent = 'Error loading evolution data.';
+      }
+    }
+
+    async function displayEvolution(evolution, guardianId, token) {
+      // Hide loading
+      document.getElementById('loading').style.display = 'none';
+
+      // Guardian profile header
+      const guardianRes = await fetch(`/api/guardian/current`, {
+        headers: { 'x-usernode-token': token }
+      });
+      const guardianData = await guardianRes.json();
+
+      if (guardianData.guardian) {
+        const profileDiv = document.createElement('div');
+        profileDiv.className = 'bg-zinc-900 border border-zinc-800 rounded-lg p-6 mb-8';
+        profileDiv.innerHTML = `
+          <div class="flex items-center gap-4">
+            <div class="text-5xl">${guardianData.guardian.image}</div>
+            <div class="flex-1">
+              <h2 class="text-2xl font-bold">${guardianData.guardian.name}</h2>
+              <p class="text-sm text-zinc-400">${guardianData.guardian.title}</p>
+              <p class="text-xs text-zinc-500 mt-1">Tier: ${guardianData.guardian.tier}</p>
+            </div>
+            <div class="text-right">
+              <p class="text-xs text-zinc-400">Current Level</p>
+              <p class="text-3xl font-bold text-purple-400">${evolution.level}</p>
+            </div>
+          </div>
+        `;
+        document.getElementById('guardian-profile').appendChild(profileDiv);
+      }
+
+      // Cards
+      const cardsContainer = document.getElementById('cards-container');
+      cardsContainer.appendChild(createGuardianLevelCard(evolution));
+      cardsContainer.appendChild(createGuardianStageCard(evolution));
+
+      // Contribution score card with mock metrics
+      const metrics = {
+        fgHours: Math.floor(evolution.contribution_score / 40),
+        peerCount: Math.floor((evolution.contribution_score % 40) / 20),
+        uptime: Math.floor(evolution.contribution_score % 20)
+      };
+      cardsContainer.appendChild(createContributionScoreCard(evolution, metrics));
+
+      // Timeline
+      const historyRes = await fetch(`/api/evolution/history/${guardianId}`, {
+        headers: { 'x-usernode-token': token }
+      });
+      const historyData = await historyRes.json();
+      document.getElementById('timeline-container').appendChild(createEvolutionTimeline(historyData.history));
+
+      // Leaderboard
+      const leaderboardData = await loadLeaderboard(50, 0);
+      document.getElementById('leaderboard-container').appendChild(createLeaderboardTable(leaderboardData.entries));
+    }
+
+    // Load on page load
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', loadEvolution);
+    } else {
+      loadEvolution();
+    }
+  </script>
+</body>
+</html>
