@@ -1,6 +1,14 @@
 {
   "name": "Guardian",
-  "secrets": [],
+  "secrets": [
+    {
+      "key": "TESTNET_RPC_URL",
+      "description": "JSON-RPC endpoint for testnet balance queries (e.g., Sepolia, Goerli public RPC)",
+      "required": false,
+      "private": false,
+      "staging_default": "https://sepolia.drpc.org"
+    }
+  ],
   "tests": [
     {
       "name": "App shell loads",
@@ -41,6 +49,11 @@
       "name": "Guardian history API returns audit log",
       "path": "/api/guardian/history",
       "expectText": "events"
+    },
+    {
+      "name": "Wallet API returns address and balance fields",
+      "path": "/api/wallet",
+      "expectText": "address"
     }
   ]
 }

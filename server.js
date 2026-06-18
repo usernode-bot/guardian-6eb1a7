@@ -174,10 +174,76 @@ app.get('/api/node', async (req, res) => {
 
 app.get('/api/wallet', async (req, res) => {
   try {
-    res.json({
-      address: req.user ? (req.user.usernode_pubkey || null) : null,
-      balance: '0 UT'
-    });
+    const address = req.user ? (req.user.usernode_pubkey || null) : null;
+
+    if (!address) {
+      return res.json({
+        address: null,
+        balance: null
+      });
+    }
+
+    const rpcUrl = process.env.TESTNET_RPC_URL;
+    if (!rpcUrl) {
+      return res.json({
+        address,
+        balance: null
+      });
+    }
+
+    try {
+      const rpcResponse = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'eth_getBalance',
+          params: [address, 'latest'],
+          id: 1
+        })
+      });
+
+      if (!rpcResponse.ok) {
+        console.error(`RPC error: HTTP ${rpcResponse.status}`);
+        return res.json({
+          address,
+          balance: null
+        });
+      }
+
+      const rpcData = await rpcResponse.json();
+
+      if (rpcData.error) {
+        console.error(`RPC error: ${rpcData.error.message}`);
+        return res.json({
+          address,
+          balance: null
+        });
+      }
+
+      if (!rpcData.result) {
+        console.error('RPC returned no balance result');
+        return res.json({
+          address,
+          balance: null
+        });
+      }
+
+      const balanceWei = BigInt(rpcData.result);
+      const balanceEth = Number(balanceWei) / 1e18;
+      const formattedBalance = balanceEth.toFixed(4).replace(/\.?0+$/, '') || '0';
+
+      res.json({
+        address,
+        balance: `${formattedBalance} ETH`
+      });
+    } catch (err) {
+      console.error('Error fetching balance from RPC:', err.message);
+      res.json({
+        address,
+        balance: null
+      });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
