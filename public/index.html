@@ -66,6 +66,15 @@
   <title>Guardian</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
+  <style>
+    @keyframes pulse-subtle {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.8; }
+    }
+    .animate-pulse {
+      animation: pulse-subtle 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+  </style>
   <script src="guardian-hero.js"></script>
   <script src="node-status-card.js"></script>
   <script src="signaling-client.js"></script>
@@ -260,20 +269,75 @@
     }
 
     // Initialize on load
-    document.addEventListener('DOMContentLoaded', () => {
-      // Mock Guardian data
-      /** @type {Guardian} */
-      const mockGuardian = {
-        id: '001',
-        name: 'Guardian #001',
-        totalFGHours: 12
-      };
-
-      // Mount GuardianHero component to Home screen
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Fetch real guardian data
       const container = document.getElementById('guardian-hero-container');
       if (container) {
-        const heroElement = createGuardianHero(mockGuardian);
-        container.appendChild(heroElement);
+        try {
+          const response = await fetch('/api/guardian/current', {
+            headers: token ? { 'x-usernode-token': token } : {}
+          });
+          if (response.ok) {
+            const data = await response.json();
+            if (data.guardian) {
+              // Fetch evolution data to get stage, level, and score
+              const evolutionResponse = await fetch(`/api/evolution/guardian/${data.guardian.id}`, {
+                headers: token ? { 'x-usernode-token': token } : {}
+              });
+              let evolData = null;
+              if (evolutionResponse.ok) {
+                evolData = await evolutionResponse.json();
+              }
+
+              const guardian = {
+                id: String(data.guardian.id),
+                name: data.guardian.name || 'Guardian',
+                stage: evolData?.stage || 'INITIATE',
+                level: evolData?.level || 1,
+                contributionScore: evolData?.contribution_score || 0,
+                title: evolData?.title || '',
+                aura: evolData?.aura || ''
+              };
+
+              const heroElement = createGuardianHero(guardian);
+              container.appendChild(heroElement);
+            } else {
+              // No guardian assigned yet, show mock
+              const mockGuardian = {
+                id: '001',
+                name: 'Guardian #001',
+                stage: 'INITIATE',
+                level: 1,
+                contributionScore: 0
+              };
+              const heroElement = createGuardianHero(mockGuardian);
+              container.appendChild(heroElement);
+            }
+          } else {
+            // Fallback to mock data
+            const mockGuardian = {
+              id: '001',
+              name: 'Guardian #001',
+              stage: 'INITIATE',
+              level: 1,
+              contributionScore: 0
+            };
+            const heroElement = createGuardianHero(mockGuardian);
+            container.appendChild(heroElement);
+          }
+        } catch (err) {
+          console.error('Error fetching guardian data:', err);
+          // Fallback to mock
+          const mockGuardian = {
+            id: '001',
+            name: 'Guardian #001',
+            stage: 'INITIATE',
+            level: 1,
+            contributionScore: 0
+          };
+          const heroElement = createGuardianHero(mockGuardian);
+          container.appendChild(heroElement);
+        }
       }
 
       // Mock NodeStatus data

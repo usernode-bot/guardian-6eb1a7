@@ -611,6 +611,116 @@ app.post('/api/guardian/cleanup', async (req, res) => {
   }
 });
 
+// Helper function to broadcast guardian status updates via WebSocket
+async function broadcastGuardianStatusUpdate(guardianId, oldStage, newStage, oldScore, newScore, userId, username) {
+  try {
+    const broadcastId = `broadcast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Record the update in the log
+    await pool.query(
+      `INSERT INTO guardian_status_update_log (
+        broadcast_id, guardian_id, old_stage, new_stage, old_score, new_score, changed_by_user_id, changed_by_username
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (broadcast_id) DO NOTHING`,
+      [broadcastId, guardianId, oldStage, newStage, oldScore, newScore, userId, username]
+    );
+
+    // Broadcast to all connected WebSocket clients
+    const message = JSON.stringify({
+      type: 'guardian_status_update',
+      broadcastId,
+      guardianId,
+      oldStage,
+      newStage,
+      oldScore,
+      newScore,
+      timestamp: new Date().toISOString(),
+      ownerUsername: username
+    });
+
+    for (const wsConn of allClients) {
+      if (wsConn.readyState === 1) { // WebSocket.OPEN
+        wsConn.send(message);
+      }
+    }
+
+    return { broadcastId, peersNotified: allClients.size };
+  } catch (err) {
+    console.error('Error broadcasting guardian status update:', err);
+    throw err;
+  }
+}
+
+// Guardian Status Update API endpoints
+app.post('/api/guardian/status/broadcast', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { guardianId, oldStage, newStage, oldScore, newScore } = req.body;
+
+    if (!guardianId || !oldStage || !newStage || typeof oldScore !== 'number' || typeof newScore !== 'number') {
+      return res.status(400).json({ error: 'Missing or invalid required fields' });
+    }
+
+    const result = await broadcastGuardianStatusUpdate(guardianId, oldStage, newStage, oldScore, newScore, req.user.id, req.user.username);
+
+    res.json({
+      success: true,
+      broadcastId: result.broadcastId,
+      peersNotified: result.peersNotified
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/guardian/status/changes', async (req, res) => {
+  try {
+    const since = req.query.since ? new Date(req.query.since) : new Date(Date.now() - 60 * 60 * 1000);
+    const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+    const guardianId = req.query.guardianId ? parseInt(req.query.guardianId) : null;
+
+    let query = `SELECT * FROM guardian_status_update_log WHERE created_at > $1`;
+    const params = [since];
+
+    if (guardianId) {
+      query += ` AND guardian_id = $${params.length + 1}`;
+      params.push(guardianId);
+    }
+
+    query += ` ORDER BY created_at DESC LIMIT $${params.length + 1}`;
+    params.push(limit);
+
+    const result = await pool.query(query, params);
+
+    const totalResult = await pool.query(
+      `SELECT COUNT(*) as count FROM guardian_status_update_log WHERE created_at > $1${guardianId ? ' AND guardian_id = $2' : ''}`,
+      guardianId ? [since, guardianId] : [since]
+    );
+
+    res.json({
+      changes: result.rows.map(row => ({
+        id: row.id,
+        broadcastId: row.broadcast_id,
+        guardianId: row.guardian_id,
+        oldStage: row.old_stage,
+        newStage: row.new_stage,
+        oldScore: row.old_score,
+        newScore: row.new_score,
+        timestamp: row.created_at,
+        changedByUsername: row.changed_by_username
+      })),
+      total: parseInt(totalResult.rows[0]?.count || 0),
+      limit,
+      since: since.toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Evolution Engine API endpoints
 app.post('/api/evolution/update', async (req, res) => {
   try {
@@ -717,6 +827,11 @@ app.post('/api/evolution/update', async (req, res) => {
       }
 
       await client.query('COMMIT');
+
+      // Broadcast the update if stage or score changed
+      if (stageChanged || oldScore !== newScore) {
+        await broadcastGuardianStatusUpdate(guardianId, oldStage, newStage, oldScore, newScore, req.user.id, req.user.username);
+      }
 
       res.json({
         guardianId,
@@ -1160,6 +1275,10 @@ async function applyMigrations() {
   const migrationPath5 = path.join(__dirname, 'src', 'db', 'migrations', '005_drop_presence_schema.sql');
   const migrationSql5 = fs.readFileSync(migrationPath5, 'utf-8');
   await pool.query(migrationSql5);
+
+  const migrationPath6 = path.join(__dirname, 'src', 'db', 'migrations', '006_guardian_status_update_log.sql');
+  const migrationSql6 = fs.readFileSync(migrationPath6, 'utf-8');
+  await pool.query(migrationSql6);
 }
 
 
@@ -1270,6 +1389,23 @@ async function seedStagingData() {
          uptime = $9,
          updated_at = NOW()`,
       [entry.userId, entry.username, entry.guardianId, entry.score, entry.level, entry.stage, entry.fgHours, entry.peerCount, entry.uptime]
+    );
+  }
+
+  // Seed status update log for realtime sync testing
+  const statusUpdates = [
+    { guardianId: 3, oldStage: 'INITIATE', newStage: 'AWAKENED', oldScore: 50, newScore: 150, userId: 1, username: 'alice' },
+    { guardianId: 4, oldStage: 'INITIATE', newStage: 'AWAKENED', oldScore: 50, newScore: 150, userId: 2, username: 'bob' },
+    { guardianId: 4, oldStage: 'AWAKENED', newStage: 'ASCENDANT', oldScore: 150, newScore: 350, userId: 2, username: 'bob' }
+  ];
+
+  for (const update of statusUpdates) {
+    const broadcastId = `broadcast-staging-${update.guardianId}-${update.newStage}`;
+    await pool.query(
+      `INSERT INTO guardian_status_update_log (broadcast_id, guardian_id, old_stage, new_stage, old_score, new_score, changed_by_user_id, changed_by_username)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (broadcast_id) DO NOTHING`,
+      [broadcastId, update.guardianId, update.oldStage, update.newStage, update.oldScore, update.newScore, update.userId, update.username]
     );
   }
 

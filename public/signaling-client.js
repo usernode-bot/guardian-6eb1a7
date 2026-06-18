@@ -6,6 +6,7 @@ class SignalingClient {
       peer_offer: [],
       peer_answer: [],
       ice_candidate: [],
+      guardian_status_update: [],
       registered: [],
       error: []
     };
@@ -42,6 +43,8 @@ class SignalingClient {
             this.callbacks.peer_answer.forEach(cb => cb(msg));
           } else if (msg.type === 'ice_candidate') {
             this.callbacks.ice_candidate.forEach(cb => cb(msg));
+          } else if (msg.type === 'guardian_status_update') {
+            this.callbacks.guardian_status_update.forEach(cb => cb(msg));
           } else if (msg.type === 'error') {
             this.callbacks.error.forEach(cb => cb(msg));
           }
