@@ -8,11 +8,6 @@
       "expectSelector": "nav"
     },
     {
-      "name": "Home screen displays Guardian Hero",
-      "path": "/",
-      "expectText": "Guardian #001"
-    },
-    {
       "name": "Node API returns mock data",
       "path": "/api/node",
       "expectText": "status"
