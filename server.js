@@ -24,16 +24,17 @@ function bech32Decode(bech32String) {
   }
 
   let hrp = lowercased.substring(0, lastSeparator);
+  let dataChars = lowercased.substring(lastSeparator + 1);
   let data = [];
 
-  for (let i = lastSeparator + 1; i < lowercased.length; i++) {
-    let index = CHARSET.indexOf(lowercased[i]);
+  for (let i = 0; i < dataChars.length; i++) {
+    let index = CHARSET.indexOf(dataChars[i]);
     if (index < 0) return null;
     data.push(index);
   }
 
   let decoded = convertBits(data, 5, 8, false);
-  if (!decoded || decoded.length < 2) return null;
+  if (!decoded) return null;
 
   return { hrp, data: decoded };
 }
@@ -54,9 +55,13 @@ function convertBits(data, fromBits, toBits, pad) {
   }
 
   if (pad) {
-    if (bits > 0) result.push((acc << (toBits - bits)) & ((1 << toBits) - 1));
-  } else if (bits >= fromBits || ((acc << (toBits - bits)) & ((1 << toBits) - 1))) {
-    return null;
+    if (bits > 0) {
+      result.push((acc << (toBits - bits)) & ((1 << toBits) - 1));
+    }
+  } else {
+    if (bits > 4) {
+      return null;
+    }
   }
 
   return result;
@@ -87,17 +92,17 @@ function convertUsernodeToEthereumAddress(usernodeAddress) {
   try {
     const decoded = bech32Decode(usernodeAddress);
 
-    if (!decoded || decoded.hrp !== 'ut1') {
+    if (!decoded || decoded.hrp !== 'ut') {
       console.error('Invalid bech32 decode or prefix');
       return null;
     }
 
-    if (decoded.data.length !== 20) {
+    if (decoded.data.length < 20) {
       console.error('Invalid address length after decoding:', decoded.data.length);
       return null;
     }
 
-    const hexAddress = '0x' + Buffer.from(decoded.data).toString('hex');
+    const hexAddress = '0x' + Buffer.from(decoded.data.slice(0, 20)).toString('hex');
     return hexAddress.toLowerCase();
   } catch (err) {
     console.error('Error decoding Usernode address:', err.message);
