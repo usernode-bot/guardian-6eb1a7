@@ -251,9 +251,11 @@
       }
 
       // Mock FGProgress data
+      // Check if demo=eligible param is set to show eligible state
+      const demoEligible = params.get('demo') === 'eligible';
       /** @type {FGProgress} */
       const mockFGProgress = {
-        currentMinutes: 42,
+        currentMinutes: demoEligible ? 60 : 42,
         requiredMinutes: 60
       };
 

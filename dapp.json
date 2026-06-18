@@ -21,6 +21,21 @@
       "name": "Node API returns mock data",
       "path": "/api/node",
       "expectText": "online"
+    },
+    {
+      "name": "FG Progress shows NOT ELIGIBLE when below 60 minutes",
+      "path": "/",
+      "expectText": "NOT ELIGIBLE"
+    },
+    {
+      "name": "Mint button appears when eligible (60+ minutes)",
+      "path": "/?demo=eligible",
+      "expectText": "Mint Guardian"
+    },
+    {
+      "name": "Mint button is clickable and transitions to minted state",
+      "path": "/?demo=eligible",
+      "expectText": "READY TO MINT"
     }
   ]
 }
