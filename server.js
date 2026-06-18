@@ -3,6 +3,7 @@ const path = require('path');
 const { Pool } = require('pg');
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
+const crypto = require('crypto');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -112,12 +113,24 @@ app.post('/api/guardian', async (req, res) => {
 
 app.get('/api/node', async (req, res) => {
   try {
+    // Fetch latest metrics from guardian_node_metrics table
+    const result = await pool.query(
+      `SELECT DISTINCT ON (metric_name) metric_name, value
+       FROM guardian_node_metrics
+       ORDER BY metric_name, created_at DESC`
+    );
+
+    const metrics = {};
+    for (const row of result.rows) {
+      metrics[row.metric_name] = row.value;
+    }
+
     res.json({
-      status: 'online',
-      uptimeSeconds: 259200,
-      peers: 12,
-      blockHeight: 1234567,
-      lastBlockTime: '2 min ago'
+      status: metrics.node_status || 'unknown',
+      uptimeSeconds: parseInt(metrics.uptime_seconds || '0'),
+      peers: parseInt(metrics.peer_count || '0'),
+      blockHeight: parseInt(metrics.block_height || '0'),
+      lastBlockTime: metrics.block_timestamp || 'unknown'
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -575,10 +588,29 @@ app.post('/api/evolution/update', async (req, res) => {
       return res.status(400).json({ error: 'Wallet not linked' });
     }
 
-    const { fgHours, peerCount, uptime } = req.body;
+    const { fgHours, peerCount, uptime, signature } = req.body;
 
     if (typeof fgHours !== 'number' || typeof peerCount !== 'number' || typeof uptime !== 'number') {
       return res.status(400).json({ error: 'Invalid metrics' });
+    }
+
+    // Signature verification: skip for demo wallets in staging, require for production
+    const isDemoWallet = IS_STAGING && wallet.startsWith('staging-demo-wallet-');
+    if (!isDemoWallet) {
+      if (!signature) {
+        return res.status(400).json({ error: 'Signature required' });
+      }
+
+      // Verify HMAC-SHA256 signature
+      const messageToSign = req.user.id + JSON.stringify({ fgHours, peerCount, uptime });
+      const expectedSignature = crypto
+        .createHmac('sha256', JWT_SECRET)
+        .update(messageToSign)
+        .digest('hex');
+
+      if (signature !== expectedSignature) {
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
     }
 
     const ownership = await pool.query(
@@ -1017,6 +1049,10 @@ async function applyMigrations() {
   const migrationPath3 = path.join(__dirname, 'src', 'db', 'migrations', '003_pr10_metadata_registry_schema.sql');
   const migrationSql3 = fs.readFileSync(migrationPath3, 'utf-8');
   await pool.query(migrationSql3);
+
+  const migrationPath4 = path.join(__dirname, 'src', 'db', 'migrations', '004_pr6_5_node_metrics_schema.sql');
+  const migrationSql4 = fs.readFileSync(migrationPath4, 'utf-8');
+  await pool.query(migrationSql4);
 }
 
 async function seedStagingData() {
@@ -1178,6 +1214,32 @@ async function start() {
   try {
     await applyMigrations();
     await seedStagingData();
+
+    // Import RPC poller functions
+    const { startRpcPoller, seedDemoMetrics } = require('./src/polling/rpc-poller');
+
+    // Start RPC polling if NODE_RPC_URL is configured
+    const NODE_RPC_URL = process.env.NODE_RPC_URL;
+    const STAGING_MOCK_RPC_URL = process.env.STAGING_MOCK_RPC_URL || 'http://localhost:8545';
+    const rpcUrl = NODE_RPC_URL || (IS_STAGING ? STAGING_MOCK_RPC_URL : null);
+
+    if (rpcUrl) {
+      // Try to start polling; if it fails in staging, seed demo metrics
+      try {
+        startRpcPoller(pool, rpcUrl, 5000).catch(err => {
+          console.error('[RPC Poller] Unhandled error:', err.message);
+        });
+      } catch (err) {
+        if (IS_STAGING) {
+          console.log('[RPC Poller] Connection failed in staging, seeding demo metrics');
+          await seedDemoMetrics(pool);
+        } else {
+          console.error('[RPC Poller] Critical: RPC polling failed in production');
+        }
+      }
+    } else {
+      console.warn('[RPC Poller] No RPC URL configured, metrics will be unavailable');
+    }
 
     app.listen(port, () => {
       console.log(`Listening on :${port}`);
