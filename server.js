@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const { Pool } = require('pg');
 const jwt = require('jsonwebtoken');
+const fs = require('fs');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -9,18 +10,9 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const JWT_SECRET = process.env.JWT_SECRET;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 
-// Paths that stay open without authentication. Add a path here (and add it
-// with `app.get`/`app.post` below) if you deliberately want it public.
-// Everything else requires a valid platform-issued JWT.
 const PUBLIC_API_PATHS = new Set(['/health', '/api/node', '/favicon.ico', '/api/guardians']);
 
-// Guardian pool singleton (in-memory, staging only)
-let guardianPool = null;
-
 function generateGuardianPool() {
-  if (guardianPool) return guardianPool;
-
-  guardianPool = [];
   const tierCounts = { COMMON: 300, RARE: 120, EPIC: 60, LEGENDARY: 18, MYTHIC: 2 };
   const tierOrder = ['COMMON', 'RARE', 'EPIC', 'LEGENDARY', 'MYTHIC'];
   const names = [
@@ -46,6 +38,7 @@ function generateGuardianPool() {
     MYTHIC: ['The primordial force from which all networks were born.', 'The cosmic architect who designed the ledger itself.']
   };
 
+  const guardians = [];
   let index = 0;
   for (const tier of tierOrder) {
     for (let i = 0; i < tierCounts[tier]; i++) {
@@ -55,49 +48,29 @@ function generateGuardianPool() {
       const title = `Guardian ${loreTitles[tier][index % loreTitles[tier].length]}`;
       const lore = loreSnippets[tier][index % loreSnippets[tier].length];
 
-      guardianPool.push({
-        id: String(index + 1).padStart(3, '0'),
+      guardians.push({
+        id: index + 1,
         name,
         title,
         tier,
         lore,
         image: emojis[tier],
-        allocated: false
       });
       index++;
     }
   }
 
-  return guardianPool;
-}
-
-function allocateGuardian(preferredTier) {
-  const pool = generateGuardianPool();
-  let candidates = pool.filter(g => !g.allocated);
-  if (preferredTier) {
-    candidates = candidates.filter(g => g.tier === preferredTier);
-  }
-  if (candidates.length === 0) return null;
-  const selected = candidates[Math.floor(Math.random() * candidates.length)];
-  selected.allocated = true;
-  return selected;
+  return guardians;
 }
 
 app.use(express.json());
 
-// Verify platform-issued JWT if one was passed, then enforce auth on
-// anything not explicitly marked public. The iframe adds `?token=…`
-// on load; the frontend script forwards the token via `x-usernode-token`
-// on subsequent fetches.
 app.use((req, res, next) => {
   const token = req.query.token || req.headers['x-usernode-token'];
   if (token && JWT_SECRET) {
     try { req.user = jwt.verify(token, JWT_SECRET); } catch {}
   }
 
-  // Static assets (CSS/JS/images) are always served; the API and the HTML
-  // shell are gated so direct hits to the staging/prod subdomain don't
-  // leak app data to the public internet.
   if (req.method !== 'GET' || req.path.startsWith('/api/')) {
     if (PUBLIC_API_PATHS.has(req.path)) return next();
     if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
@@ -107,7 +80,6 @@ app.use((req, res, next) => {
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
-// Guardian API routes (stub implementations)
 app.get('/api/guardian', async (req, res) => {
   try {
     res.json({
@@ -163,46 +135,339 @@ app.get('/api/wallet', async (req, res) => {
   }
 });
 
-// Guardian Character Engine API endpoints (public in staging)
 app.get('/api/guardians', (req, res) => {
   try {
     if (!IS_STAGING) {
       return res.status(403).json({ error: 'Guardian gallery unavailable' });
     }
-    const pool = generateGuardianPool();
+    const guardianPool = generateGuardianPool();
     res.json({
-      guardians: pool,
-      total: pool.length,
-      allocated: pool.filter(g => g.allocated).length,
-      unallocated: pool.filter(g => !g.allocated).length
+      guardians: guardianPool,
+      total: guardianPool.length,
+      allocated: 0,
+      unallocated: guardianPool.length
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/guardians/allocate', (req, res) => {
+app.post('/api/guardian/assign', async (req, res) => {
   try {
-    if (!IS_STAGING) {
-      return res.status(403).json({ error: 'Guardian allocation unavailable' });
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
     }
-    const preferredTier = req.body?.tier || null;
-    const guardian = allocateGuardian(preferredTier);
-    if (!guardian) {
-      return res.status(400).json({ error: 'No guardians available' });
+
+    const wallet = req.user.usernode_pubkey;
+    if (!wallet) {
+      return res.status(400).json({ error: 'Wallet not linked' });
     }
-    res.json({ guardian });
+
+    const result = await pool.query(
+      `SELECT gr.*, g.id, g.name, g.tier, g.lore, g.image, g.status FROM guardian_reservation gr
+       JOIN guardian g ON gr.guardian_id = g.id
+       WHERE gr.wallet_address = $1 AND gr.expires_at > NOW()
+       LIMIT 1`,
+      [wallet]
+    );
+
+    if (result.rows.length > 0) {
+      const reservation = result.rows[0];
+      const expiresAt = new Date(reservation.expires_at);
+      const expiresIn = Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
+
+      return res.json({
+        success: true,
+        guardian: {
+          id: reservation.id,
+          name: reservation.name,
+          tier: reservation.tier,
+          lore: reservation.lore,
+          image: reservation.image
+        },
+        reservation: {
+          expiresAt: expiresAt.toISOString(),
+          expiresIn
+        }
+      });
+    }
+
+    await pool.query(`DELETE FROM guardian_reservation WHERE wallet_address = $1 AND expires_at <= NOW()`, [wallet]);
+
+    const available = await pool.query(
+      `SELECT * FROM guardian WHERE status = 'AVAILABLE' ORDER BY RANDOM() LIMIT 1`
+    );
+
+    if (available.rows.length === 0) {
+      return res.status(500).json({ error: 'No available Guardians' });
+    }
+
+    const guardian = available.rows[0];
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      await client.query(`UPDATE guardian SET status = 'RESERVED' WHERE id = $1`, [guardian.id]);
+
+      const reservationResult = await client.query(
+        `INSERT INTO guardian_reservation (guardian_id, wallet_address, user_id, username, expires_at)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [guardian.id, wallet, req.user.id, req.user.username, expiresAt]
+      );
+
+      const reservation = reservationResult.rows[0];
+
+      await client.query(
+        `INSERT INTO guardian_audit_log (guardian_id, wallet_address, user_id, username, event, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [guardian.id, wallet, req.user.id, req.user.username, 'ASSIGNED', JSON.stringify({ tier: guardian.tier, name: guardian.name })]
+      );
+
+      await client.query(
+        `INSERT INTO guardian_audit_log (guardian_id, wallet_address, user_id, username, event, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [guardian.id, wallet, req.user.id, req.user.username, 'RESERVED', JSON.stringify({ expiresAt: expiresAt.toISOString() })]
+      );
+
+      await client.query('COMMIT');
+
+      const expiresIn = Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
+
+      return res.json({
+        success: true,
+        guardian: {
+          id: guardian.id,
+          name: guardian.name,
+          tier: guardian.tier,
+          lore: guardian.lore,
+          image: guardian.image
+        },
+        reservation: {
+          expiresAt: expiresAt.toISOString(),
+          expiresIn
+        }
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/guardian/current', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const wallet = req.user.usernode_pubkey;
+    if (!wallet) {
+      return res.json({
+        guardian: null,
+        status: null,
+        reservation: null,
+        ownership: null
+      });
+    }
+
+    await pool.query(
+      `DELETE FROM guardian_reservation WHERE wallet_address = $1 AND expires_at <= NOW()`,
+      [wallet]
+    );
+
+    const guardianResult = await pool.query(
+      `SELECT g.*,
+              CASE
+                WHEN gr.id IS NOT NULL AND gr.expires_at > NOW() THEN 'RESERVED'
+                WHEN go.minted_at IS NOT NULL THEN 'MINTED'
+                ELSE NULL
+              END as current_status,
+              gr.id as reservation_id,
+              gr.expires_at as reservation_expires,
+              go.id as ownership_id,
+              go.minted_at as minted_at
+       FROM guardian g
+       LEFT JOIN guardian_reservation gr ON g.id = gr.guardian_id AND gr.wallet_address = $1
+       LEFT JOIN guardian_ownership go ON g.id = go.guardian_id AND go.wallet_address = $1
+       WHERE gr.id IS NOT NULL OR go.id IS NOT NULL
+       LIMIT 1`,
+      [wallet]
+    );
+
+    if (guardianResult.rows.length === 0) {
+      return res.json({
+        guardian: null,
+        status: null,
+        reservation: null,
+        ownership: null
+      });
+    }
+
+    const row = guardianResult.rows[0];
+    const guardian = {
+      id: row.id,
+      name: row.name,
+      title: row.title,
+      tier: row.tier,
+      lore: row.lore,
+      image: row.image,
+      status: row.status
+    };
+
+    const status = row.current_status;
+    const reservation = row.reservation_id ? {
+      expiresAt: new Date(row.reservation_expires).toISOString(),
+      expiresIn: Math.max(0, Math.floor((new Date(row.reservation_expires).getTime() - Date.now()) / 1000))
+    } : null;
+
+    const ownership = row.ownership_id ? {
+      guardian_id: row.id,
+      wallet_address: wallet,
+      user_id: req.user.id,
+      username: req.user.username,
+      minted_at: row.minted_at
+    } : null;
+
+    res.json({
+      guardian,
+      status,
+      reservation,
+      ownership
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/supply/stats', async (req, res) => {
+  try {
+    await pool.query(
+      `DELETE FROM guardian_reservation WHERE expires_at <= NOW()`
+    );
+
+    const result = await pool.query(
+      `SELECT tier, status, COUNT(*) as count FROM guardian GROUP BY tier, status`
+    );
+
+    const tiers = ['COMMON', 'RARE', 'EPIC', 'LEGENDARY', 'MYTHIC'];
+    const byTier = {
+      COMMON: { available: 0, reserved: 0, minted: 0 },
+      RARE: { available: 0, reserved: 0, minted: 0 },
+      EPIC: { available: 0, reserved: 0, minted: 0 },
+      LEGENDARY: { available: 0, reserved: 0, minted: 0 },
+      MYTHIC: { available: 0, reserved: 0, minted: 0 }
+    };
+
+    let total = 0;
+    let available = 0;
+    let reserved = 0;
+    let minted = 0;
+
+    for (const row of result.rows) {
+      const count = parseInt(row.count);
+      total += count;
+
+      if (row.status === 'AVAILABLE') {
+        available += count;
+        byTier[row.tier].available += count;
+      } else if (row.status === 'RESERVED') {
+        reserved += count;
+        byTier[row.tier].reserved += count;
+      } else if (row.status === 'MINTED') {
+        minted += count;
+        byTier[row.tier].minted += count;
+      }
+    }
+
+    res.json({
+      total,
+      available,
+      reserved,
+      minted,
+      byTier
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/guardian/history', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const wallet = req.user.usernode_pubkey;
+    if (!wallet) {
+      return res.json({ events: [] });
+    }
+
+    const result = await pool.query(
+      `SELECT gal.*, g.name, g.id as guardian_id FROM guardian_audit_log gal
+       LEFT JOIN guardian g ON gal.guardian_id = g.id
+       WHERE gal.wallet_address = $1
+       ORDER BY gal.created_at DESC`,
+      [wallet]
+    );
+
+    const events = result.rows.map(row => ({
+      event: row.event,
+      guardian: row.guardian_id ? { id: row.guardian_id, name: row.name } : null,
+      createdAt: row.created_at,
+      metadata: row.metadata
+    }));
+
+    res.json({ events });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/guardian/cleanup', async (req, res) => {
+  try {
+    if (!req.user || !req.user.admin) {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+
+    const result = await pool.query(
+      `DELETE FROM guardian_reservation WHERE expires_at <= NOW() RETURNING *`
+    );
+
+    for (const reservation of result.rows) {
+      await pool.query(
+        `UPDATE guardian SET status = 'AVAILABLE' WHERE id = $1`,
+        [reservation.guardian_id]
+      );
+
+      await pool.query(
+        `INSERT INTO guardian_audit_log (guardian_id, wallet_address, user_id, username, event, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [reservation.guardian_id, reservation.wallet_address, reservation.user_id, reservation.username, 'EXPIRED', JSON.stringify({ expiresAt: reservation.expires_at })]
+      );
+
+      await pool.query(
+        `INSERT INTO guardian_audit_log (guardian_id, wallet_address, user_id, username, event, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [reservation.guardian_id, reservation.wallet_address, reservation.user_id, reservation.username, 'RELEASED', JSON.stringify({ reason: 'reservation_expired' })]
+      );
+    }
+
+    res.json({ released: result.rows.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
-
 app.get('/favicon.ico', (req, res) => res.sendFile(path.join(__dirname, 'public', 'favicon.ico')));
 
-// HTML shell: serve the app if authenticated, otherwise an "open in Usernode"
-// landing page so stray visits to the staging URL don't reveal the app.
 app.get('*', (req, res) => {
   if (!req.user) {
     return res.status(401).send(`<!doctype html><meta charset=utf-8><title>Open in Usernode</title>
@@ -217,35 +482,89 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-async function start() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS guardian_state (
-      user_id INTEGER PRIMARY KEY,
-      username VARCHAR(255) NOT NULL,
-      guardian_name VARCHAR(100) NOT NULL DEFAULT 'Guardian',
-      mood VARCHAR(20) NOT NULL DEFAULT 'neutral',
-      health INTEGER NOT NULL DEFAULT 80,
-      energy INTEGER NOT NULL DEFAULT 60,
-      level INTEGER NOT NULL DEFAULT 1,
-      xp INTEGER NOT NULL DEFAULT 0,
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-
-  if (IS_STAGING) {
-    await pool.query(`
-      INSERT INTO guardian_state (user_id, username, guardian_name, mood, health, energy, level, xp)
-      VALUES (-1, 'demo-user-1', 'Demo Guardian', 'happy', 90, 75, 3, 45)
-      ON CONFLICT (user_id) DO NOTHING
-    `);
-    await pool.query(`
-      INSERT INTO guardian_state (user_id, username, guardian_name, mood, health, energy, level, xp)
-      VALUES (-2, 'demo-user-2', 'Sleepy Bot', 'tired', 40, 20, 1, 10)
-      ON CONFLICT (user_id) DO NOTHING
-    `);
-  }
-
-  app.listen(port, () => console.log(`Listening on :${port}`));
+async function applyMigrations() {
+  const migrationPath = path.join(__dirname, 'src', 'db', 'migrations', '001_pr8_schema.sql');
+  const migrationSql = fs.readFileSync(migrationPath, 'utf-8');
+  await pool.query(migrationSql);
 }
 
-start().catch(err => { console.error(err); process.exit(1); });
+async function seedStagingData() {
+  if (!IS_STAGING) return;
+
+  const guardians = generateGuardianPool();
+
+  for (const guardian of guardians) {
+    await pool.query(
+      `INSERT INTO guardian (id, name, title, tier, lore, image, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (id) DO NOTHING`,
+      [guardian.id, guardian.name, guardian.title, guardian.tier, guardian.lore, guardian.image, 'AVAILABLE']
+    );
+  }
+
+  const reservationTime = new Date(Date.now() + 30 * 60 * 1000);
+  await pool.query(
+    `INSERT INTO guardian_reservation (guardian_id, wallet_address, user_id, username, expires_at)
+     VALUES (2, 'staging-demo-wallet-1', -1, 'staging-demo-user-1', $1)
+     ON CONFLICT (guardian_id) DO NOTHING`,
+    [reservationTime]
+  );
+
+  await pool.query(
+    `UPDATE guardian SET status = 'RESERVED' WHERE id = 2 AND status = 'AVAILABLE'`
+  );
+}
+
+function startCleanupWorker() {
+  const CLEANUP_INTERVAL = 60 * 60 * 1000;
+
+  setInterval(async () => {
+    try {
+      const localPool = new Pool({ connectionString: process.env.DATABASE_URL });
+      const result = await localPool.query(
+        `DELETE FROM guardian_reservation WHERE expires_at <= NOW() RETURNING *`
+      );
+
+      for (const reservation of result.rows) {
+        await localPool.query(
+          `UPDATE guardian SET status = 'AVAILABLE' WHERE id = $1`,
+          [reservation.guardian_id]
+        );
+
+        await localPool.query(
+          `INSERT INTO guardian_audit_log (guardian_id, wallet_address, user_id, username, event, metadata)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [reservation.guardian_id, reservation.wallet_address, reservation.user_id, reservation.username, 'EXPIRED', JSON.stringify({ expiresAt: reservation.expires_at })]
+        );
+
+        await localPool.query(
+          `INSERT INTO guardian_audit_log (guardian_id, wallet_address, user_id, username, event, metadata)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [reservation.guardian_id, reservation.wallet_address, reservation.user_id, reservation.username, 'RELEASED', JSON.stringify({ reason: 'reservation_expired' })]
+        );
+      }
+
+      console.log(`[Cleanup] Released ${result.rows.length} expired reservations`);
+      await localPool.end();
+    } catch (err) {
+      console.error('[Cleanup] Error:', err);
+    }
+  }, CLEANUP_INTERVAL);
+}
+
+async function start() {
+  try {
+    await applyMigrations();
+    await seedStagingData();
+
+    app.listen(port, () => {
+      console.log(`Listening on :${port}`);
+      startCleanupWorker();
+    });
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
+  }
+}
+
+start();
