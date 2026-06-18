@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guardian Gallery</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class' }</script>
+  <script src="guardian-card.js"></script>
+  <style>
+    body {
+      background-color: #0a0a0f;
+    }
+  </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen">
+  <div class="flex flex-col gap-6 py-8 px-4 max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="flex flex-col gap-2">
+      <h1 class="text-4xl font-bold">Guardian Gallery</h1>
+      <p class="text-zinc-400">All 500 Guardian NFT characters</p>
+    </div>
+
+    <!-- Search and Filter Controls -->
+    <div class="flex flex-col gap-4 bg-zinc-900 rounded-lg border border-zinc-800 p-4">
+      <!-- Search -->
+      <div class="flex flex-col gap-2">
+        <label for="search" class="text-sm font-semibold text-zinc-300">Search by name</label>
+        <input
+          id="search"
+          type="text"
+          placeholder="e.g., Aegis, Nyra..."
+          class="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-100 placeholder-zinc-500"
+        />
+      </div>
+
+      <!-- Tier Filter -->
+      <div class="flex flex-col gap-2">
+        <label class="text-sm font-semibold text-zinc-300">Filter by tier</label>
+        <div class="flex gap-2 flex-wrap">
+          <button
+            class="tier-filter px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-xs font-semibold text-zinc-300 hover:border-purple-600 active"
+            data-tier="ALL"
+          >
+            All
+          </button>
+          <button
+            class="tier-filter px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-xs font-semibold text-zinc-300 hover:border-purple-600"
+            data-tier="COMMON"
+          >
+            ⚔️ Common (60%)
+          </button>
+          <button
+            class="tier-filter px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-xs font-semibold text-zinc-300 hover:border-purple-600"
+            data-tier="RARE"
+          >
+            🗡️ Rare (24%)
+          </button>
+          <button
+            class="tier-filter px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-xs font-semibold text-zinc-300 hover:border-purple-600"
+            data-tier="EPIC"
+          >
+            ⚡ Epic (12%)
+          </button>
+          <button
+            class="tier-filter px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-xs font-semibold text-zinc-300 hover:border-purple-600"
+            data-tier="LEGENDARY"
+          >
+            👑 Legendary (3.6%)
+          </button>
+          <button
+            class="tier-filter px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-xs font-semibold text-zinc-300 hover:border-purple-600"
+            data-tier="MYTHIC"
+          >
+            🐉 Mythic (0.4%)
+          </button>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="flex gap-4 text-sm">
+        <div class="flex flex-col gap-1">
+          <span class="text-zinc-400">Total</span>
+          <span class="text-lg font-semibold" id="total-count">0</span>
+        </div>
+        <div class="flex flex-col gap-1">
+          <span class="text-zinc-400">Allocated</span>
+          <span class="text-lg font-semibold text-green-400" id="allocated-count">0</span>
+        </div>
+        <div class="flex flex-col gap-1">
+          <span class="text-zinc-400">Available</span>
+          <span class="text-lg font-semibold text-blue-400" id="available-count">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Guardian Grid -->
+    <div id="guardian-grid" class="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      <!-- Guardians will be rendered here -->
+    </div>
+  </div>
+
+  <script>
+    let allGuardians = [];
+    let filteredGuardians = [];
+    let selectedTier = 'ALL';
+    let searchQuery = '';
+
+    const searchInput = document.getElementById('search');
+    const gridContainer = document.getElementById('guardian-grid');
+    const totalCountEl = document.getElementById('total-count');
+    const allocatedCountEl = document.getElementById('allocated-count');
+    const availableCountEl = document.getElementById('available-count');
+    const tierFilterButtons = document.querySelectorAll('.tier-filter');
+
+    async function loadGuardians() {
+      try {
+        const response = await fetch('/api/guardians');
+        if (!response.ok) {
+          console.error('Failed to load guardians:', response.status);
+          return;
+        }
+        const data = await response.json();
+        allGuardians = data.guardians;
+        updateStats();
+        filterAndRender();
+      } catch (err) {
+        console.error('Error loading guardians:', err);
+      }
+    }
+
+    function updateStats() {
+      totalCountEl.textContent = allGuardians.length;
+      allocatedCountEl.textContent = allGuardians.filter(g => g.allocated).length;
+      availableCountEl.textContent = allGuardians.filter(g => !g.allocated).length;
+    }
+
+    function filterAndRender() {
+      filteredGuardians = allGuardians.filter(guardian => {
+        const matchesTier = selectedTier === 'ALL' || guardian.tier === selectedTier;
+        const matchesSearch = guardian.name.toLowerCase().includes(searchQuery.toLowerCase());
+        return matchesTier && matchesSearch;
+      });
+
+      renderGrid();
+    }
+
+    function renderGrid() {
+      gridContainer.innerHTML = '';
+
+      if (filteredGuardians.length === 0) {
+        const noResults = document.createElement('div');
+        noResults.className = 'col-span-full text-center py-12 text-zinc-400';
+        noResults.textContent = 'No guardians match your search.';
+        gridContainer.appendChild(noResults);
+        return;
+      }
+
+      for (const guardian of filteredGuardians) {
+        const card = createGuardianCard(guardian, guardian.allocated, () => {
+          showGuardianDetail(guardian);
+        });
+        gridContainer.appendChild(card);
+      }
+    }
+
+    function showGuardianDetail(guardian) {
+      if (guardian.allocated) return;
+
+      const modal = document.createElement('div');
+      modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50';
+
+      const content = document.createElement('div');
+      content.className = 'bg-zinc-900 rounded-lg border border-zinc-800 p-6 max-w-md w-full';
+
+      content.innerHTML = `
+        <div class="flex flex-col gap-4">
+          <button
+            onclick="this.parentElement.parentElement.remove()"
+            class="absolute top-4 right-4 text-zinc-400 hover:text-zinc-100"
+          >
+            ✕
+          </button>
+          <div class="text-5xl text-center">${guardian.image}</div>
+          <div class="flex flex-col gap-1 text-center">
+            <h2 class="text-2xl font-bold">${guardian.name}</h2>
+            <p class="text-zinc-400">${guardian.title}</p>
+          </div>
+          <div class="flex justify-center">
+            ${createTierBadge(guardian.tier).outerHTML}
+          </div>
+          <p class="text-sm text-zinc-300 text-center italic">${guardian.lore}</p>
+          <div class="flex gap-2 pt-4">
+            <button
+              class="flex-1 px-4 py-2 rounded-lg bg-purple-600 text-white font-semibold hover:bg-purple-700 transition-colors"
+              onclick="mintGuardian('${guardian.id}')"
+            >
+              Select Guardian
+            </button>
+            <button
+              class="flex-1 px-4 py-2 rounded-lg bg-zinc-800 text-zinc-100 font-semibold hover:bg-zinc-700 transition-colors"
+              onclick="this.parentElement.parentElement.parentElement.remove()"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      `;
+
+      modal.appendChild(content);
+      document.body.appendChild(modal);
+
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          modal.remove();
+        }
+      });
+    }
+
+    async function mintGuardian(guardianId) {
+      try {
+        const response = await fetch('/api/guardians/allocate', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        if (!response.ok) {
+          console.error('Failed to allocate guardian:', response.status);
+          return;
+        }
+        const data = await response.json();
+        console.log('Guardian allocated:', data.guardian);
+
+        // Close modal and reload
+        const modal = document.querySelector('.fixed.inset-0');
+        if (modal) modal.remove();
+
+        // Reload guardians to update allocated status
+        await loadGuardians();
+      } catch (err) {
+        console.error('Error allocating guardian:', err);
+      }
+    }
+
+    // Event listeners
+    searchInput.addEventListener('input', (e) => {
+      searchQuery = e.target.value;
+      filterAndRender();
+    });
+
+    tierFilterButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        tierFilterButtons.forEach(b => b.classList.remove('active', 'bg-purple-900', 'border-purple-600'));
+        button.classList.add('active', 'bg-purple-900', 'border-purple-600');
+        selectedTier = button.dataset.tier;
+        filterAndRender();
+      });
+    });
+
+    // Initial load
+    document.addEventListener('DOMContentLoaded', loadGuardians);
+  </script>
+</body>
+</html>

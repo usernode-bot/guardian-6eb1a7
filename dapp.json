@@ -36,6 +36,21 @@
       "name": "Mint button is clickable and transitions to minted state",
       "path": "/?demo=eligible",
       "expectText": "READY TO MINT"
+    },
+    {
+      "name": "Guardian Gallery loads with all 500 guardians",
+      "path": "/guardians.html",
+      "expectText": "Guardian Gallery"
+    },
+    {
+      "name": "Guardian Gallery displays guardian cards",
+      "path": "/guardians.html",
+      "expectSelector": ".tier-filter"
+    },
+    {
+      "name": "Guardian Gallery shows allocation stats",
+      "path": "/guardians.html",
+      "expectText": "Available"
     }
   ]
 }
