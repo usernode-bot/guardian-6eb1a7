@@ -14,6 +14,97 @@ const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 
 const PUBLIC_API_PATHS = new Set(['/health', '/api/node', '/favicon.ico', '/api/guardians', '/api/evolution/leaderboard', '/api/metadata/registry']);
 
+function bech32Decode(bech32String) {
+  const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+  let lowercased = bech32String.toLowerCase();
+  let lastSeparator = lowercased.lastIndexOf('1');
+
+  if (lastSeparator < 1 || lastSeparator + 7 > lowercased.length || lowercased.length > 90) {
+    return null;
+  }
+
+  let hrp = lowercased.substring(0, lastSeparator);
+  let data = [];
+
+  for (let i = lastSeparator + 1; i < lowercased.length; i++) {
+    let index = CHARSET.indexOf(lowercased[i]);
+    if (index < 0) return null;
+    data.push(index);
+  }
+
+  let decoded = convertBits(data, 5, 8, false);
+  if (!decoded || decoded.length < 2) return null;
+
+  return { hrp, data: decoded };
+}
+
+function convertBits(data, fromBits, toBits, pad) {
+  let acc = 0;
+  let bits = 0;
+  let result = [];
+
+  for (let i = 0; i < data.length; i++) {
+    acc = (acc << fromBits) | data[i];
+    bits += fromBits;
+
+    while (bits >= toBits) {
+      bits -= toBits;
+      result.push((acc >> bits) & ((1 << toBits) - 1));
+    }
+  }
+
+  if (pad) {
+    if (bits > 0) result.push((acc << (toBits - bits)) & ((1 << toBits) - 1));
+  } else if (bits >= fromBits || ((acc << (toBits - bits)) & ((1 << toBits) - 1))) {
+    return null;
+  }
+
+  return result;
+}
+
+function convertUsernodeToEthereumAddress(usernodeAddress) {
+  if (!usernodeAddress) return null;
+
+  if (typeof usernodeAddress !== 'string') {
+    console.error('Invalid address type:', typeof usernodeAddress);
+    return null;
+  }
+
+  if (usernodeAddress.startsWith('0x') && usernodeAddress.length === 42) {
+    const hexPart = usernodeAddress.substring(2);
+    if (!/^[0-9a-fA-F]{40}$/.test(hexPart)) {
+      console.error('Invalid Ethereum address format');
+      return null;
+    }
+    return usernodeAddress.toLowerCase();
+  }
+
+  if (!usernodeAddress.startsWith('ut1')) {
+    console.error('Invalid address format: does not start with ut1 or 0x');
+    return null;
+  }
+
+  try {
+    const decoded = bech32Decode(usernodeAddress);
+
+    if (!decoded || decoded.hrp !== 'ut1') {
+      console.error('Invalid bech32 decode or prefix');
+      return null;
+    }
+
+    if (decoded.data.length !== 20) {
+      console.error('Invalid address length after decoding:', decoded.data.length);
+      return null;
+    }
+
+    const hexAddress = '0x' + Buffer.from(decoded.data).toString('hex');
+    return hexAddress.toLowerCase();
+  } catch (err) {
+    console.error('Error decoding Usernode address:', err.message);
+    return null;
+  }
+}
+
 // WebSocket signaling server state
 const wsConnections = new Map(); // user_id -> { socket, sessionToken, username, guardian_id, guardian_name, guardian_tier }
 const allClients = new Set(); // all active WebSocket connections
@@ -174,11 +265,20 @@ app.get('/api/node', async (req, res) => {
 
 app.get('/api/wallet', async (req, res) => {
   try {
-    const address = req.user ? (req.user.usernode_pubkey || null) : null;
+    const usernodeAddress = req.user ? (req.user.usernode_pubkey || null) : null;
 
-    if (!address) {
+    if (!usernodeAddress) {
       return res.json({
         address: null,
+        balance: null
+      });
+    }
+
+    const ethAddress = convertUsernodeToEthereumAddress(usernodeAddress);
+    if (!ethAddress) {
+      console.error('Failed to convert Usernode address to Ethereum format:', usernodeAddress);
+      return res.json({
+        address: usernodeAddress,
         balance: null
       });
     }
@@ -186,7 +286,7 @@ app.get('/api/wallet', async (req, res) => {
     const rpcUrl = process.env.TESTNET_RPC_URL;
     if (!rpcUrl) {
       return res.json({
-        address,
+        address: usernodeAddress,
         balance: null
       });
     }
@@ -198,7 +298,7 @@ app.get('/api/wallet', async (req, res) => {
         body: JSON.stringify({
           jsonrpc: '2.0',
           method: 'eth_getBalance',
-          params: [address, 'latest'],
+          params: [ethAddress, 'latest'],
           id: 1
         })
       });
@@ -206,7 +306,7 @@ app.get('/api/wallet', async (req, res) => {
       if (!rpcResponse.ok) {
         console.error(`RPC error: HTTP ${rpcResponse.status}`);
         return res.json({
-          address,
+          address: usernodeAddress,
           balance: null
         });
       }
@@ -216,7 +316,7 @@ app.get('/api/wallet', async (req, res) => {
       if (rpcData.error) {
         console.error(`RPC error: ${rpcData.error.message}`);
         return res.json({
-          address,
+          address: usernodeAddress,
           balance: null
         });
       }
@@ -224,7 +324,7 @@ app.get('/api/wallet', async (req, res) => {
       if (!rpcData.result) {
         console.error('RPC returned no balance result');
         return res.json({
-          address,
+          address: usernodeAddress,
           balance: null
         });
       }
@@ -234,13 +334,13 @@ app.get('/api/wallet', async (req, res) => {
       const formattedBalance = balanceEth.toFixed(4).replace(/\.?0+$/, '') || '0';
 
       res.json({
-        address,
+        address: usernodeAddress,
         balance: `${formattedBalance} ETH`
       });
     } catch (err) {
       console.error('Error fetching balance from RPC:', err.message);
       res.json({
-        address,
+        address: usernodeAddress,
         balance: null
       });
     }
