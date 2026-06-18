@@ -7,6 +7,8 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
   <script src="guardian-card.js"></script>
+  <script src="wallet-confirmation-modal.js"></script>
+  <script src="wallet-confirmation.js"></script>
   <style>
     body {
       background-color: #0a0a0f;
@@ -219,17 +221,30 @@
 
     async function mintGuardian(guardianId) {
       try {
-        const response = await fetch('/api/guardians/allocate', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({})
-        });
+        const response = await fetchWithWalletConfirmation(
+          '/api/guardian/assign',
+          {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-usernode-token': localStorage.getItem('usernode-token') || ''
+            },
+            body: JSON.stringify({})
+          },
+          'Assign a new Guardian to your wallet'
+        );
+
+        // Silent return on cancel (status 499)
+        if (response.status === 499) {
+          return;
+        }
+
         if (!response.ok) {
-          console.error('Failed to allocate guardian:', response.status);
+          console.error('Failed to assign guardian:', response.status);
           return;
         }
         const data = await response.json();
-        console.log('Guardian allocated:', data.guardian);
+        console.log('Guardian assigned:', data.guardian);
 
         // Close modal and reload
         const modal = document.querySelector('.fixed.inset-0');
@@ -238,7 +253,7 @@
         // Reload guardians to update allocated status
         await loadGuardians();
       } catch (err) {
-        console.error('Error allocating guardian:', err);
+        console.error('Error assigning guardian:', err);
       }
     }
 
