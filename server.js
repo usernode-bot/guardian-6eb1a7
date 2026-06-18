@@ -113,6 +113,8 @@ app.post('/api/guardian', async (req, res) => {
 
 app.get('/api/node', async (req, res) => {
   try {
+    console.log('[/api/node] Starting request, IS_STAGING:', IS_STAGING);
+
     // Fetch latest metrics from guardian_node_metrics table
     const result = await pool.query(
       `SELECT DISTINCT ON (metric_name) metric_name, value
@@ -120,39 +122,61 @@ app.get('/api/node', async (req, res) => {
        ORDER BY metric_name, created_at DESC`
     );
 
+    console.log('[/api/node] Query result rows:', result.rows);
+    console.log('[/api/node] Row count:', result.rows.length);
+
     let metrics = {};
     for (const row of result.rows) {
       metrics[row.metric_name] = row.value;
     }
 
+    console.log('[/api/node] Parsed metrics object:', JSON.stringify(metrics));
+    console.log('[/api/node] Metrics keys count:', Object.keys(metrics).length);
+
     // If no metrics in staging, seed demo metrics immediately
     if (IS_STAGING && Object.keys(metrics).length === 0) {
+      console.log('[/api/node] Table is empty in staging, seeding demo metrics...');
       const { seedDemoMetrics } = require('./src/polling/rpc-poller');
       try {
         await seedDemoMetrics(pool);
+        console.log('[/api/node] Demo metrics seeded successfully');
+
         // Re-fetch after seeding
         const refreshed = await pool.query(
           `SELECT DISTINCT ON (metric_name) metric_name, value
            FROM guardian_node_metrics
            ORDER BY metric_name, created_at DESC`
         );
+        console.log('[/api/node] After seeding - query result rows:', refreshed.rows);
+        console.log('[/api/node] After seeding - row count:', refreshed.rows.length);
+
         metrics = {};
         for (const row of refreshed.rows) {
           metrics[row.metric_name] = row.value;
         }
+        console.log('[/api/node] After seeding - parsed metrics:', JSON.stringify(metrics));
       } catch (seedErr) {
         console.error('[/api/node] Failed to seed demo metrics:', seedErr.message);
+        console.error('[/api/node] Stack:', seedErr.stack);
       }
     }
 
-    res.json({
+    const response = {
       status: metrics.node_status || 'online',
       uptimeSeconds: parseInt(metrics.uptime_seconds || '259200'),
       peers: parseInt(metrics.peer_count || '12'),
       blockHeight: parseInt(metrics.block_height || '1234567'),
       lastBlockTime: metrics.block_timestamp || new Date(Date.now() - 2000).toISOString()
-    });
+    };
+
+    console.log('[/api/node] Final response:', JSON.stringify(response));
+    console.log('[/api/node] Status field value:', response.status);
+    console.log('[/api/node] Response contains "online":', response.status.includes('online'));
+
+    res.json(response);
   } catch (err) {
+    console.error('[/api/node] Caught error:', err.message);
+    console.error('[/api/node] Stack:', err.stack);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1232,41 +1256,59 @@ function startCleanupWorker() {
 
 async function start() {
   try {
+    console.log('[start] Initializing server...');
+    console.log('[start] IS_STAGING:', IS_STAGING);
+    console.log('[start] NODE_RPC_URL:', process.env.NODE_RPC_URL);
+    console.log('[start] STAGING_MOCK_RPC_URL:', process.env.STAGING_MOCK_RPC_URL);
+
     await applyMigrations();
+    console.log('[start] Migrations applied');
+
     await seedStagingData();
+    console.log('[start] Staging data seeded');
 
     // Import RPC poller functions
     const { startRpcPoller, seedDemoMetrics } = require('./src/polling/rpc-poller');
+    console.log('[start] RPC poller imported');
 
     // Start RPC polling if NODE_RPC_URL is configured
     const NODE_RPC_URL = process.env.NODE_RPC_URL;
     const STAGING_MOCK_RPC_URL = process.env.STAGING_MOCK_RPC_URL || 'http://localhost:8545';
     const rpcUrl = NODE_RPC_URL || (IS_STAGING ? STAGING_MOCK_RPC_URL : null);
 
+    console.log('[start] Resolved RPC URL:', rpcUrl);
+
     if (rpcUrl) {
       // Try to start polling; if it fails in staging, seed demo metrics
       try {
+        console.log('[start] Starting RPC poller with URL:', rpcUrl);
         startRpcPoller(pool, rpcUrl, 5000).catch(err => {
           console.error('[RPC Poller] Unhandled error:', err.message);
+          console.error('[RPC Poller] Stack:', err.stack);
         });
+        console.log('[start] RPC poller started successfully');
       } catch (err) {
+        console.error('[start] RPC poller startup threw error:', err.message);
+        console.error('[start] Stack:', err.stack);
         if (IS_STAGING) {
-          console.log('[RPC Poller] Connection failed in staging, seeding demo metrics');
+          console.log('[start] Connection failed in staging, seeding demo metrics as fallback');
           await seedDemoMetrics(pool);
+          console.log('[start] Fallback demo metrics seeded');
         } else {
-          console.error('[RPC Poller] Critical: RPC polling failed in production');
+          console.error('[start] Critical: RPC polling failed in production');
         }
       }
     } else {
-      console.warn('[RPC Poller] No RPC URL configured, metrics will be unavailable');
+      console.warn('[start] No RPC URL configured, metrics will be unavailable');
     }
 
     app.listen(port, () => {
-      console.log(`Listening on :${port}`);
+      console.log(`[start] Server listening on :${port}`);
       startCleanupWorker();
     });
   } catch (err) {
-    console.error(err);
+    console.error('[start] Unhandled error during initialization:', err.message);
+    console.error('[start] Stack:', err.stack);
     process.exit(1);
   }
 }

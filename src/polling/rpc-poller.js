@@ -117,27 +117,35 @@ async function pollMetrics(pool, rpcUrl) {
 
 async function startRpcPoller(pool, rpcUrl, interval = 5000) {
   console.log(`[RPC Poller] Starting with URL: ${rpcUrl}, interval: ${interval}ms`);
+  console.log('[RPC Poller] Pool object:', pool ? 'provided' : 'missing');
 
   // Try initial poll to verify connection
   try {
+    console.log('[RPC Poller] Attempting initial connection...');
     await pollMetrics(pool, rpcUrl);
     console.log('[RPC Poller] Initial connection successful');
   } catch (err) {
     console.error('[RPC Poller] Initial connection failed:', err.message);
+    console.error('[RPC Poller] Error stack:', err.stack);
     throw err;
   }
 
   // Set up recurring polls
-  setInterval(() => {
+  const pollInterval = setInterval(() => {
+    console.log('[RPC Poller] Running scheduled poll cycle');
     pollMetrics(pool, rpcUrl).catch(err => {
       console.error('[RPC Poller] Unhandled error in poll cycle:', err);
     });
   }, interval);
+
+  console.log('[RPC Poller] Recurring poll interval set, ID:', pollInterval);
 }
 
 async function seedDemoMetrics(pool) {
   const now = new Date();
   const twoSecondsAgo = new Date(now.getTime() - 2000);
+
+  console.log('[seedDemoMetrics] Starting seed process at', now.toISOString());
 
   const demoMetrics = [
     { name: 'peer_count', value: '12' },
@@ -147,14 +155,23 @@ async function seedDemoMetrics(pool) {
     { name: 'uptime_seconds', value: '259200' }
   ];
 
+  console.log('[seedDemoMetrics] Demo metrics to insert:', JSON.stringify(demoMetrics));
+
   for (const metric of demoMetrics) {
-    await pool.query(
-      `INSERT INTO guardian_node_metrics (metric_name, value, source) VALUES ($1, $2, $3)`,
-      [metric.name, metric.value, 'demo-seed']
-    );
+    console.log('[seedDemoMetrics] Inserting metric:', metric.name, '=', metric.value);
+    try {
+      const insertResult = await pool.query(
+        `INSERT INTO guardian_node_metrics (metric_name, value, source) VALUES ($1, $2, $3)`,
+        [metric.name, metric.value, 'demo-seed']
+      );
+      console.log('[seedDemoMetrics] Insert result for', metric.name, ':', insertResult.rowCount, 'rows affected');
+    } catch (insertErr) {
+      console.error('[seedDemoMetrics] Error inserting', metric.name, ':', insertErr.message);
+      throw insertErr;
+    }
   }
 
-  console.log('[RPC Poller] Demo metrics seeded');
+  console.log('[seedDemoMetrics] Demo metrics seeded successfully');
 }
 
 module.exports = { startRpcPoller, seedDemoMetrics };
