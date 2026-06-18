@@ -847,7 +847,7 @@ app.post('/api/metadata/registry', async (req, res) => {
       return res.status(400).json({ error: 'Numeric fields must be non-negative' });
     }
 
-    const validStages = ['INITIATE', 'AWAKENED', 'ASCENDANT', 'GUARDIAN', 'MYTHIC'];
+    const validStages = ['INITIATE', 'AWAKENED', 'ASCENDANT', 'MYTHIC'];
     if (!validStages.includes(stage)) {
       return res.status(400).json({ error: 'Invalid stage value' });
     }
@@ -1194,7 +1194,6 @@ async function seedStagingData() {
     { guardianId: 1, score: 50, stage: 'INITIATE', level: 1, title: 'Node Wanderer' },
     { guardianId: 3, score: 150, stage: 'AWAKENED', level: 2, title: 'Network Scout' },
     { guardianId: 4, score: 350, stage: 'ASCENDANT', level: 3, title: 'Protocol Guardian' },
-    { guardianId: 5, score: 750, stage: 'GUARDIAN', level: 4, title: 'Core Defender' },
     { guardianId: 6, score: 1500, stage: 'MYTHIC', level: 5, title: 'Legend Keeper' }
   ];
 
@@ -1202,7 +1201,6 @@ async function seedStagingData() {
     INITIATE: { aura: 'Gray Aura', armor_tier: 'Novice Leather', weapon_tier: 'Wooden Staff' },
     AWAKENED: { aura: 'Blue Aura', armor_tier: 'Apprentice Chain', weapon_tier: 'Iron Sword' },
     ASCENDANT: { aura: 'Gold Aura', armor_tier: 'Knight Plate', weapon_tier: 'Enchanted Blade' },
-    GUARDIAN: { aura: 'Plasma Aura', armor_tier: 'Celestial Armor', weapon_tier: 'Plasma Sword' },
     MYTHIC: { aura: 'Celestial Aura', armor_tier: 'Legendary Divinity Plate', weapon_tier: 'Cosmic Spear' }
   };
 
@@ -1220,10 +1218,7 @@ async function seedStagingData() {
   const historyEntries = [
     { guardianId: 3, oldStage: 'INITIATE', newStage: 'AWAKENED', oldLevel: 1, newLevel: 2, score: 150 },
     { guardianId: 4, oldStage: 'INITIATE', newStage: 'AWAKENED', oldLevel: 1, newLevel: 2, score: 150 },
-    { guardianId: 4, oldStage: 'AWAKENED', newStage: 'ASCENDANT', oldLevel: 2, newLevel: 3, score: 350 },
-    { guardianId: 5, oldStage: 'INITIATE', newStage: 'AWAKENED', oldLevel: 1, newLevel: 2, score: 150 },
-    { guardianId: 5, oldStage: 'AWAKENED', newStage: 'ASCENDANT', oldLevel: 2, newLevel: 3, score: 350 },
-    { guardianId: 5, oldStage: 'ASCENDANT', newStage: 'GUARDIAN', oldLevel: 3, newLevel: 4, score: 750 }
+    { guardianId: 4, oldStage: 'AWAKENED', newStage: 'ASCENDANT', oldLevel: 2, newLevel: 3, score: 350 }
   ];
 
   for (const entry of historyEntries) {
@@ -1238,8 +1233,7 @@ async function seedStagingData() {
   // Seed ownership records (one per demo user)
   const ownershipEntries = [
     { guardianId: 3, walletAddress: 'staging-demo-wallet-alice', userId: 1, username: 'alice' },
-    { guardianId: 4, walletAddress: 'staging-demo-wallet-bob', userId: 2, username: 'bob' },
-    { guardianId: 5, walletAddress: 'staging-demo-wallet-charlie', userId: 3, username: 'charlie' }
+    { guardianId: 4, walletAddress: 'staging-demo-wallet-bob', userId: 2, username: 'bob' }
   ];
 
   for (const entry of ownershipEntries) {
@@ -1259,8 +1253,7 @@ async function seedStagingData() {
   // Seed metadata registry entries (synced from ownership + evolution)
   const registryEntries = [
     { userId: 1, username: 'alice', guardianId: 3, score: 150, level: 2, stage: 'AWAKENED', fgHours: 100, peerCount: 5, uptime: 95.5 },
-    { userId: 2, username: 'bob', guardianId: 4, score: 350, level: 3, stage: 'ASCENDANT', fgHours: 250, peerCount: 12, uptime: 98.0 },
-    { userId: 3, username: 'charlie', guardianId: 5, score: 750, level: 4, stage: 'GUARDIAN', fgHours: 500, peerCount: 20, uptime: 99.8 }
+    { userId: 2, username: 'bob', guardianId: 4, score: 350, level: 3, stage: 'ASCENDANT', fgHours: 250, peerCount: 12, uptime: 98.0 }
   ];
 
   for (const entry of registryEntries) {

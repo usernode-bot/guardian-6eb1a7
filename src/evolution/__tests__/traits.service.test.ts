@@ -26,12 +26,6 @@ describe('TraitsService', () => {
       expect(traits.armorTier).toBe('Knight Plate');
     });
 
-    it('should return GUARDIAN traits', () => {
-      const traits = getTraitsForStage('GUARDIAN');
-      expect(traits.aura).toBe('Plasma Aura');
-      expect(traits.armorTier).toBe('Celestial Armor');
-    });
-
     it('should return MYTHIC traits', () => {
       const traits = getTraitsForStage('MYTHIC');
       expect(traits.aura).toBe('Celestial Aura');
