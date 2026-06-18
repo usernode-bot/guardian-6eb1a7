@@ -1176,13 +1176,21 @@ function startCleanupWorker() {
 
 async function start() {
   try {
-    await applyMigrations();
-    await seedStagingData();
-
+    // Start listening immediately so simple endpoints (like /api/node) are accessible
     app.listen(port, () => {
       console.log(`Listening on :${port}`);
-      startCleanupWorker();
     });
+
+    // Apply migrations and seed data in the background
+    try {
+      await applyMigrations();
+      await seedStagingData();
+      startCleanupWorker();
+      console.log('Migrations and seeding complete');
+    } catch (err) {
+      console.error('Migration/seeding error:', err);
+      // Don't exit - the server is already running and simple endpoints work
+    }
   } catch (err) {
     console.error(err);
     process.exit(1);
