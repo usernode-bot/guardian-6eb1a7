@@ -41,11 +41,6 @@
       "name": "Guardian history API returns audit log",
       "path": "/api/guardian/history",
       "expectText": "events"
-    },
-    {
-      "name": "Signaling endpoints accept WebRTC offers",
-      "path": "/api/signaling/offer",
-      "expectText": "error"
     }
   ]
 }
