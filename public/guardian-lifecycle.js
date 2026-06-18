@@ -1,6 +1,6 @@
 /**
  * @typedef {Object} StageInfo
- * @property {string} stage - "EGG" | "BABY" | "GUARDIAN" | "EVOLVED"
+ * @property {string} stage - "EGG" | "BABY" | "EVOLVED"
  * @property {string} emoji
  * @property {number} minHours
  * @property {number} maxHours
@@ -8,8 +8,8 @@
 
 /**
  * @typedef {Object} ProgressInfo
- * @property {string} currentStage - "EGG" | "BABY" | "GUARDIAN" | "EVOLVED"
- * @property {string} nextStage - "EGG" | "BABY" | "GUARDIAN" | "EVOLVED" | null
+ * @property {string} currentStage - "EGG" | "BABY" | "EVOLVED"
+ * @property {string} nextStage - "EGG" | "BABY" | "EVOLVED" | null
  * @property {number} hoursAtCurrentStage
  * @property {number} hoursUntilNextStage
  * @property {number} percentProgress
@@ -18,19 +18,17 @@
 const STAGE_CONFIG = [
   { stage: 'EGG', emoji: '🥚', minHours: 0, maxHours: 1 },
   { stage: 'BABY', emoji: '🤖', minHours: 1, maxHours: 10 },
-  { stage: 'GUARDIAN', emoji: '🦾', minHours: 10, maxHours: 50 },
   { stage: 'EVOLVED', emoji: '⚡🤖', minHours: 50, maxHours: Infinity }
 ];
 
 /**
  * Determine the Guardian's stage based on total Foreground hours.
  * @param {number} totalFGHours
- * @returns {"EGG" | "BABY" | "GUARDIAN" | "EVOLVED"}
+ * @returns {"EGG" | "BABY" | "EVOLVED"}
  */
 function getGuardianStage(totalFGHours) {
   if (totalFGHours < 1) return 'EGG';
   if (totalFGHours < 10) return 'BABY';
-  if (totalFGHours < 50) return 'GUARDIAN';
   return 'EVOLVED';
 }
 
