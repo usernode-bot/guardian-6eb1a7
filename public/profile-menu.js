@@ -90,15 +90,16 @@ class ProfileMenu {
     }
 
     const address = this.walletData?.address;
-    const balance = this.walletData?.balance || '0 UT';
+    const balance = this.walletData?.balance;
 
     let walletSection = '';
     if (address) {
+      const balanceDisplay = balance === null || balance === undefined ? 'Unable to fetch' : balance;
       walletSection = `
         <div class="border-t border-zinc-700 px-4 py-3">
           <div class="text-xs text-zinc-500 mb-1">Wallet</div>
           <div class="text-sm text-zinc-200 font-mono mb-2">${this.truncateAddress(address)}</div>
-          <div class="text-xs text-zinc-400">Balance: <span class="text-zinc-200">${balance}</span></div>
+          <div class="text-xs text-zinc-400">Balance: <span class="text-zinc-200">${balanceDisplay}</span></div>
         </div>
       `;
     } else {
