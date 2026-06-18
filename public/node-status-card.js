@@ -50,7 +50,7 @@ function createNodeStatusCard(nodeStatus) {
 
   const fgLabel = document.createElement('span');
   fgLabel.className = 'text-sm text-zinc-400';
-  fgLabel.textContent = 'FG Status';
+  fgLabel.textContent = 'Foreground Status';
 
   const fgBadge = document.createElement('div');
   const isActive = nodeStatus.fgActive;

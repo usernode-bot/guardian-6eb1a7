@@ -65,7 +65,7 @@ function createContributionScoreCard(evolution, metrics) {
       return row;
     };
 
-    breakdown.appendChild(createBreakdownRow('FG Hours', fgScore, total, 'bg-blue-500'));
+    breakdown.appendChild(createBreakdownRow('Foreground Hours', fgScore, total, 'bg-blue-500'));
     breakdown.appendChild(createBreakdownRow('Peer Count', peerScore, total, 'bg-green-500'));
     breakdown.appendChild(createBreakdownRow('Uptime', uptimeScore, total, 'bg-orange-500'));
 

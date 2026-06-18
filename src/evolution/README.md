@@ -5,7 +5,7 @@ The Evolution Engine powers the dynamic progression system for Guardians based o
 ## Overview
 
 Guardians evolve through five stages as users accumulate:
-- FG Hours (network participation time)
+- Foreground Hours (network participation time)
 - Peer Count (network connections)
 - Uptime (network availability percentage)
 
@@ -15,7 +15,7 @@ These metrics combine into a contribution score that drives level progression, s
 
 ### score.service.ts
 Calculates contribution score from metrics:
-- `calculateContributionScore(metrics)` - Formula: (FG Hours × 40) + (Peer Count × 20) + (Uptime × 40)
+- `calculateContributionScore(metrics)` - Formula: (Foreground Hours × 40) + (Peer Count × 20) + (Uptime × 40)
 - `recalculateScoreForGuardian(guardianId, metrics, pool)` - Updates a guardian's score in the database
 
 ### level.service.ts
