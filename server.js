@@ -115,23 +115,30 @@ app.get('/api/node', async (req, res) => {
   try {
     console.log('[/api/node] Starting request, IS_STAGING:', IS_STAGING);
 
-    // Fetch latest metrics from guardian_node_metrics table
-    const result = await pool.query(
-      `SELECT DISTINCT ON (metric_name) metric_name, value
-       FROM guardian_node_metrics
-       ORDER BY metric_name, created_at DESC`
-    );
-
-    console.log('[/api/node] Query result rows:', result.rows);
-    console.log('[/api/node] Row count:', result.rows.length);
-
     let metrics = {};
-    for (const row of result.rows) {
-      metrics[row.metric_name] = row.value;
-    }
 
-    console.log('[/api/node] Parsed metrics object:', JSON.stringify(metrics));
-    console.log('[/api/node] Metrics keys count:', Object.keys(metrics).length);
+    try {
+      // Fetch latest metrics from guardian_node_metrics table
+      const result = await pool.query(
+        `SELECT DISTINCT ON (metric_name) metric_name, value
+         FROM guardian_node_metrics
+         ORDER BY metric_name, created_at DESC`
+      );
+
+      console.log('[/api/node] Query result rows:', result.rows);
+      console.log('[/api/node] Row count:', result.rows.length);
+
+      for (const row of result.rows) {
+        metrics[row.metric_name] = row.value;
+      }
+
+      console.log('[/api/node] Parsed metrics object:', JSON.stringify(metrics));
+      console.log('[/api/node] Metrics keys count:', Object.keys(metrics).length);
+    } catch (queryErr) {
+      // Table might not exist yet (e.g., during startup before migrations complete)
+      // Fall through to fallback values below
+      console.log('[/api/node] Metrics table not available, using fallback values');
+    }
 
     // If no metrics in staging, seed demo metrics immediately
     if (IS_STAGING && Object.keys(metrics).length === 0) {
@@ -1261,51 +1268,59 @@ async function start() {
     console.log('[start] NODE_RPC_URL:', process.env.NODE_RPC_URL);
     console.log('[start] STAGING_MOCK_RPC_URL:', process.env.STAGING_MOCK_RPC_URL);
 
-    await applyMigrations();
-    console.log('[start] Migrations applied');
-
-    await seedStagingData();
-    console.log('[start] Staging data seeded');
-
-    // Import RPC poller functions
-    const { startRpcPoller, seedDemoMetrics } = require('./src/polling/rpc-poller');
-    console.log('[start] RPC poller imported');
-
-    // Start RPC polling if NODE_RPC_URL is configured
-    const NODE_RPC_URL = process.env.NODE_RPC_URL;
-    const STAGING_MOCK_RPC_URL = process.env.STAGING_MOCK_RPC_URL || 'http://localhost:8545';
-    const rpcUrl = NODE_RPC_URL || (IS_STAGING ? STAGING_MOCK_RPC_URL : null);
-
-    console.log('[start] Resolved RPC URL:', rpcUrl);
-
-    if (rpcUrl) {
-      // Try to start polling; if it fails in staging, seed demo metrics
-      try {
-        console.log('[start] Starting RPC poller with URL:', rpcUrl);
-        startRpcPoller(pool, rpcUrl, 5000).catch(err => {
-          console.error('[RPC Poller] Unhandled error:', err.message);
-          console.error('[RPC Poller] Stack:', err.stack);
-        });
-        console.log('[start] RPC poller started successfully');
-      } catch (err) {
-        console.error('[start] RPC poller startup threw error:', err.message);
-        console.error('[start] Stack:', err.stack);
-        if (IS_STAGING) {
-          console.log('[start] Connection failed in staging, seeding demo metrics as fallback');
-          await seedDemoMetrics(pool);
-          console.log('[start] Fallback demo metrics seeded');
-        } else {
-          console.error('[start] Critical: RPC polling failed in production');
-        }
-      }
-    } else {
-      console.warn('[start] No RPC URL configured, metrics will be unavailable');
-    }
-
+    // Start listening immediately so simple endpoints (like /api/node) are accessible
     app.listen(port, () => {
       console.log(`[start] Server listening on :${port}`);
-      startCleanupWorker();
     });
+
+    // Apply migrations and seed data in the background
+    try {
+      await applyMigrations();
+      console.log('[start] Migrations applied');
+
+      await seedStagingData();
+      console.log('[start] Staging data seeded');
+
+      startCleanupWorker();
+      console.log('Migrations and seeding complete');
+
+      // Import RPC poller functions
+      const { startRpcPoller, seedDemoMetrics } = require('./src/polling/rpc-poller');
+      console.log('[start] RPC poller imported');
+
+      // Start RPC polling if NODE_RPC_URL is configured
+      const NODE_RPC_URL = process.env.NODE_RPC_URL;
+      const STAGING_MOCK_RPC_URL = process.env.STAGING_MOCK_RPC_URL || 'http://localhost:8545';
+      const rpcUrl = NODE_RPC_URL || (IS_STAGING ? STAGING_MOCK_RPC_URL : null);
+
+      console.log('[start] Resolved RPC URL:', rpcUrl);
+
+      if (rpcUrl) {
+        try {
+          console.log('[start] Starting RPC poller with URL:', rpcUrl);
+          startRpcPoller(pool, rpcUrl, 5000).catch(err => {
+            console.error('[RPC Poller] Unhandled error:', err.message);
+            console.error('[RPC Poller] Stack:', err.stack);
+          });
+          console.log('[start] RPC poller started successfully');
+        } catch (err) {
+          console.error('[start] RPC poller startup threw error:', err.message);
+          console.error('[start] Stack:', err.stack);
+          if (IS_STAGING) {
+            console.log('[start] Connection failed in staging, seeding demo metrics as fallback');
+            await seedDemoMetrics(pool);
+            console.log('[start] Fallback demo metrics seeded');
+          } else {
+            console.error('[start] Critical: RPC polling failed in production');
+          }
+        }
+      } else {
+        console.warn('[start] No RPC URL configured, metrics will be unavailable');
+      }
+    } catch (err) {
+      console.error('Migration/seeding error:', err);
+      // Don't exit - the server is already running and simple endpoints work
+    }
   } catch (err) {
     console.error('[start] Unhandled error during initialization:', err.message);
     console.error('[start] Stack:', err.stack);
