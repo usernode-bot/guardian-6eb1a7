@@ -1,3 +1,16 @@
 {
-  "secrets": []
+  "name": "Guardian",
+  "secrets": [],
+  "tests": [
+    {
+      "name": "App shell loads",
+      "path": "/",
+      "expectSelector": "nav"
+    },
+    {
+      "name": "Node API returns mock data",
+      "path": "/api/node",
+      "expectText": "online"
+    }
+  ]
 }

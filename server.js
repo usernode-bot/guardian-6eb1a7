@@ -7,11 +7,12 @@ const app = express();
 const port = process.env.PORT || 3000;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const JWT_SECRET = process.env.JWT_SECRET;
+const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 
 // Paths that stay open without authentication. Add a path here (and add it
 // with `app.get`/`app.post` below) if you deliberately want it public.
 // Everything else requires a valid platform-issued JWT.
-const PUBLIC_API_PATHS = new Set(['/health']);
+const PUBLIC_API_PATHS = new Set(['/health', '/api/node', '/favicon.ico']);
 
 app.use(express.json());
 
@@ -37,35 +38,65 @@ app.use((req, res, next) => {
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
-// Button press
-app.post('/api/press', async (req, res) => {
+// Guardian API routes (stub implementations)
+app.get('/api/guardian', async (req, res) => {
   try {
-    await pool.query(`
-      INSERT INTO presses (user_id, username) VALUES ($1, $2)
-    `, [req.user.id, req.user.username]);
-    res.json({ ok: true });
+    res.json({
+      guardian_name: 'Guardian',
+      mood: 'neutral',
+      health: 80,
+      energy: 60,
+      level: 1,
+      xp: 0
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Leaderboard
-app.get('/api/leaderboard', async (_req, res) => {
+app.post('/api/guardian', async (req, res) => {
   try {
-    const { rows } = await pool.query(`
-      SELECT username, COUNT(*) as presses
-      FROM presses
-      GROUP BY username
-      ORDER BY presses DESC
-      LIMIT 50
-    `);
-    res.json({ leaderboard: rows });
+    res.json({
+      guardian_name: 'Guardian',
+      mood: 'neutral',
+      health: 80,
+      energy: 60,
+      level: 1,
+      xp: 0
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/node', async (req, res) => {
+  try {
+    res.json({
+      status: 'online',
+      uptimeSeconds: 259200,
+      peers: 12,
+      blockHeight: 1234567,
+      lastBlockTime: '2 min ago'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/wallet', async (req, res) => {
+  try {
+    res.json({
+      address: req.user ? (req.user.usernode_pubkey || null) : null,
+      balance: '0 UT'
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/favicon.ico', (req, res) => res.sendFile(path.join(__dirname, 'public', 'favicon.ico')));
 
 // HTML shell: serve the app if authenticated, otherwise an "open in Usernode"
 // landing page so stray visits to the staging URL don't reveal the app.
@@ -85,13 +116,32 @@ app.get('*', (req, res) => {
 
 async function start() {
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS presses (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER NOT NULL,
+    CREATE TABLE IF NOT EXISTS guardian_state (
+      user_id INTEGER PRIMARY KEY,
       username VARCHAR(255) NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
+      guardian_name VARCHAR(100) NOT NULL DEFAULT 'Guardian',
+      mood VARCHAR(20) NOT NULL DEFAULT 'neutral',
+      health INTEGER NOT NULL DEFAULT 80,
+      energy INTEGER NOT NULL DEFAULT 60,
+      level INTEGER NOT NULL DEFAULT 1,
+      xp INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+
+  if (IS_STAGING) {
+    await pool.query(`
+      INSERT INTO guardian_state (user_id, username, guardian_name, mood, health, energy, level, xp)
+      VALUES (-1, 'demo-user-1', 'Demo Guardian', 'happy', 90, 75, 3, 45)
+      ON CONFLICT (user_id) DO NOTHING
+    `);
+    await pool.query(`
+      INSERT INTO guardian_state (user_id, username, guardian_name, mood, health, energy, level, xp)
+      VALUES (-2, 'demo-user-2', 'Sleepy Bot', 'tired', 40, 20, 1, 10)
+      ON CONFLICT (user_id) DO NOTHING
+    `);
+  }
+
   app.listen(port, () => console.log(`Listening on :${port}`));
 }
 

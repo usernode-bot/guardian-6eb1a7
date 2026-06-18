@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  
+
   <script>
   // usernode-dev-console@1
   (function () {
@@ -66,56 +66,158 @@
   <title>Guardian</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
+  <style>
+    body {
+      background-color: #0a0a0f;
+    }
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 8px;
+      cursor: pointer;
+      border-radius: 8px;
+      transition: background-color 0.2s;
+    }
+    .nav-item:hover {
+      background-color: rgba(124, 58, 237, 0.1);
+    }
+    .nav-item.active {
+      background-color: rgba(124, 58, 237, 0.2);
+      color: #a78bfa;
+    }
+    .nav-icon {
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .nav-label {
+      font-size: 11px;
+      font-weight: 500;
+      text-align: center;
+    }
+  </style>
 </head>
-<body class="bg-zinc-950 text-zinc-100 min-h-screen flex flex-col items-center justify-center gap-8 p-4">
-  <h1 class="text-2xl font-bold">Guardian</h1>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen flex flex-col pb-20">
+  <div class="flex-1 flex items-center justify-center">
+    <div class="w-full max-w-md mx-auto px-4">
+      <!-- Home Screen -->
+      <section id="screen-home" class="text-center">
+        <h1 class="text-4xl font-bold mb-4">Home</h1>
+        <p class="text-zinc-400">Placeholder for home screen</p>
+      </section>
 
-  <button id="press-btn" class="w-32 h-32 rounded-full bg-violet-600 hover:bg-violet-500 active:scale-95 transition-all text-white text-xl font-bold shadow-lg shadow-violet-600/30">
-    Press!
-  </button>
+      <!-- Guardian Screen -->
+      <section id="screen-guardian" class="text-center hidden">
+        <h1 class="text-4xl font-bold mb-4">Guardian</h1>
+        <p class="text-zinc-400">Placeholder for guardian screen</p>
+      </section>
 
-  <div id="count" class="text-lg text-zinc-400">0 total presses</div>
+      <!-- Network Screen -->
+      <section id="screen-network" class="text-center hidden">
+        <h1 class="text-4xl font-bold mb-4">Network</h1>
+        <p class="text-zinc-400">Placeholder for network screen</p>
+      </section>
 
-  <div class="w-full max-w-sm">
-    <h2 class="text-sm font-medium text-zinc-500 mb-2 text-center">Leaderboard</h2>
-    <div id="leaderboard" class="space-y-1"></div>
+      <!-- Settings Screen -->
+      <section id="screen-settings" class="text-center hidden">
+        <h1 class="text-4xl font-bold mb-4">Settings</h1>
+        <p class="text-zinc-400">Placeholder for settings screen</p>
+      </section>
+    </div>
   </div>
 
+  <!-- Bottom Navigation Bar -->
+  <nav class="fixed bottom-0 left-0 right-0 bg-zinc-900 border-t border-zinc-800 flex justify-around">
+    <div class="nav-item active" data-tab="home">
+      <div class="nav-icon">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+        </svg>
+      </div>
+      <div class="nav-label">Home</div>
+    </div>
+
+    <div class="nav-item" data-tab="guardian">
+      <div class="nav-icon">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <circle cx="12" cy="12" r="10"/>
+          <circle cx="9" cy="11" r="1.5" fill="rgba(10, 10, 15, 0.8)"/>
+          <circle cx="15" cy="11" r="1.5" fill="rgba(10, 10, 15, 0.8)"/>
+          <path d="M9 15 Q12 17 15 15" stroke="rgba(10, 10, 15, 0.8)" stroke-width="1" fill="none"/>
+        </svg>
+      </div>
+      <div class="nav-label">Guardian</div>
+    </div>
+
+    <div class="nav-item" data-tab="network">
+      <div class="nav-icon">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/>
+        </svg>
+      </div>
+      <div class="nav-label">Network</div>
+    </div>
+
+    <div class="nav-item" data-tab="settings">
+      <div class="nav-icon">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.64l-1.92-3.32c-.12-.22-.39-.3-.61-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.09-.49 0-.61.22L2.74 8.87c-.12.22-.07.49.12.64l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.64l1.92 3.32c.12.22.39.3.61.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.49 0 .61-.22l1.92-3.32c.12-.22.07-.49-.12-.64l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+        </svg>
+      </div>
+      <div class="nav-label">Settings</div>
+    </div>
+  </nav>
+
   <script>
+    // Extract token from URL
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token') || '';
-    const headers = token ? { 'x-usernode-token': token } : {};
 
-    async function loadLeaderboard() {
-      const res = await fetch('/api/leaderboard', { headers });
-      if (!res.ok) return;
-      const { leaderboard } = await res.json();
-      const el = document.getElementById('leaderboard');
-      if (!leaderboard.length) {
-        el.innerHTML = '<p class="text-center text-zinc-600 text-sm">No presses yet</p>';
-        return;
-      }
-      el.innerHTML = leaderboard.map((r, i) =>
-        '<div class="flex justify-between px-3 py-1 rounded ' + (i === 0 ? 'bg-violet-600/20 text-violet-300' : 'text-zinc-400') + '">' +
-        '<span>' + (i + 1) + '. ' + r.username + '</span>' +
-        '<span class="font-mono">' + r.presses + '</span></div>'
-      ).join('');
-      const total = leaderboard.reduce((s, r) => s + parseInt(r.presses), 0);
-      document.getElementById('count').textContent = total + ' total presses';
-    }
+    // NavigationItem: { label: string, href: string }
+    // href is used as the tab id, e.g. 'home', 'guardian', 'network', 'settings'
 
-    document.getElementById('press-btn').addEventListener('click', async () => {
-      try {
-        const res = await fetch('/api/press', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...headers },
-        });
-        if (res.ok) loadLeaderboard();
-        else if (res.status === 401) document.getElementById('count').textContent = 'Sign in to press!';
-      } catch {}
+    // Tab switching handler
+    document.querySelectorAll('.nav-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const tabId = item.dataset.tab;
+        switchTab(tabId);
+      });
     });
 
-    loadLeaderboard();
+    function switchTab(tabId) {
+      // Hide all screens
+      document.querySelectorAll('section').forEach(section => {
+        section.classList.add('hidden');
+      });
+
+      // Remove active class from all nav items
+      document.querySelectorAll('.nav-item').forEach(item => {
+        item.classList.remove('active');
+      });
+
+      // Show selected screen
+      const screenId = 'screen-' + tabId;
+      const screen = document.getElementById(screenId);
+      if (screen) {
+        screen.classList.remove('hidden');
+      }
+
+      // Add active class to selected nav item
+      const navItem = document.querySelector(`[data-tab="${tabId}"]`);
+      if (navItem) {
+        navItem.classList.add('active');
+      }
+    }
+
+    // Initialize on load
+    document.addEventListener('DOMContentLoaded', () => {
+      switchTab('home');
+    });
   </script>
 </body>
 </html>
