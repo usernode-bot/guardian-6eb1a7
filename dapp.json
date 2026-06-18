@@ -1,14 +1,6 @@
 {
   "name": "Guardian",
-  "secrets": [
-    {
-      "key": "TESTNET_RPC_URL",
-      "description": "JSON-RPC endpoint for testnet balance queries (e.g., Sepolia, Goerli public RPC)",
-      "required": false,
-      "private": false,
-      "staging_default": "https://sepolia.drpc.org"
-    }
-  ],
+  "secrets": [],
   "tests": [
     {
       "name": "App shell loads",

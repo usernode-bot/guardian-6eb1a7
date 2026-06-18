@@ -14,102 +14,6 @@ const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 
 const PUBLIC_API_PATHS = new Set(['/health', '/api/node', '/favicon.ico', '/api/guardians', '/api/evolution/leaderboard', '/api/metadata/registry']);
 
-function bech32Decode(bech32String) {
-  const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
-  let lowercased = bech32String.toLowerCase();
-  let lastSeparator = lowercased.lastIndexOf('1');
-
-  if (lastSeparator < 1 || lastSeparator + 7 > lowercased.length || lowercased.length > 90) {
-    return null;
-  }
-
-  let hrp = lowercased.substring(0, lastSeparator);
-  let dataChars = lowercased.substring(lastSeparator + 1);
-  let data = [];
-
-  for (let i = 0; i < dataChars.length; i++) {
-    let index = CHARSET.indexOf(dataChars[i]);
-    if (index < 0) return null;
-    data.push(index);
-  }
-
-  let decoded = convertBits(data, 5, 8, false);
-  if (!decoded) return null;
-
-  return { hrp, data: decoded };
-}
-
-function convertBits(data, fromBits, toBits, pad) {
-  let acc = 0;
-  let bits = 0;
-  let result = [];
-
-  for (let i = 0; i < data.length; i++) {
-    acc = (acc << fromBits) | data[i];
-    bits += fromBits;
-
-    while (bits >= toBits) {
-      bits -= toBits;
-      result.push((acc >> bits) & ((1 << toBits) - 1));
-    }
-  }
-
-  if (pad) {
-    if (bits > 0) {
-      result.push((acc << (toBits - bits)) & ((1 << toBits) - 1));
-    }
-  } else {
-    if (bits > 4) {
-      return null;
-    }
-  }
-
-  return result;
-}
-
-function convertUsernodeToEthereumAddress(usernodeAddress) {
-  if (!usernodeAddress) return null;
-
-  if (typeof usernodeAddress !== 'string') {
-    console.error('Invalid address type:', typeof usernodeAddress);
-    return null;
-  }
-
-  if (usernodeAddress.startsWith('0x') && usernodeAddress.length === 42) {
-    const hexPart = usernodeAddress.substring(2);
-    if (!/^[0-9a-fA-F]{40}$/.test(hexPart)) {
-      console.error('Invalid Ethereum address format');
-      return null;
-    }
-    return usernodeAddress.toLowerCase();
-  }
-
-  if (!usernodeAddress.startsWith('ut1')) {
-    console.error('Invalid address format: does not start with ut1 or 0x');
-    return null;
-  }
-
-  try {
-    const decoded = bech32Decode(usernodeAddress);
-
-    if (!decoded || decoded.hrp !== 'ut') {
-      console.error('Invalid bech32 decode or prefix');
-      return null;
-    }
-
-    if (decoded.data.length < 20) {
-      console.error('Invalid address length after decoding:', decoded.data.length);
-      return null;
-    }
-
-    const hexAddress = '0x' + Buffer.from(decoded.data.slice(0, 20)).toString('hex');
-    return hexAddress.toLowerCase();
-  } catch (err) {
-    console.error('Error decoding Usernode address:', err.message);
-    return null;
-  }
-}
-
 // WebSocket signaling server state
 const wsConnections = new Map(); // user_id -> { socket, sessionToken, username, guardian_id, guardian_name, guardian_tier }
 const allClients = new Set(); // all active WebSocket connections
@@ -289,26 +193,12 @@ app.get('/api/wallet', async (req, res) => {
       });
     }
 
-    // Step 2: Convert Usernode address to Ethereum format
-    console.log(`${logPrefix} Step 2 - Convert address to Ethereum format`);
-    const ethAddress = convertUsernodeToEthereumAddress(usernodeAddress);
-
-    if (!ethAddress) {
-      console.error(`${logPrefix}   ERROR: Address conversion failed for ${usernodeAddress}`);
-      return res.json({
-        address: usernodeAddress,
-        balance: null
-      });
-    }
-
-    console.log(`${logPrefix}   Converted to Ethereum address: ${ethAddress}`);
-
-    // Step 3: Check if TESTNET_RPC_URL is configured
-    console.log(`${logPrefix} Step 3 - Check TESTNET_RPC_URL environment variable`);
-    const rpcUrl = process.env.TESTNET_RPC_URL;
+    // Step 2: Check if NODE_RPC_URL is configured (platform-provided)
+    console.log(`${logPrefix} Step 2 - Check NODE_RPC_URL environment variable`);
+    const rpcUrl = process.env.NODE_RPC_URL;
 
     if (!rpcUrl) {
-      console.log(`${logPrefix}   WARNING: TESTNET_RPC_URL not configured, cannot fetch balance`);
+      console.log(`${logPrefix}   WARNING: NODE_RPC_URL not configured, cannot fetch balance`);
       return res.json({
         address: usernodeAddress,
         balance: null
@@ -317,9 +207,9 @@ app.get('/api/wallet', async (req, res) => {
 
     console.log(`${logPrefix}   RPC URL configured: ${rpcUrl.substring(0, 30)}...`);
 
-    // Step 4: Make JSON-RPC call to fetch balance
-    console.log(`${logPrefix} Step 4 - Fetching balance from RPC endpoint`);
-    console.log(`${logPrefix}   Calling eth_getBalance for address: ${ethAddress}`);
+    // Step 3: Make JSON-RPC call to fetch UT balance from Usernode network
+    console.log(`${logPrefix} Step 3 - Fetching UT balance from Usernode RPC`);
+    console.log(`${logPrefix}   Calling eth_getBalance for address: ${usernodeAddress}`);
 
     try {
       const rpcResponse = await fetch(rpcUrl, {
@@ -328,7 +218,7 @@ app.get('/api/wallet', async (req, res) => {
         body: JSON.stringify({
           jsonrpc: '2.0',
           method: 'eth_getBalance',
-          params: [ethAddress, 'latest'],
+          params: [usernodeAddress, 'latest'],
           id: 1
         })
       });
@@ -345,8 +235,8 @@ app.get('/api/wallet', async (req, res) => {
         });
       }
 
-      // Step 5: Parse balance from RPC response
-      console.log(`${logPrefix} Step 5 - Parsing balance from RPC response`);
+      // Step 4: Parse balance from RPC response
+      console.log(`${logPrefix} Step 4 - Parsing balance from RPC response`);
       let rpcData;
 
       try {
@@ -381,33 +271,33 @@ app.get('/api/wallet', async (req, res) => {
 
       console.log(`${logPrefix}   Balance result from RPC: ${rpcData.result}`);
 
-      // Convert balance from wei to ETH
-      let balanceWei, balanceEth, formattedBalance;
+      // Convert balance from wei to UT
+      let balanceWei, balanceUt, formattedBalance;
 
       try {
         balanceWei = BigInt(rpcData.result);
         console.log(`${logPrefix}   Parsed balance in wei: ${balanceWei.toString()}`);
 
-        balanceEth = Number(balanceWei) / 1e18;
-        console.log(`${logPrefix}   Converted to ETH: ${balanceEth}`);
+        balanceUt = Number(balanceWei) / 1e18;
+        console.log(`${logPrefix}   Converted to UT: ${balanceUt}`);
 
-        formattedBalance = balanceEth.toFixed(4).replace(/\.?0+$/, '') || '0';
-        console.log(`${logPrefix}   Formatted balance: ${formattedBalance} ETH`);
+        formattedBalance = balanceUt.toFixed(4).replace(/\.?0+$/, '') || '0';
+        console.log(`${logPrefix}   Formatted balance: ${formattedBalance} UT`);
       } catch (conversionErr) {
-        console.error(`${logPrefix}   ERROR: Failed to convert balance from wei to ETH: ${conversionErr.message}`);
+        console.error(`${logPrefix}   ERROR: Failed to convert balance from wei to UT: ${conversionErr.message}`);
         return res.json({
           address: usernodeAddress,
           balance: null
         });
       }
 
-      console.log(`${logPrefix} SUCCESS: Returning balance ${formattedBalance} ETH`);
+      console.log(`${logPrefix} SUCCESS: Returning balance ${formattedBalance} UT`);
       res.json({
         address: usernodeAddress,
-        balance: `${formattedBalance} ETH`
+        balance: `${formattedBalance} UT`
       });
     } catch (rpcErr) {
-      console.error(`${logPrefix} Step 4 ERROR: Network or RPC call error: ${rpcErr.message}`);
+      console.error(`${logPrefix} Step 3 ERROR: Network or RPC call error: ${rpcErr.message}`);
       console.error(`${logPrefix}   Error stack: ${rpcErr.stack}`);
       res.json({
         address: usernodeAddress,
