@@ -54,6 +54,16 @@
       "name": "Wallet API returns address and balance fields",
       "path": "/api/wallet",
       "expectText": "address"
+    },
+    {
+      "name": "Evolution page loads with Share Guardian button",
+      "path": "/evolution.html",
+      "expectText": "Share Guardian"
+    },
+    {
+      "name": "Transfer cleanup API works",
+      "path": "/api/guardian/transfer/cleanup",
+      "expectText": "success"
     }
   ]
 }

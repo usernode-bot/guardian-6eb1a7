@@ -1286,6 +1286,417 @@ app.post('/api/signaling/ice-candidate', async (req, res) => {
   }
 });
 
+// Guardian Transfer & Gifting Endpoints
+
+app.post('/api/guardian/transfer/propose', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { guardianId, recipientUsername, type, tradeGuardianId } = req.body;
+
+    if (!guardianId || !recipientUsername || !type) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (!['GIFT', 'TRADE'].includes(type)) {
+      return res.status(400).json({ error: 'Invalid transfer type' });
+    }
+
+    // Validate sender owns the guardian (check ownership or reservation)
+    const ownershipResult = await pool.query(
+      `SELECT go.*, g.status FROM guardian_ownership go
+       JOIN guardian g ON go.guardian_id = g.id
+       WHERE go.guardian_id = $1 AND go.wallet_address = $2`,
+      [guardianId, req.user.usernode_pubkey]
+    );
+
+    if (ownershipResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Guardian not owned by this wallet' });
+    }
+
+    const guardianStatus = ownershipResult.rows[0].status;
+    if (guardianStatus === 'RESERVED') {
+      return res.status(400).json({ error: 'Cannot transfer a reserved Guardian' });
+    }
+
+    // Validate recipient exists (basic check)
+    const recipientCheckResult = await pool.query(
+      `SELECT id FROM guardian_metadata_registry WHERE username = $1`,
+      [recipientUsername]
+    );
+
+    let recipientUserId = null;
+    if (recipientCheckResult.rows.length > 0) {
+      recipientUserId = recipientCheckResult.rows[0].id;
+    }
+
+    // For trades, validate trade guardian exists and sender owns it
+    if (type === 'TRADE') {
+      if (!tradeGuardianId) {
+        return res.status(400).json({ error: 'Trade guardian ID required for trade' });
+      }
+
+      const tradeOwnershipResult = await pool.query(
+        `SELECT go.*, g.status FROM guardian_ownership go
+         JOIN guardian g ON go.guardian_id = g.id
+         WHERE go.guardian_id = $1 AND go.wallet_address = $2`,
+        [tradeGuardianId, req.user.usernode_pubkey]
+      );
+
+      if (tradeOwnershipResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Trade guardian not owned by this wallet' });
+      }
+
+      if (tradeOwnershipResult.rows[0].status === 'RESERVED') {
+        return res.status(400).json({ error: 'Cannot trade a reserved Guardian' });
+      }
+    }
+
+    // Create transfer proposal (7-day expiry)
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    const proposalResult = await pool.query(
+      `INSERT INTO guardian_transfer_proposal
+       (guardian_id, sender_user_id, sender_username, sender_wallet,
+        recipient_user_id, recipient_username, type, trade_guardian_id, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, created_at, expires_at`,
+      [guardianId, req.user.id, req.user.username, req.user.usernode_pubkey,
+       recipientUserId, recipientUsername, type, tradeGuardianId || null, expiresAt]
+    );
+
+    const proposal = proposalResult.rows[0];
+    res.json({
+      success: true,
+      proposal: {
+        id: proposal.id,
+        guardianId,
+        type,
+        createdAt: proposal.created_at,
+        expiresAt: proposal.expires_at,
+        expiresIn: Math.floor((expiresAt.getTime() - Date.now()) / 1000)
+      }
+    });
+  } catch (err) {
+    console.error('Transfer propose error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/guardian/transfer/pending', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    // Get pending proposals for this user (as recipient or sender)
+    const result = await pool.query(
+      `SELECT gtp.*,
+              g.name as guardian_name, g.image as guardian_image, g.tier as guardian_tier,
+              tg.name as trade_guardian_name, tg.image as trade_guardian_image, tg.tier as trade_guardian_tier
+       FROM guardian_transfer_proposal gtp
+       JOIN guardian g ON gtp.guardian_id = g.id
+       LEFT JOIN guardian tg ON gtp.trade_guardian_id = tg.id
+       WHERE (gtp.recipient_username = $1 OR gtp.sender_user_id = $2)
+       AND gtp.status = 'PENDING'
+       AND gtp.expires_at > NOW()
+       ORDER BY gtp.created_at DESC`,
+      [req.user.username, req.user.id]
+    );
+
+    res.json({
+      proposals: result.rows.map(row => ({
+        id: row.id,
+        guardianId: row.guardian_id,
+        guardianName: row.guardian_name,
+        guardianImage: row.guardian_image,
+        guardianTier: row.guardian_tier,
+        senderUsername: row.sender_username,
+        recipientUsername: row.recipient_username,
+        type: row.type,
+        tradeGuardianId: row.trade_guardian_id,
+        tradeGuardianName: row.trade_guardian_name,
+        tradeGuardianImage: row.trade_guardian_image,
+        tradeGuardianTier: row.trade_guardian_tier,
+        senderAccepted: row.sender_accepted,
+        recipientAccepted: row.recipient_accepted,
+        expiresAt: row.expires_at,
+        createdAt: row.created_at,
+        isRecipient: row.recipient_username === req.user.username
+      }))
+    });
+  } catch (err) {
+    console.error('Pending transfers error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/guardian/transfer/:proposalId/accept', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const proposalId = parseInt(req.params.proposalId);
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      // Get proposal
+      const proposalResult = await client.query(
+        `SELECT * FROM guardian_transfer_proposal WHERE id = $1`,
+        [proposalId]
+      );
+
+      if (proposalResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Proposal not found' });
+      }
+
+      const proposal = proposalResult.rows[0];
+
+      if (proposal.status !== 'PENDING') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Proposal is not pending' });
+      }
+
+      if (new Date() > new Date(proposal.expires_at)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Proposal has expired' });
+      }
+
+      // Check if user is sender or recipient
+      let isRecipient = proposal.recipient_username === req.user.username;
+      let isSender = proposal.sender_user_id === req.user.id;
+
+      if (!isRecipient && !isSender) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'Not authorized' });
+      }
+
+      // Update acceptance status
+      if (isRecipient) {
+        await client.query(
+          `UPDATE guardian_transfer_proposal SET recipient_accepted = TRUE WHERE id = $1`,
+          [proposalId]
+        );
+      } else {
+        await client.query(
+          `UPDATE guardian_transfer_proposal SET sender_accepted = TRUE WHERE id = $1`,
+          [proposalId]
+        );
+      }
+
+      // Check if both parties have accepted
+      const updatedResult = await client.query(
+        `SELECT sender_accepted, recipient_accepted FROM guardian_transfer_proposal WHERE id = $1`,
+        [proposalId]
+      );
+
+      const updated = updatedResult.rows[0];
+      let completed = false;
+
+      if (updated.sender_accepted && updated.recipient_accepted) {
+        // Execute transfer
+        if (proposal.type === 'GIFT') {
+          // Get recipient wallet
+          const recipientOwnershipResult = await client.query(
+            `SELECT wallet_address FROM guardian_ownership WHERE username = $1`,
+            [proposal.recipient_username]
+          );
+
+          let recipientWallet = proposal.recipient_wallet;
+          if (recipientOwnershipResult.rows.length > 0) {
+            recipientWallet = recipientOwnershipResult.rows[0].wallet_address;
+          }
+
+          if (!recipientWallet) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'Recipient wallet not found' });
+          }
+
+          // Transfer guardian
+          await client.query(
+            `UPDATE guardian_ownership SET wallet_address = $1, user_id = $2, username = $3, updated_at = NOW()
+             WHERE guardian_id = $4`,
+            [recipientWallet, proposal.recipient_user_id, proposal.recipient_username, proposal.guardian_id]
+          );
+
+          // Log transfer
+          await client.query(
+            `INSERT INTO guardian_transfer_history (guardian_id, from_wallet, to_wallet, from_username, to_username, type, proposal_id)
+             VALUES ($1, $2, $3, $4, $5, 'GIFTED', $6)`,
+            [proposal.guardian_id, proposal.sender_wallet, recipientWallet, proposal.sender_username, proposal.recipient_username, proposalId]
+          );
+
+          // Log to audit trail
+          await client.query(
+            `INSERT INTO guardian_audit_log (guardian_id, wallet_address, user_id, username, event, metadata)
+             VALUES ($1, $2, $3, $4, 'GIFTED', $5)`,
+            [proposal.guardian_id, recipientWallet, proposal.recipient_user_id, proposal.recipient_username,
+             JSON.stringify({ from: proposal.sender_username, to: proposal.recipient_username })]
+          );
+
+          completed = true;
+        } else if (proposal.type === 'TRADE') {
+          // Get recipient's wallet and the trade guardian ownership
+          const recipientOwnershipResult = await client.query(
+            `SELECT wallet_address FROM guardian_ownership WHERE username = $1`,
+            [proposal.recipient_username]
+          );
+
+          let recipientWallet = proposal.recipient_wallet;
+          if (recipientOwnershipResult.rows.length > 0) {
+            recipientWallet = recipientOwnershipResult.rows[0].wallet_address;
+          }
+
+          if (!recipientWallet) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'Recipient wallet not found' });
+          }
+
+          // Swap guardians
+          // Sender's guardian goes to recipient
+          await client.query(
+            `UPDATE guardian_ownership SET wallet_address = $1, user_id = $2, username = $3, updated_at = NOW()
+             WHERE guardian_id = $4`,
+            [recipientWallet, proposal.recipient_user_id, proposal.recipient_username, proposal.guardian_id]
+          );
+
+          // Recipient's trade guardian goes to sender
+          await client.query(
+            `UPDATE guardian_ownership SET wallet_address = $1, user_id = $2, username = $3, updated_at = NOW()
+             WHERE guardian_id = $4`,
+            [proposal.sender_wallet, proposal.sender_user_id, proposal.sender_username, proposal.trade_guardian_id]
+          );
+
+          // Log both transfers
+          await client.query(
+            `INSERT INTO guardian_transfer_history (guardian_id, from_wallet, to_wallet, from_username, to_username, type, proposal_id)
+             VALUES ($1, $2, $3, $4, $5, 'TRADED', $6)`,
+            [proposal.guardian_id, proposal.sender_wallet, recipientWallet, proposal.sender_username, proposal.recipient_username, proposalId]
+          );
+
+          await client.query(
+            `INSERT INTO guardian_transfer_history (guardian_id, from_wallet, to_wallet, from_username, to_username, type, proposal_id)
+             VALUES ($1, $2, $3, $4, $5, 'TRADED', $6)`,
+            [proposal.trade_guardian_id, recipientWallet, proposal.sender_wallet, proposal.recipient_username, proposal.sender_username, proposalId]
+          );
+
+          // Log to audit trail
+          await client.query(
+            `INSERT INTO guardian_audit_log (guardian_id, wallet_address, user_id, username, event, metadata)
+             VALUES ($1, $2, $3, $4, 'TRADED', $5)`,
+            [proposal.guardian_id, recipientWallet, proposal.recipient_user_id, proposal.recipient_username,
+             JSON.stringify({ from: proposal.sender_username, to: proposal.recipient_username })]
+          );
+
+          await client.query(
+            `INSERT INTO guardian_audit_log (guardian_id, wallet_address, user_id, username, event, metadata)
+             VALUES ($1, $2, $3, $4, 'TRADED', $5)`,
+            [proposal.trade_guardian_id, proposal.sender_wallet, proposal.sender_user_id, proposal.sender_username,
+             JSON.stringify({ from: proposal.recipient_username, to: proposal.sender_username })]
+          );
+
+          completed = true;
+        }
+
+        if (completed) {
+          await client.query(
+            `UPDATE guardian_transfer_proposal SET status = 'COMPLETED', completed_at = NOW() WHERE id = $1`,
+            [proposalId]
+          );
+        }
+      }
+
+      await client.query('COMMIT');
+
+      res.json({
+        success: true,
+        completed,
+        proposal: {
+          id: proposalId,
+          status: completed ? 'COMPLETED' : 'PENDING'
+        }
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('Transfer accept error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/guardian/transfer/:proposalId/decline', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const proposalId = parseInt(req.params.proposalId);
+
+    const result = await pool.query(
+      `SELECT * FROM guardian_transfer_proposal WHERE id = $1`,
+      [proposalId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Proposal not found' });
+    }
+
+    const proposal = result.rows[0];
+
+    if (proposal.status !== 'PENDING') {
+      return res.status(400).json({ error: 'Proposal is not pending' });
+    }
+
+    // Check authorization
+    const isRecipient = proposal.recipient_username === req.user.username;
+    const isSender = proposal.sender_user_id === req.user.id;
+
+    if (!isRecipient && !isSender) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    // Mark as declined
+    await pool.query(
+      `UPDATE guardian_transfer_proposal SET status = 'DECLINED', completed_at = NOW() WHERE id = $1`,
+      [proposalId]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Transfer decline error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/guardian/transfer/cleanup', async (req, res) => {
+  try {
+    // Expire old proposals
+    const result = await pool.query(
+      `UPDATE guardian_transfer_proposal
+       SET status = 'EXPIRED', completed_at = NOW()
+       WHERE status = 'PENDING' AND expires_at <= NOW()`
+    );
+
+    res.json({
+      success: true,
+      expired: result.rowCount
+    });
+  } catch (err) {
+    console.error('Transfer cleanup error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/registry', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'registry.html'));
 });
@@ -1331,6 +1742,10 @@ async function applyMigrations() {
   const migrationPath5 = path.join(__dirname, 'src', 'db', 'migrations', '005_drop_presence_schema.sql');
   const migrationSql5 = fs.readFileSync(migrationPath5, 'utf-8');
   await pool.query(migrationSql5);
+
+  const migrationPath6 = path.join(__dirname, 'src', 'db', 'migrations', '006_guardian_transfer_schema.sql');
+  const migrationSql6 = fs.readFileSync(migrationPath6, 'utf-8');
+  await pool.query(migrationSql6);
 }
 
 
@@ -1365,6 +1780,7 @@ async function seedStagingData() {
     { guardianId: 1, score: 50, stage: 'INITIATE', level: 1, title: 'Node Wanderer' },
     { guardianId: 3, score: 150, stage: 'AWAKENED', level: 2, title: 'Network Scout' },
     { guardianId: 4, score: 350, stage: 'ASCENDANT', level: 3, title: 'Protocol Guardian' },
+    { guardianId: 5, score: 100, stage: 'INITIATE', level: 1, title: 'Node Wanderer' },
     { guardianId: 6, score: 1500, stage: 'MYTHIC', level: 5, title: 'Legend Keeper' }
   ];
 
@@ -1401,10 +1817,11 @@ async function seedStagingData() {
     );
   }
 
-  // Seed ownership records (one per demo user)
+  // Seed ownership records (3 demo users for trading tests)
   const ownershipEntries = [
     { guardianId: 3, walletAddress: 'staging-demo-wallet-alice', userId: 1, username: 'alice' },
-    { guardianId: 4, walletAddress: 'staging-demo-wallet-bob', userId: 2, username: 'bob' }
+    { guardianId: 4, walletAddress: 'staging-demo-wallet-bob', userId: 2, username: 'bob' },
+    { guardianId: 5, walletAddress: 'staging-demo-wallet-charlie', userId: 3, username: 'charlie' }
   ];
 
   for (const entry of ownershipEntries) {
@@ -1424,7 +1841,8 @@ async function seedStagingData() {
   // Seed metadata registry entries (synced from ownership + evolution)
   const registryEntries = [
     { userId: 1, username: 'alice', guardianId: 3, score: 150, level: 2, stage: 'AWAKENED', fgHours: 100, peerCount: 5, uptime: 95.5 },
-    { userId: 2, username: 'bob', guardianId: 4, score: 350, level: 3, stage: 'ASCENDANT', fgHours: 250, peerCount: 12, uptime: 98.0 }
+    { userId: 2, username: 'bob', guardianId: 4, score: 350, level: 3, stage: 'ASCENDANT', fgHours: 250, peerCount: 12, uptime: 98.0 },
+    { userId: 3, username: 'charlie', guardianId: 5, score: 100, level: 1, stage: 'INITIATE', fgHours: 50, peerCount: 3, uptime: 92.0 }
   ];
 
   for (const entry of registryEntries) {
