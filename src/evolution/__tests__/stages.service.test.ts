@@ -20,12 +20,6 @@ describe('StagesService', () => {
       expect(calculateStage(500)).toBe('ASCENDANT');
     });
 
-    it('should return GUARDIAN for score 501-1000', () => {
-      expect(calculateStage(501)).toBe('GUARDIAN');
-      expect(calculateStage(750)).toBe('GUARDIAN');
-      expect(calculateStage(1000)).toBe('GUARDIAN');
-    });
-
     it('should return MYTHIC for score 1001+', () => {
       expect(calculateStage(1001)).toBe('MYTHIC');
       expect(calculateStage(10000)).toBe('MYTHIC');
@@ -70,10 +64,10 @@ describe('StagesService', () => {
     });
 
     it('should detect multi-stage progression', () => {
-      const result = checkStageProgression(0, 1000);
+      const result = checkStageProgression(0, 500);
       expect(result.stageChanged).toBe(true);
       expect(result.oldStage).toBe('INITIATE');
-      expect(result.newStage).toBe('GUARDIAN');
+      expect(result.newStage).toBe('ASCENDANT');
     });
   });
 });

@@ -22,12 +22,18 @@ function createGuardianHero(guardian) {
   avatar.className = 'text-4xl';
   avatar.textContent = stageInfo.emoji;
 
+  // Name
+  const name = document.createElement('h2');
+  name.className = 'text-3xl font-bold text-zinc-100';
+  name.textContent = guardian.name;
+
   // Stage badge
   const stageBadge = document.createElement('div');
   stageBadge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-zinc-800 text-zinc-100';
   stageBadge.textContent = `Stage: ${stage}`;
 
   container.appendChild(avatar);
+  container.appendChild(name);
   container.appendChild(stageBadge);
 
   return container;

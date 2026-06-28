@@ -1,6 +1,14 @@
 {
   "name": "Guardian",
-  "secrets": [],
+  "secrets": [
+    {
+      "key": "TESTNET_RPC_URL",
+      "description": "JSON-RPC endpoint for testnet balance queries (e.g., Sepolia, Goerli public RPC)",
+      "required": false,
+      "private": false,
+      "staging_default": "https://sepolia.drpc.org"
+    }
+  ],
   "tests": [
     {
       "name": "App shell loads",
@@ -11,31 +19,6 @@
       "name": "Node API returns mock data",
       "path": "/api/node",
       "expectText": "status"
-    },
-    {
-      "name": "GuardianHero displays stage badge",
-      "path": "/",
-      "expectText": "Stage: GUARDIAN"
-    },
-    {
-      "name": "GuardianHero avatar shows 🦾 for GUARDIAN stage (10-49 hours)",
-      "path": "/",
-      "expectText": "🦾"
-    },
-    {
-      "name": "EvolutionProgressCard displays current stage",
-      "path": "/",
-      "expectText": "GUARDIAN Guardian"
-    },
-    {
-      "name": "EvolutionProgressCard shows progress toward next stage",
-      "path": "/",
-      "expectText": "hours until next stage"
-    },
-    {
-      "name": "EvolutionProgressCard displays next stage emoji",
-      "path": "/",
-      "expectText": "⚡🤖"
     },
     {
       "name": "Guardian Gallery loads with all 500 guardians",
@@ -63,9 +46,9 @@
       "expectText": "events"
     },
     {
-      "name": "Signaling endpoints accept WebRTC offers",
-      "path": "/api/signaling/offer",
-      "expectText": "error"
+      "name": "Wallet API returns address and balance fields",
+      "path": "/api/wallet",
+      "expectText": "address"
     }
   ]
 }

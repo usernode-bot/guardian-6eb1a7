@@ -1,4 +1,4 @@
-export type EvolutionStage = 'INITIATE' | 'AWAKENED' | 'ASCENDANT' | 'GUARDIAN' | 'MYTHIC';
+export type EvolutionStage = 'INITIATE' | 'AWAKENED' | 'ASCENDANT' | 'MYTHIC';
 
 export interface ContributionMetrics {
   fgHours: number;
