@@ -193,7 +193,7 @@ class ProfileView {
         <!-- Bio Section -->
         <div class="p-6 border border-zinc-800 rounded-lg bg-zinc-900">
           <h3 class="text-sm font-semibold text-zinc-400 mb-2">Bio</h3>
-          <p class="text-zinc-200">${bio ? this.escapeHtml(bio) : '<em class="text-zinc-500">No bio yet</em>'}</p>
+          <p class="text-zinc-200">${bio ? this.escapeHtml(bio) : '<span class="text-zinc-500 italic">No bio yet</span>'}</p>
         </div>
 
         <!-- Edit Form (Hidden by default) -->
@@ -260,7 +260,7 @@ class ProfileView {
     const bioInput = document.getElementById('bio-input');
     const charCount = document.getElementById('char-count');
 
-    if (bioInput) {
+    if (bioInput && charCount) {
       bioInput.addEventListener('input', () => {
         charCount.textContent = bioInput.value.length;
       });
@@ -328,6 +328,10 @@ class ProfileView {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    new ProfileView();
+  });
+} else {
   new ProfileView();
-});
+}

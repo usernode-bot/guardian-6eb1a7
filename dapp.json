@@ -58,7 +58,7 @@
     {
       "name": "User profile displays guardian stats grid",
       "path": "/profile.html?username=alice",
-      "expectSelector": "Contribution Score"
+      "expectText": "Contribution Score"
     },
     {
       "name": "Profile API returns user data",
