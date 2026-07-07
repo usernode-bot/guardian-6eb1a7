@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guardian - Profile</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class' }</script>
+  <script src="profile-view.js"></script>
+  <style>
+    body {
+      background-color: #0a0a0f;
+    }
+  </style>
+</head>
+<body>
+  <div id="profile-container" class="min-h-screen"></div>
+  <script>
+    // Extract username from query param or URL path
+    (function() {
+      const params = new URLSearchParams(window.location.search);
+      let username = params.get('username');
+
+      if (!username) {
+        const pathParts = window.location.pathname.split('/');
+        username = pathParts[pathParts.length - 1];
+      }
+
+      if (username && username !== 'profile.html') {
+        window.PROFILE_USERNAME = username;
+      }
+    })();
+  </script>
+</body>
+</html>

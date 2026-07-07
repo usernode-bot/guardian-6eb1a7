@@ -1,0 +1,5 @@
+-- PR11 User Profile Schema
+
+ALTER TABLE guardian_metadata_registry
+  ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(512) DEFAULT NULL;

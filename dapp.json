@@ -49,6 +49,21 @@
       "name": "Wallet API returns address and balance fields",
       "path": "/api/wallet",
       "expectText": "address"
+    },
+    {
+      "name": "User profile page loads with staging demo user",
+      "path": "/profile.html?username=alice",
+      "expectText": "alice"
+    },
+    {
+      "name": "User profile displays guardian stats grid",
+      "path": "/profile.html?username=alice",
+      "expectSelector": "Contribution Score"
+    },
+    {
+      "name": "Profile API returns user data",
+      "path": "/api/profile/alice",
+      "expectText": "alice"
     }
   ]
 }
