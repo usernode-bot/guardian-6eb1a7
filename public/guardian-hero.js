@@ -4,6 +4,26 @@
  * @property {number} totalFGHours
  */
 
+function getGuardianStage(totalFGHours) {
+  if (totalFGHours >= 500) return 'MYTHIC';
+  if (totalFGHours >= 300) return 'ASCENDANT';
+  if (totalFGHours >= 100) return 'AWAKENED';
+  if (totalFGHours >= 10) return 'INITIATE';
+  return 'NOVICE';
+}
+
+function getStageInfo(stage) {
+  const stageMap = {
+    NOVICE: { emoji: '🌱', color: 'text-gray-400' },
+    INITIATE: { emoji: '🌱', color: 'text-gray-400' },
+    AWAKENED: { emoji: '💙', color: 'text-blue-400' },
+    ASCENDANT: { emoji: '✨', color: 'text-yellow-300' },
+    GUARDIAN: { emoji: '⚡', color: 'text-purple-400' },
+    MYTHIC: { emoji: '🔮', color: 'text-indigo-400' }
+  };
+  return stageMap[stage] || stageMap.NOVICE;
+}
+
 /**
  * Creates and returns a GuardianHero component element.
  * @param {Guardian} guardian

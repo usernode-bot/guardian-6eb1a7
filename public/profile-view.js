@@ -32,8 +32,8 @@ class ProfileView {
     if (window.PROFILE_USERNAME) {
       this.profileUsername = window.PROFILE_USERNAME;
     } else {
-      const pathParts = window.location.pathname.split('/');
-      this.profileUsername = pathParts[pathParts.length - 1];
+      const pathParts = window.location.pathname.split('/').filter(part => part && part !== 'profile.html');
+      this.profileUsername = pathParts[pathParts.length - 1] || '';
     }
   }
 
