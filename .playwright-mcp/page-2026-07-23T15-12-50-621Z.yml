@@ -1,0 +1,57 @@
+- generic [ref=e105]:
+  - generic [ref=e106]:
+    - button "Back to new message" [ref=e107] [cursor=pointer]: ←
+    - heading "Create Group" [level=1] [ref=e108]
+  - generic [ref=e109]: + Add Photo
+  - generic [ref=e112]:
+    - textbox "Group name" [ref=e113]: Development Team
+    - textbox "Add a description (optional)" [ref=e114]
+  - textbox "🔍 Search wallet, username or domain" [ref=e116]
+  - generic [ref=e174]:
+    - generic [ref=e175]: CS
+    - generic [ref=e176]: cryptosmith
+    - button "Remove cryptosmith" [ref=e177] [cursor=pointer]: ×
+  - generic [ref=e118]:
+    - generic [ref=e119]: Suggested Users
+    - generic [ref=e120]:
+      - generic [ref=e121] [cursor=pointer]:
+        - generic [ref=e122]: AN
+        - generic [ref=e123]:
+          - generic [ref=e124]: aksaranft
+          - generic [ref=e125]: aksaranft.node
+      - generic [ref=e126] [cursor=pointer]:
+        - generic [ref=e127]: CS
+        - generic [ref=e128]:
+          - generic [ref=e129]: cryptosmith
+          - generic [ref=e130]: smith.crypto
+      - generic [ref=e131] [cursor=pointer]:
+        - generic [ref=e132]: NA
+        - generic [ref=e133]:
+          - generic [ref=e134]: nodeart
+          - generic [ref=e135]: art.node
+      - generic [ref=e136] [cursor=pointer]:
+        - generic [ref=e137]: VM
+        - generic [ref=e138]:
+          - generic [ref=e139]: vibemaster
+          - generic [ref=e140]: vibe.eth
+      - generic [ref=e141] [cursor=pointer]:
+        - generic [ref=e142]: CW
+        - generic [ref=e143]:
+          - generic [ref=e144]: chainwizard
+          - generic [ref=e145]: wizard.node
+      - generic [ref=e146] [cursor=pointer]:
+        - generic [ref=e147]: NC
+        - generic [ref=e148]:
+          - generic [ref=e149]: nftcollector
+          - generic [ref=e150]: collector.crypto
+      - generic [ref=e151] [cursor=pointer]:
+        - generic [ref=e152]: WB
+        - generic [ref=e153]:
+          - generic [ref=e154]: webbuilder
+          - generic [ref=e155]: web.node
+      - generic [ref=e156] [cursor=pointer]:
+        - generic [ref=e157]: DP
+        - generic [ref=e158]:
+          - generic [ref=e159]: designpro
+          - generic [ref=e160]: design.eth
+  - button "Create Group" [disabled] [ref=e161]

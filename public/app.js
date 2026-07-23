@@ -624,7 +624,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Add create group card handler
     document.querySelector('.create-group-card').addEventListener('click', () => {
-      console.log('Create Group tapped');
+      window.location.hash = '/create-group';
     });
 
     // Add user item handlers
@@ -634,6 +634,179 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('User tapped:', userId);
       });
     });
+  }
+
+  // Render Create Group Page
+  function renderCreateGroupPage() {
+    const state = {
+      groupName: '',
+      groupDescription: '',
+      selectedMembers: [],
+      searchQuery: ''
+    };
+
+    const usersList = suggestedUsers.map(user => `
+      <div class="suggested-user-item" data-user-id="${user.id}">
+        <div class="user-avatar">${user.avatar}</div>
+        <div class="user-content">
+          <div class="user-username">${user.username}</div>
+          <div class="user-domain">${user.domain}</div>
+        </div>
+      </div>
+    `).join('');
+
+    pageContainer.innerHTML = `
+      <div class="create-group-page">
+        <div class="create-group-header">
+          <button class="back-button" aria-label="Back to new message">←</button>
+          <h1>Create Group</h1>
+        </div>
+
+        <div class="group-avatar-section">
+          <div class="avatar-placeholder">
+            <div class="avatar-placeholder-text">+ Add Photo</div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <input type="text" class="form-input" placeholder="Group name" id="group-name-input" />
+          <input type="text" class="form-input" placeholder="Add a description (optional)" id="group-description-input" />
+        </div>
+
+        <div class="form-section">
+          <input type="text" class="form-input" placeholder="🔍 Search wallet, username or domain" id="search-members-input" />
+        </div>
+
+        <div class="members-chips-container" id="members-chips-container"></div>
+
+        <div class="suggested-users-section-create">
+          <div class="section-header">Suggested Users</div>
+          <div class="users-list" id="suggested-users-list">
+            ${usersList}
+          </div>
+        </div>
+
+        <button class="create-group-button" id="create-group-button">Create Group</button>
+      </div>
+    `;
+
+    // Cache DOM references
+    const backButton = document.querySelector('.back-button');
+    const groupNameInput = document.getElementById('group-name-input');
+    const groupDescriptionInput = document.getElementById('group-description-input');
+    const searchMembersInput = document.getElementById('search-members-input');
+    const avatarPlaceholder = document.querySelector('.avatar-placeholder');
+    const suggestedUsersList = document.getElementById('suggested-users-list');
+    const membersChipsContainer = document.getElementById('members-chips-container');
+    const createGroupButton = document.getElementById('create-group-button');
+
+    // Helper function to check if button should be disabled
+    function updateButtonState() {
+      const isNameFilled = state.groupName.trim().length > 0;
+      const isMembersSelected = state.selectedMembers.length >= 2;
+      const isDisabled = !(isNameFilled && isMembersSelected);
+      createGroupButton.disabled = isDisabled;
+    }
+
+    // Helper function to find user by ID
+    function findUserById(userId) {
+      return suggestedUsers.find(u => u.id === userId);
+    }
+
+    // Helper function to check if user is selected
+    function isUserSelected(userId) {
+      return state.selectedMembers.some(u => u.id === userId);
+    }
+
+    // Helper function to toggle user in selected members
+    function toggleUser(userId) {
+      const user = findUserById(userId);
+      if (!user) return;
+
+      if (isUserSelected(userId)) {
+        state.selectedMembers = state.selectedMembers.filter(u => u.id !== userId);
+      } else {
+        state.selectedMembers.push(user);
+      }
+
+      renderMemberChips();
+      updateButtonState();
+    }
+
+    // Helper function to render member chips
+    function renderMemberChips() {
+      if (state.selectedMembers.length === 0) {
+        membersChipsContainer.innerHTML = '';
+        return;
+      }
+
+      const chipsHTML = state.selectedMembers.map(user => `
+        <div class="member-chip">
+          <div class="chip-avatar">${user.avatar}</div>
+          <span>${user.username}</span>
+          <button class="chip-remove" data-user-id="${user.id}" aria-label="Remove ${user.username}">×</button>
+        </div>
+      `).join('');
+
+      membersChipsContainer.innerHTML = chipsHTML;
+
+      // Add event listeners to remove buttons
+      document.querySelectorAll('.chip-remove').forEach(button => {
+        button.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const userId = button.dataset.userId;
+          toggleUser(userId);
+        });
+      });
+    }
+
+    // Back button handler
+    backButton.addEventListener('click', () => {
+      window.location.hash = '/create';
+    });
+
+    // Group name input handler
+    groupNameInput.addEventListener('input', (e) => {
+      state.groupName = e.target.value;
+      updateButtonState();
+    });
+
+    // Group description input handler
+    groupDescriptionInput.addEventListener('input', (e) => {
+      state.groupDescription = e.target.value;
+    });
+
+    // Search members input handler
+    searchMembersInput.addEventListener('input', (e) => {
+      state.searchQuery = e.target.value;
+    });
+
+    // Avatar placeholder handler
+    avatarPlaceholder.addEventListener('click', () => {
+      console.log('Avatar tapped');
+    });
+
+    // Suggested user item handlers
+    document.querySelectorAll('.suggested-user-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const userId = item.dataset.userId;
+        toggleUser(userId);
+      });
+    });
+
+    // Create Group button handler
+    createGroupButton.addEventListener('click', () => {
+      if (!createGroupButton.disabled) {
+        console.log('Group creation initiated');
+        console.log('Group name:', state.groupName);
+        console.log('Group description:', state.groupDescription);
+        console.log('Selected members:', state.selectedMembers);
+      }
+    });
+
+    // Initialize button state
+    updateButtonState();
   }
 
   // Render a placeholder page
@@ -679,6 +852,12 @@ document.addEventListener('DOMContentLoaded', () => {
       // Hide bottom nav on conversation screen
       bottomNav.style.display = 'none';
       renderConversationPage(conversationId);
+    } else if (path === 'create-group') {
+      // Hide bottom nav on create group screen
+      bottomNav.style.display = 'none';
+      // Remove active from all nav tabs
+      navTabs.forEach(tab => tab.classList.remove('active'));
+      renderCreateGroupPage();
     } else {
       // Show bottom nav on all other screens
       bottomNav.style.display = 'flex';
