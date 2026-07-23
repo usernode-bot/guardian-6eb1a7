@@ -1,0 +1,41 @@
+- generic [ref=e55]:
+  - generic [ref=e56]:
+    - button "Back to messages" [ref=e57] [cursor=pointer]: ←
+    - generic [ref=e58]:
+      - generic [ref=e59]: AC
+      - generic [ref=e60]: Alice Chen
+    - button "More options" [ref=e62] [cursor=pointer]: ⋮
+  - generic [ref=e63]:
+    - generic [ref=e64]:
+      - generic [ref=e65]: Hey! How's it going?
+      - generic [ref=e66]: 2:44 PM
+    - generic [ref=e67]:
+      - generic [ref=e68]: Great! Just finished work
+      - generic [ref=e69]: 2:44 PM
+    - generic [ref=e70]:
+      - generic [ref=e71]: Nice! Want to grab dinner?
+      - generic [ref=e72]: 2:45 PM
+    - generic [ref=e73]:
+      - generic [ref=e74]: Sure! When?
+      - generic [ref=e75]: 2:45 PM
+    - generic [ref=e76]:
+      - generic [ref=e77]: How about 7pm?
+      - generic [ref=e78]: 2:46 PM
+    - generic [ref=e79]:
+      - generic [ref=e80]: That sounds great! Let's meet up soon.
+      - generic [ref=e81]: 2:47 PM
+    - generic [ref=e82]:
+      - generic [ref=e85] [cursor=pointer]:
+        - generic [ref=e86]: Alice Chen
+        - generic [ref=e87]: Hey! How's it going?
+      - generic [ref=e88]: Yes, things are going great!
+      - generic [ref=e89]: 2:49 PM
+  - generic [ref=e90]:
+    - generic [ref=e109]:
+      - generic [ref=e110]:
+        - generic [ref=e111]: "Replying to: You"
+        - generic [ref=e112]: Yes, things are going great!
+      - button "Cancel reply" [ref=e113] [cursor=pointer]: ✕
+    - button "Emoji" [ref=e91] [cursor=pointer]: 😊
+    - textbox "Message..." [ref=e92]
+    - button "Send" [ref=e93] [cursor=pointer]: ➤
