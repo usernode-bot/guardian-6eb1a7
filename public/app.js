@@ -176,7 +176,6 @@ document.addEventListener('DOMContentLoaded', () => {
               <div class="header-username">${conversation.username}</div>
               <div class="header-status ${conversation.onlineStatus ? 'online' : 'offline'}">
                 <span class="online-indicator"></span>
-                ${conversation.onlineStatus ? 'Online' : 'Offline'}
               </div>
             </div>
           </div>
