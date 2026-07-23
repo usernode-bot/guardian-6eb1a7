@@ -23,6 +23,26 @@
       "expectSelector": "#bottom-nav"
     },
     {
+      "name": "Conversation screen loads",
+      "path": "/#/conversation/conv_1",
+      "expectText": "Alice Chen"
+    },
+    {
+      "name": "Conversation header displays username",
+      "path": "/#/conversation/conv_1",
+      "expectSelector": ".header-username"
+    },
+    {
+      "name": "Message bubbles render",
+      "path": "/#/conversation/conv_1",
+      "expectSelector": ".message-bubble"
+    },
+    {
+      "name": "Composer appears on conversation screen",
+      "path": "/#/conversation/conv_1",
+      "expectSelector": ".composer-input"
+    },
+    {
       "name": "Create page navigates",
       "path": "/#/create",
       "expectText": "New Message"
