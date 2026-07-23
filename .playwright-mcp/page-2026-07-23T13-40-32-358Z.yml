@@ -1,0 +1,15 @@
+- generic [ref=e2]:
+  - heading "New Message" [level=1] [ref=e53]
+  - navigation [ref=e39]:
+    - button "💬 Messages" [ref=e40] [cursor=pointer]:
+      - generic [ref=e41]: 💬
+      - generic [ref=e42]: Messages
+    - button "➕ Create" [ref=e43] [cursor=pointer]:
+      - generic [ref=e44]: ➕
+      - generic [ref=e45]: Create
+    - button "🧭 Discover" [ref=e46] [cursor=pointer]:
+      - generic [ref=e47]: 🧭
+      - generic [ref=e48]: Discover
+    - button "👤 Profile" [ref=e49] [cursor=pointer]:
+      - generic [ref=e50]: 👤
+      - generic [ref=e51]: Profile

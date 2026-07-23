@@ -8,6 +8,16 @@
       "expectText": "Messages"
     },
     {
+      "name": "Conversation list renders",
+      "path": "/",
+      "expectText": "Alice Chen"
+    },
+    {
+      "name": "Unread badge displays",
+      "path": "/",
+      "expectSelector": ".unread-badge"
+    },
+    {
       "name": "Bottom navigation renders",
       "path": "/",
       "expectSelector": "#bottom-nav"
