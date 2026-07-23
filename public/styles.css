@@ -359,6 +359,40 @@ html, body {
   text-align: right;
 }
 
+.message-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #007aff 0%, #0051d5 100%);
+  color: #fff;
+  font-weight: 600;
+  font-size: 12px;
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+
+.message-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.message-sender-name {
+  font-size: 12px;
+  color: #007aff;
+  padding: 4px 0 2px 0;
+  font-weight: 500;
+}
+
+.header-member-count {
+  font-size: 11px;
+  color: #999;
+  line-height: 1.2;
+}
+
 .composer-container {
   display: flex;
   align-items: center;

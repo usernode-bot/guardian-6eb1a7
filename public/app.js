@@ -99,6 +99,30 @@ document.addEventListener('DOMContentLoaded', () => {
     { id: 'user_8', username: 'designpro', avatar: 'DP', domain: 'design.eth' }
   ];
 
+  // Dummy groups data with messages
+  const groups = [
+    {
+      id: 'group_1',
+      name: 'Seeker Club',
+      avatar: 'SC',
+      memberCount: 128,
+      members: [
+        { id: 'user_self', username: 'You' },
+        { id: 'user_alice', username: 'Alice' },
+        { id: 'user_bob', username: 'Bob' },
+        { id: 'user_charlie', username: 'Charlie' }
+      ],
+      messages: [
+        { id: 'msg_1', senderId: 'user_alice', senderName: 'Alice', text: 'Hey everyone!', timestamp: Date.now() - 10*60*1000, isOutgoing: false },
+        { id: 'msg_2', senderId: 'user_bob', senderName: 'Bob', text: 'Welcome to the group!', timestamp: Date.now() - 9*60*1000, isOutgoing: false },
+        { id: 'msg_3', senderId: 'user_self', text: 'Thanks for adding me!', timestamp: Date.now() - 8*60*1000, isOutgoing: true },
+        { id: 'msg_4', senderId: 'user_charlie', senderName: 'Charlie', text: 'Great to have you here!', timestamp: Date.now() - 7*60*1000, isOutgoing: false },
+        { id: 'msg_5', senderId: 'user_alice', senderName: 'Alice', text: 'Let\'s catch up soon!', timestamp: Date.now() - 6*60*1000, isOutgoing: false },
+        { id: 'msg_6', senderId: 'user_self', text: 'Absolutely! Looking forward to it.', timestamp: Date.now() - 5*60*1000, isOutgoing: true }
+      ]
+    }
+  ];
+
   // Format relative timestamp for conversation list
   function formatTimestamp(timestamp) {
     const now = Date.now();
@@ -521,9 +545,11 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    replyCloseButton.addEventListener('click', () => {
-      clearReplyState();
-    });
+    if (replyCloseButton) {
+      replyCloseButton.addEventListener('click', () => {
+        clearReplyState();
+      });
+    }
 
     sendButton.addEventListener('click', () => {
       const text = composerInput.value.trim();
@@ -578,6 +604,89 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
     });
+  }
+
+  // Render group conversation screen
+  function renderGroupConversationPage(groupId) {
+    const group = groups.find(g => g.id === groupId);
+    if (!group) {
+      renderPage('messages');
+      return;
+    }
+
+    const messagesList = group.messages.map(msg => {
+      let messageHTML = `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming'}" data-message-id="${msg.id}">`;
+
+      if (msg.isOutgoing) {
+        messageHTML += `
+          <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
+          <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
+        </div>`;
+      } else {
+        messageHTML += `
+          <div class="message-avatar">${msg.senderName ? msg.senderName.charAt(0).toUpperCase() : ''}</div>
+          <div class="message-content">
+            <div class="message-sender-name">${msg.senderName}</div>
+            <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
+            <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
+          </div>
+        </div>`;
+      }
+
+      return messageHTML;
+    }).join('');
+
+    pageContainer.innerHTML = `
+      <div class="conversation-page">
+        <div class="conversation-header">
+          <button class="back-button" aria-label="Back to messages">←</button>
+          <div class="conversation-header-info">
+            <div class="conversation-avatar-header">${group.avatar}</div>
+            <div class="header-text">
+              <div class="header-username">${group.name}</div>
+              <div class="header-member-count">${group.memberCount} members</div>
+            </div>
+          </div>
+          <button class="menu-button" aria-label="More options">⋮</button>
+        </div>
+        <div class="messages-container">
+          ${messagesList}
+        </div>
+        <div class="composer-container">
+          <div class="reply-preview-bar" style="display: none;">
+            <div class="reply-preview-content">
+              <div class="reply-quote">
+                <div class="reply-sender">Replying to: <span class="reply-sender-name"></span></div>
+                <div class="reply-text"></div>
+              </div>
+              <button class="reply-close-button" aria-label="Cancel reply">✕</button>
+            </div>
+          </div>
+          <button class="emoji-button" aria-label="Emoji">😊</button>
+          <textarea class="composer-input" placeholder="Message..." rows="1"></textarea>
+          <button class="send-button" aria-label="Send">➤</button>
+        </div>
+      </div>
+    `;
+
+    // Add back button handler
+    document.querySelector('.back-button').addEventListener('click', () => {
+      window.location.hash = '/messages';
+    });
+
+    // Scroll to latest message after DOM renders
+    setTimeout(() => {
+      const messagesContainer = document.querySelector('.messages-container');
+      if (messagesContainer) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
+    }, 0);
+
+    // Set up message long-press interactions
+    setupMessageLongPress(group);
+
+    // Set up send button and reply state management
+    setupComposer(group);
   }
 
   // Render new message page
@@ -852,6 +961,13 @@ document.addEventListener('DOMContentLoaded', () => {
       // Hide bottom nav on conversation screen
       bottomNav.style.display = 'none';
       renderConversationPage(conversationId);
+    } else if (path.startsWith('group/')) {
+      const groupId = path.split('/')[1];
+      // Remove active from all nav tabs when on group screen
+      navTabs.forEach(tab => tab.classList.remove('active'));
+      // Hide bottom nav on group screen
+      bottomNav.style.display = 'none';
+      renderGroupConversationPage(groupId);
     } else if (path === 'create-group') {
       // Hide bottom nav on create group screen
       bottomNav.style.display = 'none';
