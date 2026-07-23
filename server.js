@@ -36,6 +36,11 @@ app.use((req, res, next) => {
   next();
 });
 
+// Favicon endpoint - return 204 No Content to prevent browser 404 errors
+app.get('/favicon.ico', (req, res) => {
+  res.status(204).end();
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
