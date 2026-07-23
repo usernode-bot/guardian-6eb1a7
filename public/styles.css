@@ -430,64 +430,6 @@ html, body {
   animation: fadeOut 150ms ease-in forwards;
 }
 
-.emoji-reaction-bar {
-  position: fixed;
-  display: flex;
-  gap: 4px;
-  padding: 8px;
-  background-color: rgba(255, 255, 255, 0.95);
-  border-radius: 24px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
-  z-index: 101;
-  animation: menuScaleIn 250ms ease-out;
-  backdrop-filter: blur(4px);
-}
-
-.emoji-reaction-bar.closing {
-  animation: menuScaleOut 150ms ease-in forwards;
-}
-
-.emoji-button-item {
-  background: none;
-  border: none;
-  font-size: 24px;
-  cursor: pointer;
-  padding: 6px;
-  border-radius: 12px;
-  transition: background-color 100ms ease, transform 100ms ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 36px;
-  min-height: 36px;
-}
-
-.emoji-button-item:hover {
-  background-color: rgba(0, 0, 0, 0.05);
-}
-
-.emoji-button-item:active {
-  background-color: rgba(0, 0, 0, 0.1);
-}
-
-.emoji-button-item.tapped {
-  animation: emojiTap 200ms ease-out;
-}
-
-@keyframes emojiTap {
-  0% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(1.2);
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
 .context-menu {
   position: fixed;
   display: flex;

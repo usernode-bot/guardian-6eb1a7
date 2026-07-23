@@ -210,7 +210,6 @@ document.addEventListener('DOMContentLoaded', () => {
   function setupMessageLongPress() {
     const messageBubbles = document.querySelectorAll('.message-bubble');
     const LONG_PRESS_DURATION = 350;
-    const EMOJIS = ['❤️', '👍', '👎', '😂', '🔥', '🚀', '➕'];
     const MENU_ITEMS = [
       { icon: '↩️', label: 'Reply', action: 'reply' },
       { icon: '📋', label: 'Copy', action: 'copy' },
@@ -231,12 +230,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!menuState.isMenuOpen) return;
 
       const overlay = document.querySelector('.message-menu-overlay');
-      const emojiBar = document.querySelector('.emoji-reaction-bar');
       const contextMenu = document.querySelector('.context-menu');
       const messagesContainer = document.querySelector('.messages-container');
 
       if (overlay) overlay.classList.add('closing');
-      if (emojiBar) emojiBar.classList.add('closing');
       if (contextMenu) contextMenu.classList.add('closing');
 
       // Remove scroll listener
@@ -247,7 +244,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
       setTimeout(() => {
         overlay?.remove();
-        emojiBar?.remove();
         contextMenu?.remove();
 
         const selectedBubble = document.querySelector(`[data-message-id="${menuState.selectedMessageId}"]`);
@@ -276,17 +272,6 @@ document.addEventListener('DOMContentLoaded', () => {
       overlay.addEventListener('click', dismissMenu);
       conversationPage.appendChild(overlay);
 
-      // Create emoji reaction bar
-      const emojiBar = document.createElement('div');
-      emojiBar.className = 'emoji-reaction-bar';
-      const emojiButtons = EMOJIS.map(emoji => `
-        <button class="emoji-button-item" aria-label="React with ${emoji}" data-emoji="${emoji}">
-          ${emoji}
-        </button>
-      `).join('');
-      emojiBar.innerHTML = emojiButtons;
-      conversationPage.appendChild(emojiBar);
-
       // Create context menu
       const contextMenu = document.createElement('div');
       contextMenu.className = 'context-menu';
@@ -300,11 +285,6 @@ document.addEventListener('DOMContentLoaded', () => {
       conversationPage.appendChild(contextMenu);
 
       // Position menu with viewport bounds checking
-      // Temporarily append to get dimensions
-      conversationPage.appendChild(emojiBar);
-      conversationPage.appendChild(contextMenu);
-
-      const emojiBarRect = emojiBar.getBoundingClientRect();
       const contextMenuRect = contextMenu.getBoundingClientRect();
       const bubbleViewportRect = bubbleElement.getBoundingClientRect();
       const viewportHeight = window.innerHeight;
@@ -313,79 +293,40 @@ document.addEventListener('DOMContentLoaded', () => {
       // Calculate space available above and below the message
       const spaceAbove = bubbleViewportRect.top;
       const spaceBelow = viewportHeight - bubbleViewportRect.bottom;
-
-      // Total menu height (emoji bar + context menu + gaps)
-      const totalMenuHeight = emojiBarRect.height + contextMenuRect.height + 20;
+      const menuHeight = contextMenuRect.height;
 
       // Determine if menu should go above or below
-      let menuAboveMessage = true;
-      if (spaceAbove < totalMenuHeight && spaceBelow > totalMenuHeight) {
-        menuAboveMessage = false;
+      let menuTop;
+      if (spaceAbove > menuHeight + 10) {
+        // Position above the message
+        menuTop = bubbleViewportRect.top - menuHeight - 10;
+      } else {
+        // Position below the message
+        menuTop = bubbleViewportRect.bottom + 10;
       }
 
-      // Calculate vertical position
-      let emojiBarTop, contextMenuTop;
-      if (menuAboveMessage) {
-        // Position above: emoji bar first, context menu below it
-        emojiBarTop = bubbleViewportRect.top - emojiBarRect.height - 10;
-        contextMenuTop = emojiBarTop - contextMenuRect.height - 8;
-
-        // If context menu goes off top, shift everything down
-        if (contextMenuTop < 10) {
-          const shift = Math.abs(contextMenuTop) + 10;
-          contextMenuTop += shift;
-          emojiBarTop += shift;
-        }
-      } else {
-        // Position below: emoji bar first, context menu below it
-        emojiBarTop = bubbleViewportRect.bottom + 10;
-        contextMenuTop = emojiBarTop + emojiBarRect.height + 8;
-
-        // If context menu goes off bottom, shift everything up
-        if (contextMenuTop + contextMenuRect.height > viewportHeight - 10) {
-          const shift = (contextMenuTop + contextMenuRect.height) - (viewportHeight - 10);
-          contextMenuTop -= shift;
-          emojiBarTop -= shift;
-        }
+      // Ensure menu doesn't go off top or bottom
+      if (menuTop < 10) {
+        menuTop = 10;
+      } else if (menuTop + menuHeight > viewportHeight - 10) {
+        menuTop = viewportHeight - menuHeight - 10;
       }
 
       // Calculate horizontal position (center on message, adjust for viewport)
       const bubbleCenterX = bubbleViewportRect.left + bubbleViewportRect.width / 2;
+      let menuLeft = bubbleCenterX - contextMenuRect.width / 2;
 
-      // Center emoji bar on message
-      let emojiBarLeft = bubbleCenterX - emojiBarRect.width / 2;
-      if (emojiBarLeft < 10) {
-        emojiBarLeft = 10;
-      } else if (emojiBarLeft + emojiBarRect.width > viewportWidth - 10) {
-        emojiBarLeft = viewportWidth - emojiBarRect.width - 10;
-      }
-
-      // Center context menu on message
-      let contextMenuLeft = bubbleCenterX - contextMenuRect.width / 2;
-      if (contextMenuLeft < 10) {
-        contextMenuLeft = 10;
-      } else if (contextMenuLeft + contextMenuRect.width > viewportWidth - 10) {
-        contextMenuLeft = viewportWidth - contextMenuRect.width - 10;
+      // Ensure menu doesn't overflow viewport edges
+      if (menuLeft < 10) {
+        menuLeft = 10;
+      } else if (menuLeft + contextMenuRect.width > viewportWidth - 10) {
+        menuLeft = viewportWidth - contextMenuRect.width - 10;
       }
 
       // Apply fixed positioning relative to viewport
-      emojiBar.style.position = 'fixed';
-      emojiBar.style.top = Math.max(10, emojiBarTop) + 'px';
-      emojiBar.style.left = Math.max(10, emojiBarLeft) + 'px';
-
       contextMenu.style.position = 'fixed';
-      contextMenu.style.top = Math.max(10, contextMenuTop) + 'px';
-      contextMenu.style.left = Math.max(10, contextMenuLeft) + 'px';
-
-      // Add event listeners to emoji buttons
-      emojiBar.querySelectorAll('.emoji-button-item').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          console.log('User tapped emoji:', btn.dataset.emoji);
-          btn.classList.add('tapped');
-          setTimeout(() => btn.classList.remove('tapped'), 200);
-        });
-      });
+      contextMenu.style.top = Math.max(10, menuTop) + 'px';
+      contextMenu.style.left = Math.max(10, menuLeft) + 'px';
 
       // Add event listeners to menu items
       contextMenu.querySelectorAll('.menu-item').forEach(btn => {
