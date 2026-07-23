@@ -1068,3 +1068,10 @@ html, body {
   opacity: 0.5;
   cursor: default;
 }
+
+.validation-error {
+  font-size: 13px;
+  color: #ff3b30;
+  padding: 8px 0;
+  min-height: 18px;
+}
