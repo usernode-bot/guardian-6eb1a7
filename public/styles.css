@@ -249,10 +249,11 @@ html, body {
 
 .conversation-header-info {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 2px;
+  gap: 8px;
   flex: 1;
+  justify-content: center;
 }
 
 .conversation-avatar-header {
@@ -272,9 +273,8 @@ html, body {
 .header-text {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 1px;
-  max-width: 130px;
 }
 
 .header-username {
@@ -284,7 +284,7 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 110px;
+  max-width: 140px;
   line-height: 1.2;
 }
 
