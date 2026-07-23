@@ -82,5 +82,9 @@
       "path": "/health",
       "expectText": "ok"
     }
-  ]
+  ],
+  "governance": {
+    "approvers": "invited",
+    "approvals": "default"
+  }
 }
