@@ -160,8 +160,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const messagesList = conversation.messages.map(msg => `
-      <div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming'}">
-        <div class="message-bubble">${msg.text}</div>
+      <div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming'}" data-message-id="${msg.id}">
+        <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
         <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
       </div>
     `).join('');
@@ -201,6 +201,205 @@ document.addEventListener('DOMContentLoaded', () => {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
       }
     }, 0);
+
+    // Set up message long-press interactions
+    setupMessageLongPress();
+  }
+
+  // Setup long-press menu for messages
+  function setupMessageLongPress() {
+    const messageBubbles = document.querySelectorAll('.message-bubble');
+    const LONG_PRESS_DURATION = 350;
+    const MENU_ITEMS = [
+      { icon: '↩️', label: 'Reply', action: 'reply' },
+      { icon: '📋', label: 'Copy', action: 'copy' },
+      { icon: '📤', label: 'Forward', action: 'forward' },
+      { icon: '🗑️', label: 'Delete', action: 'delete' }
+    ];
+
+    let menuState = {
+      selectedMessageId: null,
+      isMenuOpen: false,
+      longPressTimer: null,
+      touchStartTime: 0,
+      lastEventWasTouch: false,
+      scrollHandler: null
+    };
+
+    function dismissMenu() {
+      if (!menuState.isMenuOpen) return;
+
+      const overlay = document.querySelector('.message-menu-overlay');
+      const contextMenu = document.querySelector('.context-menu');
+      const messagesContainer = document.querySelector('.messages-container');
+
+      if (overlay) overlay.classList.add('closing');
+      if (contextMenu) contextMenu.classList.add('closing');
+
+      // Remove scroll listener
+      if (menuState.scrollHandler && messagesContainer) {
+        messagesContainer.removeEventListener('scroll', menuState.scrollHandler);
+        menuState.scrollHandler = null;
+      }
+
+      setTimeout(() => {
+        overlay?.remove();
+        contextMenu?.remove();
+
+        const selectedBubble = document.querySelector(`[data-message-id="${menuState.selectedMessageId}"]`);
+        if (selectedBubble) {
+          selectedBubble.classList.remove('selected');
+        }
+
+        menuState.selectedMessageId = null;
+        menuState.isMenuOpen = false;
+      }, 150);
+    }
+
+    function showMenu(messageId, bubbleElement) {
+      if (menuState.isMenuOpen) dismissMenu();
+
+      menuState.selectedMessageId = messageId;
+      menuState.isMenuOpen = true;
+      bubbleElement.classList.add('selected');
+
+      const conversationPage = document.querySelector('.conversation-page');
+      const messagesContainer = document.querySelector('.messages-container');
+
+      // Create overlay
+      const overlay = document.createElement('div');
+      overlay.className = 'message-menu-overlay';
+      overlay.addEventListener('click', dismissMenu);
+      conversationPage.appendChild(overlay);
+
+      // Create context menu
+      const contextMenu = document.createElement('div');
+      contextMenu.className = 'context-menu';
+      const menuButtons = MENU_ITEMS.map(item => `
+        <button class="menu-item" aria-label="${item.label}" data-action="${item.action}">
+          <span class="menu-icon">${item.icon}</span>
+          <span class="menu-label">${item.label}</span>
+        </button>
+      `).join('');
+      contextMenu.innerHTML = menuButtons;
+      conversationPage.appendChild(contextMenu);
+
+      // Position menu with viewport bounds checking
+      const contextMenuRect = contextMenu.getBoundingClientRect();
+      const bubbleViewportRect = bubbleElement.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const viewportWidth = window.innerWidth;
+
+      // Calculate space available above and below the message
+      const spaceAbove = bubbleViewportRect.top;
+      const spaceBelow = viewportHeight - bubbleViewportRect.bottom;
+      const menuHeight = contextMenuRect.height;
+
+      // Determine if menu should go above or below
+      let menuTop;
+      if (spaceAbove > menuHeight + 10) {
+        // Position above the message
+        menuTop = bubbleViewportRect.top - menuHeight - 10;
+      } else {
+        // Position below the message
+        menuTop = bubbleViewportRect.bottom + 10;
+      }
+
+      // Ensure menu doesn't go off top or bottom
+      if (menuTop < 10) {
+        menuTop = 10;
+      } else if (menuTop + menuHeight > viewportHeight - 10) {
+        menuTop = viewportHeight - menuHeight - 10;
+      }
+
+      // Calculate horizontal position (center on message, adjust for viewport)
+      const bubbleCenterX = bubbleViewportRect.left + bubbleViewportRect.width / 2;
+      let menuLeft = bubbleCenterX - contextMenuRect.width / 2;
+
+      // Ensure menu doesn't overflow viewport edges
+      if (menuLeft < 10) {
+        menuLeft = 10;
+      } else if (menuLeft + contextMenuRect.width > viewportWidth - 10) {
+        menuLeft = viewportWidth - contextMenuRect.width - 10;
+      }
+
+      // Apply fixed positioning relative to viewport
+      contextMenu.style.position = 'fixed';
+      contextMenu.style.top = Math.max(10, menuTop) + 'px';
+      contextMenu.style.left = Math.max(10, menuLeft) + 'px';
+
+      // Add event listeners to menu items
+      contextMenu.querySelectorAll('.menu-item').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const action = btn.dataset.action;
+          console.log('Action:', action);
+          btn.classList.add('tapped');
+          setTimeout(() => dismissMenu(), 150);
+        });
+      });
+
+      // Dismiss on scroll
+      menuState.scrollHandler = () => dismissMenu();
+      messagesContainer.addEventListener('scroll', menuState.scrollHandler);
+    }
+
+    messageBubbles.forEach(bubble => {
+      const messageId = bubble.dataset.messageId;
+
+      // Mouse events
+      bubble.addEventListener('mousedown', (e) => {
+        if (menuState.lastEventWasTouch) return;
+        menuState.touchStartTime = Date.now();
+        menuState.longPressTimer = setTimeout(() => {
+          showMenu(messageId, bubble);
+        }, LONG_PRESS_DURATION);
+      });
+
+      bubble.addEventListener('mouseup', () => {
+        if (menuState.lastEventWasTouch) return;
+        if (menuState.longPressTimer) {
+          clearTimeout(menuState.longPressTimer);
+          menuState.longPressTimer = null;
+        }
+      });
+
+      bubble.addEventListener('mouseleave', () => {
+        if (menuState.longPressTimer) {
+          clearTimeout(menuState.longPressTimer);
+          menuState.longPressTimer = null;
+        }
+      });
+
+      // Touch events
+      bubble.addEventListener('touchstart', (e) => {
+        menuState.lastEventWasTouch = true;
+        menuState.touchStartTime = Date.now();
+        menuState.longPressTimer = setTimeout(() => {
+          showMenu(messageId, bubble);
+        }, LONG_PRESS_DURATION);
+      });
+
+      bubble.addEventListener('touchend', (e) => {
+        if (menuState.longPressTimer) {
+          clearTimeout(menuState.longPressTimer);
+          menuState.longPressTimer = null;
+        }
+        setTimeout(() => {
+          menuState.lastEventWasTouch = false;
+        }, 100);
+      });
+
+      bubble.addEventListener('touchmove', () => {
+        if (menuState.longPressTimer) {
+          clearTimeout(menuState.longPressTimer);
+          menuState.longPressTimer = null;
+        }
+      });
+
+      // Prevent text selection during long-press
+      bubble.style.userSelect = 'none';
+    });
   }
 
   // Render a placeholder page
