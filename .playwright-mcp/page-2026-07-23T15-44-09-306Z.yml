@@ -1,0 +1,70 @@
+- generic [ref=f1e2]:
+  - generic [ref=f1e159]:
+    - generic [ref=f1e160]:
+      - heading "Messages" [level=1] [ref=f1e161]
+      - generic [ref=f1e162] [cursor=pointer]: 🔍
+    - generic [ref=f1e163]:
+      - generic [ref=f1e164]:
+        - generic [ref=f1e165]: A
+        - generic [ref=f1e166]:
+          - generic [ref=f1e167]:
+            - generic [ref=f1e168]: Awesome Builders
+            - generic [ref=f1e169]: Now
+          - paragraph [ref=f1e170]: Group created.
+      - generic [ref=f1e171]:
+        - generic [ref=f1e172]: AC
+        - generic [ref=f1e173]:
+          - generic [ref=f1e174]:
+            - generic [ref=f1e175]: Alice Chen
+            - generic [ref=f1e176]: 2m
+          - paragraph [ref=f1e177]: That sounds great! Let's meet up soon.
+        - generic [ref=f1e178]: "2"
+      - generic [ref=f1e179]:
+        - generic [ref=f1e180]: BW
+        - generic [ref=f1e181]:
+          - generic [ref=f1e182]:
+            - generic [ref=f1e183]: Bob Wilson
+            - generic [ref=f1e184]: 1h
+          - paragraph [ref=f1e185]: Did you see the latest updates?
+      - generic [ref=f1e186]:
+        - generic [ref=f1e187]: CD
+        - generic [ref=f1e188]:
+          - generic [ref=f1e189]:
+            - generic [ref=f1e190]: Carol Davis
+            - generic [ref=f1e191]: Yesterday
+          - paragraph [ref=f1e192]: Thanks for the help yesterday!
+        - generic [ref=f1e193]: "1"
+      - generic [ref=f1e194]:
+        - generic [ref=f1e195]: DL
+        - generic [ref=f1e196]:
+          - generic [ref=f1e197]:
+            - generic [ref=f1e198]: David Lee
+            - generic [ref=f1e199]: 2d
+          - paragraph [ref=f1e200]: Looking forward to the event next week
+      - generic [ref=f1e201]:
+        - generic [ref=f1e202]: SC
+        - generic [ref=f1e203]:
+          - generic [ref=f1e204]:
+            - generic [ref=f1e205]: Seeker Club
+            - generic [ref=f1e206]: 5m
+          - paragraph [ref=f1e207]: Let's catch up soon!
+      - generic [ref=f1e208]:
+        - generic [ref=f1e209]: DT
+        - generic [ref=f1e210]:
+          - generic [ref=f1e211]:
+            - generic [ref=f1e212]: Design Team
+            - generic [ref=f1e213]: 25m
+          - paragraph [ref=f1e214]: Thanks! Reviewing now
+  - navigation [ref=f1e53]:
+    - button "💬 Messages" [ref=f1e54] [cursor=pointer]:
+      - generic [ref=f1e55]: 💬
+      - generic [ref=f1e56]: Messages
+    - button "➕ Create" [ref=f1e57] [cursor=pointer]:
+      - generic [ref=f1e58]: ➕
+      - generic [ref=f1e59]: Create
+    - button "🧭 Discover" [ref=f1e60] [cursor=pointer]:
+      - generic [ref=f1e61]: 🧭
+      - generic [ref=f1e62]: Discover
+    - button "👤 Profile" [ref=f1e63] [cursor=pointer]:
+      - generic [ref=f1e64]: 👤
+      - generic [ref=f1e65]: Profile

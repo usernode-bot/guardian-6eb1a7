@@ -1,0 +1,19 @@
+- generic [ref=f1e139]:
+  - generic [ref=f1e140]:
+    - button "Back to messages" [ref=f1e141] [cursor=pointer]: ←
+    - generic [ref=f1e142]:
+      - generic [ref=f1e143]: A
+      - generic [ref=f1e144]:
+        - generic [ref=f1e145]: Awesome Builders
+        - generic [ref=f1e146]: 3 members
+    - button "More options" [ref=f1e147] [cursor=pointer]: ⋮
+  - generic [ref=f1e149]:
+    - generic [ref=f1e150]: S
+    - generic [ref=f1e151]:
+      - generic [ref=f1e152]: System
+      - generic [ref=f1e153]: Group created.
+      - generic [ref=f1e154]: 3:44 PM
+  - generic [ref=f1e155]:
+    - button "Emoji" [ref=f1e156] [cursor=pointer]: 😊
+    - textbox "Message..." [ref=f1e157]
+    - button "Send" [ref=f1e158] [cursor=pointer]: ➤

@@ -1,0 +1,63 @@
+- generic [ref=f1e2]:
+  - generic [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - heading "Messages" [level=1] [ref=f1e6]
+      - generic [ref=f1e7] [cursor=pointer]: 🔍
+    - generic [ref=f1e8]:
+      - generic [ref=f1e9]:
+        - generic [ref=f1e10]: AC
+        - generic [ref=f1e11]:
+          - generic [ref=f1e12]:
+            - generic [ref=f1e13]: Alice Chen
+            - generic [ref=f1e14]: 2m
+          - paragraph [ref=f1e15]: That sounds great! Let's meet up soon.
+        - generic [ref=f1e16]: "2"
+      - generic [ref=f1e17]:
+        - generic [ref=f1e18]: BW
+        - generic [ref=f1e19]:
+          - generic [ref=f1e20]:
+            - generic [ref=f1e21]: Bob Wilson
+            - generic [ref=f1e22]: 1h
+          - paragraph [ref=f1e23]: Did you see the latest updates?
+      - generic [ref=f1e24]:
+        - generic [ref=f1e25]: CD
+        - generic [ref=f1e26]:
+          - generic [ref=f1e27]:
+            - generic [ref=f1e28]: Carol Davis
+            - generic [ref=f1e29]: Yesterday
+          - paragraph [ref=f1e30]: Thanks for the help yesterday!
+        - generic [ref=f1e31]: "1"
+      - generic [ref=f1e32]:
+        - generic [ref=f1e33]: DL
+        - generic [ref=f1e34]:
+          - generic [ref=f1e35]:
+            - generic [ref=f1e36]: David Lee
+            - generic [ref=f1e37]: 2d
+          - paragraph [ref=f1e38]: Looking forward to the event next week
+      - generic [ref=f1e39]:
+        - generic [ref=f1e40]: SC
+        - generic [ref=f1e41]:
+          - generic [ref=f1e42]:
+            - generic [ref=f1e43]: Seeker Club
+            - generic [ref=f1e44]: 5m
+          - paragraph [ref=f1e45]: Let's catch up soon!
+      - generic [ref=f1e46]:
+        - generic [ref=f1e47]: DT
+        - generic [ref=f1e48]:
+          - generic [ref=f1e49]:
+            - generic [ref=f1e50]: Design Team
+            - generic [ref=f1e51]: 25m
+          - paragraph [ref=f1e52]: Thanks! Reviewing now
+  - navigation [ref=f1e53]:
+    - button "💬 Messages" [ref=f1e54] [cursor=pointer]:
+      - generic [ref=f1e55]: 💬
+      - generic [ref=f1e56]: Messages
+    - button "➕ Create" [ref=f1e57] [cursor=pointer]:
+      - generic [ref=f1e58]: ➕
+      - generic [ref=f1e59]: Create
+    - button "🧭 Discover" [ref=f1e60] [cursor=pointer]:
+      - generic [ref=f1e61]: 🧭
+      - generic [ref=f1e62]: Discover
+    - button "👤 Profile" [ref=f1e63] [cursor=pointer]:
+      - generic [ref=f1e64]: 👤
+      - generic [ref=f1e65]: Profile
