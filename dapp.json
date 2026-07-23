@@ -68,6 +68,51 @@
       "expectSelector": ".suggested-user-item"
     },
     {
+      "name": "Create Group page loads",
+      "path": "/#/create-group",
+      "expectText": "Create Group"
+    },
+    {
+      "name": "Avatar placeholder appears on Create Group page",
+      "path": "/#/create-group",
+      "expectSelector": "#avatar-placeholder"
+    },
+    {
+      "name": "Group name input appears on Create Group page",
+      "path": "/#/create-group",
+      "expectSelector": "#group-name-input"
+    },
+    {
+      "name": "Member search input appears on Create Group page",
+      "path": "/#/create-group",
+      "expectSelector": "#search-members-input"
+    },
+    {
+      "name": "Group conversations appear in Messages list",
+      "path": "/",
+      "expectText": "Seeker Club"
+    },
+    {
+      "name": "Design Team seed group appears in Messages list",
+      "path": "/",
+      "expectText": "Design Team"
+    },
+    {
+      "name": "Group chat page displays group name",
+      "path": "/#/group/group_1",
+      "expectText": "Seeker Club"
+    },
+    {
+      "name": "Group chat page displays member count",
+      "path": "/#/group/group_1",
+      "expectText": "members"
+    },
+    {
+      "name": "Group chat displays system message",
+      "path": "/#/group/group_1",
+      "expectText": "Group created."
+    },
+    {
       "name": "Discover page navigates",
       "path": "/#/discover",
       "expectText": "Discover"
