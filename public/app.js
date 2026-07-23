@@ -114,6 +114,14 @@ document.addEventListener('DOMContentLoaded', () => {
     return date.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   }
 
+  // Truncate text to 50 characters with ellipsis
+  function truncateText(text, length = 50) {
+    if (text.length > length) {
+      return text.substring(0, length) + '…';
+    }
+    return text;
+  }
+
   // Render messages page with conversation list
   function renderMessagesPage() {
     const conversationsList = conversations.map(conv => `
@@ -159,12 +167,29 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const messagesList = conversation.messages.map(msg => `
-      <div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming'}" data-message-id="${msg.id}">
+    const messagesList = conversation.messages.map(msg => {
+      let messageHTML = `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming'}" data-message-id="${msg.id}">`;
+
+      // Add quoted message section if this is a reply
+      if (msg.replyTo) {
+        messageHTML += `
+          <div class="message-quote" data-quoted-message-id="${msg.replyTo.messageId}">
+            <div class="quote-border"></div>
+            <div class="quote-content">
+              <div class="quote-sender">${msg.replyTo.senderName}</div>
+              <div class="quote-text">${msg.replyTo.previewText}</div>
+            </div>
+          </div>
+        `;
+      }
+
+      messageHTML += `
         <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
         <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
-      </div>
-    `).join('');
+      </div>`;
+
+      return messageHTML;
+    }).join('');
 
     pageContainer.innerHTML = `
       <div class="conversation-page">
@@ -182,6 +207,15 @@ document.addEventListener('DOMContentLoaded', () => {
           ${messagesList}
         </div>
         <div class="composer-container">
+          <div class="reply-preview-bar" style="display: none;">
+            <div class="reply-preview-content">
+              <div class="reply-quote">
+                <div class="reply-sender">Replying to: <span class="reply-sender-name"></span></div>
+                <div class="reply-text"></div>
+              </div>
+              <button class="reply-close-button" aria-label="Cancel reply">✕</button>
+            </div>
+          </div>
           <button class="emoji-button" aria-label="Emoji">😊</button>
           <input type="text" class="composer-input" placeholder="Message...">
           <button class="send-button" aria-label="Send">➤</button>
@@ -203,11 +237,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 0);
 
     // Set up message long-press interactions
-    setupMessageLongPress();
+    setupMessageLongPress(conversation);
+
+    // Set up send button and reply state management
+    setupComposer(conversation);
   }
 
   // Setup long-press menu for messages
-  function setupMessageLongPress() {
+  function setupMessageLongPress(conversation) {
     const messageBubbles = document.querySelectorAll('.message-bubble');
     const LONG_PRESS_DURATION = 350;
     const MENU_ITEMS = [
@@ -335,6 +372,17 @@ document.addEventListener('DOMContentLoaded', () => {
           const action = btn.dataset.action;
           console.log('Action:', action);
           btn.classList.add('tapped');
+
+          // Handle reply action
+          if (action === 'reply') {
+            const targetMessage = conversation.messages.find(m => m.id === messageId);
+            if (targetMessage) {
+              const senderName = targetMessage.isOutgoing ? 'You' : conversation.username;
+              const previewText = truncateText(targetMessage.text, 50);
+              setReplyState(messageId, senderName, previewText);
+            }
+          }
+
           setTimeout(() => dismissMenu(), 150);
         });
       });
@@ -399,6 +447,104 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Prevent text selection during long-press
       bubble.style.userSelect = 'none';
+    });
+  }
+
+  // Reply state management
+  let replyState = {
+    targetMessageId: null,
+    targetSenderName: null,
+    targetPreviewText: null
+  };
+
+  function setReplyState(messageId, senderName, previewText) {
+    replyState.targetMessageId = messageId;
+    replyState.targetSenderName = senderName;
+    replyState.targetPreviewText = previewText;
+
+    // Show reply preview bar
+    const replyBar = document.querySelector('.reply-preview-bar');
+    const replySenderName = document.querySelector('.reply-sender-name');
+    const replyText = document.querySelector('.reply-text');
+
+    if (replyBar) {
+      replySenderName.textContent = senderName;
+      replyText.textContent = previewText;
+      replyBar.style.display = 'flex';
+    }
+  }
+
+  function clearReplyState() {
+    replyState.targetMessageId = null;
+    replyState.targetSenderName = null;
+    replyState.targetPreviewText = null;
+
+    const replyBar = document.querySelector('.reply-preview-bar');
+    if (replyBar) {
+      replyBar.style.display = 'none';
+    }
+  }
+
+  function setupComposer(conversation) {
+    const composerInput = document.querySelector('.composer-input');
+    const sendButton = document.querySelector('.send-button');
+    const replyCloseButton = document.querySelector('.reply-close-button');
+
+    replyCloseButton.addEventListener('click', () => {
+      clearReplyState();
+    });
+
+    sendButton.addEventListener('click', () => {
+      const text = composerInput.value.trim();
+      if (!text) return;
+
+      // Create new message with optional reply metadata
+      const newMessage = {
+        id: `msg_${Date.now()}`,
+        text: text,
+        timestamp: Date.now(),
+        isOutgoing: true
+      };
+
+      // Attach reply metadata if replying
+      if (replyState.targetMessageId) {
+        newMessage.replyTo = {
+          messageId: replyState.targetMessageId,
+          senderName: replyState.targetSenderName,
+          previewText: replyState.targetPreviewText
+        };
+      }
+
+      // Add message to conversation
+      conversation.messages.push(newMessage);
+      composerInput.value = '';
+      clearReplyState();
+
+      // Re-render conversation to show new message
+      renderConversationPage(conversation.id);
+    });
+
+    // Set up quoted message click handlers for scrolling and highlighting
+    const quotedMessages = document.querySelectorAll('.message-quote');
+    quotedMessages.forEach(quote => {
+      quote.style.cursor = 'pointer';
+      quote.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const quotedMessageId = quote.dataset.quotedMessageId;
+        const messagesContainer = document.querySelector('.messages-container');
+        const targetBubble = document.querySelector(`[data-message-id="${quotedMessageId}"].message-bubble`);
+
+        if (targetBubble && messagesContainer) {
+          // Scroll to the target message
+          targetBubble.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+          // Add highlight animation
+          targetBubble.classList.add('highlight-pulse');
+          setTimeout(() => {
+            targetBubble.classList.remove('highlight-pulse');
+          }, 1500);
+        }
+      });
     });
   }
 
