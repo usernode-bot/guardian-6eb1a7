@@ -70,7 +70,7 @@ html, body {
 }
 
 .nav-tab .nav-icon {
-  font-size: 24px;
+  font-size: 18px;
   opacity: 0.6;
   transition: opacity 0.2s ease;
 }
