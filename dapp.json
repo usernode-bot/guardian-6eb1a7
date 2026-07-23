@@ -43,9 +43,29 @@
       "expectSelector": ".composer-input"
     },
     {
-      "name": "Create page navigates",
+      "name": "New Message page loads",
       "path": "/#/create",
       "expectText": "New Message"
+    },
+    {
+      "name": "Search field displays on New Message page",
+      "path": "/#/create",
+      "expectSelector": ".search-field"
+    },
+    {
+      "name": "Create Group card displays",
+      "path": "/#/create",
+      "expectText": "Create Group"
+    },
+    {
+      "name": "Suggested Users section displays",
+      "path": "/#/create",
+      "expectText": "Suggested Users"
+    },
+    {
+      "name": "Suggested users render with avatars",
+      "path": "/#/create",
+      "expectSelector": ".suggested-user-item"
     },
     {
       "name": "Discover page navigates",

@@ -87,6 +87,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   ];
 
+  // Dummy suggested users data
+  const suggestedUsers = [
+    { id: 'user_1', username: 'aksaranft', avatar: 'AN', domain: 'aksaranft.node' },
+    { id: 'user_2', username: 'cryptosmith', avatar: 'CS', domain: 'smith.crypto' },
+    { id: 'user_3', username: 'nodeart', avatar: 'NA', domain: 'art.node' },
+    { id: 'user_4', username: 'vibemaster', avatar: 'VM', domain: 'vibe.eth' },
+    { id: 'user_5', username: 'chainwizard', avatar: 'CW', domain: 'wizard.node' },
+    { id: 'user_6', username: 'nftcollector', avatar: 'NC', domain: 'collector.crypto' },
+    { id: 'user_7', username: 'webbuilder', avatar: 'WB', domain: 'web.node' },
+    { id: 'user_8', username: 'designpro', avatar: 'DP', domain: 'design.eth' }
+  ];
+
   // Format relative timestamp for conversation list
   function formatTimestamp(timestamp) {
     const now = Date.now();
@@ -568,6 +580,62 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Render new message page
+  function renderNewMessagePage() {
+    const usersList = suggestedUsers.length > 0
+      ? suggestedUsers.map(user => `
+        <div class="suggested-user-item" data-user-id="${user.id}">
+          <div class="user-avatar">${user.avatar}</div>
+          <div class="user-content">
+            <div class="user-username">${user.username}</div>
+            <div class="user-domain">${user.domain}</div>
+          </div>
+        </div>
+      `).join('')
+      : '<div class="empty-state">No suggested users.</div>';
+
+    pageContainer.innerHTML = `
+      <div class="new-message-page">
+        <div class="new-message-header">
+          <button class="back-button" aria-label="Back to messages">←</button>
+          <h1>New Message</h1>
+        </div>
+        <div class="search-container">
+          <input type="text" class="search-field" placeholder="🔍 Search wallet, username" />
+        </div>
+        <div class="create-group-card">
+          <span class="group-icon">👥</span>
+          <span class="group-label">Create Group</span>
+          <span class="group-chevron">></span>
+        </div>
+        <div class="suggested-users-section">
+          <div class="section-header">Suggested Users</div>
+          <div class="users-list">
+            ${usersList}
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Add back button handler
+    document.querySelector('.back-button').addEventListener('click', () => {
+      window.location.hash = '/messages';
+    });
+
+    // Add create group card handler
+    document.querySelector('.create-group-card').addEventListener('click', () => {
+      console.log('Create Group tapped');
+    });
+
+    // Add user item handlers
+    document.querySelectorAll('.suggested-user-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const userId = item.dataset.userId;
+        console.log('User tapped:', userId);
+      });
+    });
+  }
+
   // Render a placeholder page
   function renderPage(pageName) {
     const page = pages[pageName];
@@ -579,6 +647,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Special handling for messages page
     if (pageName === 'messages') {
       renderMessagesPage();
+    } else if (pageName === 'create') {
+      renderNewMessagePage();
     } else {
       pageContainer.innerHTML = `
         <div class="page">
