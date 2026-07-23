@@ -3,9 +3,34 @@
   "secrets": [],
   "tests": [
     {
-      "name": "App loads successfully",
+      "name": "Home page loads",
       "path": "/",
-      "expectText": "Guardian"
+      "expectText": "Home"
+    },
+    {
+      "name": "Bottom navigation renders",
+      "path": "/",
+      "expectSelector": "#bottom-nav"
+    },
+    {
+      "name": "Messages page navigates",
+      "path": "/#/messages",
+      "expectText": "Messages"
+    },
+    {
+      "name": "Discover page navigates",
+      "path": "/#/discover",
+      "expectText": "Discover"
+    },
+    {
+      "name": "Wallet page navigates",
+      "path": "/#/wallet",
+      "expectText": "Wallet"
+    },
+    {
+      "name": "Profile page navigates",
+      "path": "/#/profile",
+      "expectText": "Profile"
     },
     {
       "name": "Health check endpoint works",
