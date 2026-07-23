@@ -16,7 +16,7 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // Auth middleware - follows Usernode platform conventions
-const PUBLIC_API_PATHS = new Set(['/health']);
+const PUBLIC_API_PATHS = new Set(['/health', '/api/state']);
 const PUBLIC_PREFIXES = ['/explorer-api/'];
 
 app.use((req, res, next) => {
@@ -39,6 +39,11 @@ app.use((req, res, next) => {
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// App state endpoint
+app.get('/api/state', (req, res) => {
+  res.json({ status: 'ok', user: req.user || null });
 });
 
 // Initialize database schema
