@@ -299,20 +299,83 @@ document.addEventListener('DOMContentLoaded', () => {
       contextMenu.innerHTML = menuButtons;
       conversationPage.appendChild(contextMenu);
 
-      // Position menu relative to message
-      const bubbleRect = bubbleElement.getBoundingClientRect();
-      const containerRect = messagesContainer.getBoundingClientRect();
-      const relativeTop = bubbleRect.top - containerRect.top + messagesContainer.scrollTop;
+      // Position menu with viewport bounds checking
+      // Temporarily append to get dimensions
+      conversationPage.appendChild(emojiBar);
+      conversationPage.appendChild(contextMenu);
 
-      let menuTop = relativeTop - 130; // Above the message
-      const availableBelow = messagesContainer.scrollHeight - (relativeTop + bubbleRect.height);
+      const emojiBarRect = emojiBar.getBoundingClientRect();
+      const contextMenuRect = contextMenu.getBoundingClientRect();
+      const bubbleViewportRect = bubbleElement.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const viewportWidth = window.innerWidth;
 
-      if (menuTop < 10) {
-        menuTop = relativeTop + bubbleRect.height + 10; // Below the message
+      // Calculate space available above and below the message
+      const spaceAbove = bubbleViewportRect.top;
+      const spaceBelow = viewportHeight - bubbleViewportRect.bottom;
+
+      // Total menu height (emoji bar + context menu + gaps)
+      const totalMenuHeight = emojiBarRect.height + contextMenuRect.height + 20;
+
+      // Determine if menu should go above or below
+      let menuAboveMessage = true;
+      if (spaceAbove < totalMenuHeight && spaceBelow > totalMenuHeight) {
+        menuAboveMessage = false;
       }
 
-      emojiBar.style.top = Math.max(10, relativeTop - 60) + 'px';
-      contextMenu.style.top = Math.max(10, menuTop) + 'px';
+      // Calculate vertical position
+      let emojiBarTop, contextMenuTop;
+      if (menuAboveMessage) {
+        // Position above: emoji bar first, context menu below it
+        emojiBarTop = bubbleViewportRect.top - emojiBarRect.height - 10;
+        contextMenuTop = emojiBarTop - contextMenuRect.height - 8;
+
+        // If context menu goes off top, shift everything down
+        if (contextMenuTop < 10) {
+          const shift = Math.abs(contextMenuTop) + 10;
+          contextMenuTop += shift;
+          emojiBarTop += shift;
+        }
+      } else {
+        // Position below: emoji bar first, context menu below it
+        emojiBarTop = bubbleViewportRect.bottom + 10;
+        contextMenuTop = emojiBarTop + emojiBarRect.height + 8;
+
+        // If context menu goes off bottom, shift everything up
+        if (contextMenuTop + contextMenuRect.height > viewportHeight - 10) {
+          const shift = (contextMenuTop + contextMenuRect.height) - (viewportHeight - 10);
+          contextMenuTop -= shift;
+          emojiBarTop -= shift;
+        }
+      }
+
+      // Calculate horizontal position (center on message, adjust for viewport)
+      const bubbleCenterX = bubbleViewportRect.left + bubbleViewportRect.width / 2;
+
+      // Center emoji bar on message
+      let emojiBarLeft = bubbleCenterX - emojiBarRect.width / 2;
+      if (emojiBarLeft < 10) {
+        emojiBarLeft = 10;
+      } else if (emojiBarLeft + emojiBarRect.width > viewportWidth - 10) {
+        emojiBarLeft = viewportWidth - emojiBarRect.width - 10;
+      }
+
+      // Center context menu on message
+      let contextMenuLeft = bubbleCenterX - contextMenuRect.width / 2;
+      if (contextMenuLeft < 10) {
+        contextMenuLeft = 10;
+      } else if (contextMenuLeft + contextMenuRect.width > viewportWidth - 10) {
+        contextMenuLeft = viewportWidth - contextMenuRect.width - 10;
+      }
+
+      // Apply fixed positioning relative to viewport
+      emojiBar.style.position = 'fixed';
+      emojiBar.style.top = Math.max(10, emojiBarTop) + 'px';
+      emojiBar.style.left = Math.max(10, emojiBarLeft) + 'px';
+
+      contextMenu.style.position = 'fixed';
+      contextMenu.style.top = Math.max(10, contextMenuTop) + 'px';
+      contextMenu.style.left = Math.max(10, contextMenuLeft) + 'px';
 
       // Add event listeners to emoji buttons
       emojiBar.querySelectorAll('.emoji-button-item').forEach(btn => {
