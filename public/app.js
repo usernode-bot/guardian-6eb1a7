@@ -217,7 +217,7 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
           </div>
           <button class="emoji-button" aria-label="Emoji">😊</button>
-          <input type="text" class="composer-input" placeholder="Message...">
+          <textarea class="composer-input" placeholder="Message..." rows="1"></textarea>
           <button class="send-button" aria-label="Send">➤</button>
         </div>
       </div>
@@ -490,6 +490,25 @@ document.addEventListener('DOMContentLoaded', () => {
     const sendButton = document.querySelector('.send-button');
     const replyCloseButton = document.querySelector('.reply-close-button');
 
+    // Auto-expand textarea functionality
+    function autoExpandTextarea() {
+      // Reset height to calculate scrollHeight
+      composerInput.style.height = 'auto';
+      // Set height based on scrollHeight, but respect max-height (120px)
+      const newHeight = Math.min(composerInput.scrollHeight, 120);
+      composerInput.style.height = newHeight + 'px';
+    }
+
+    composerInput.addEventListener('input', autoExpandTextarea);
+
+    // Collapse when empty
+    const originalValue = composerInput.value;
+    composerInput.addEventListener('input', () => {
+      if (composerInput.value.trim() === '') {
+        composerInput.style.height = '40px';
+      }
+    });
+
     replyCloseButton.addEventListener('click', () => {
       clearReplyState();
     });
@@ -518,6 +537,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Add message to conversation
       conversation.messages.push(newMessage);
       composerInput.value = '';
+      composerInput.style.height = '40px';
       clearReplyState();
 
       // Re-render conversation to show new message

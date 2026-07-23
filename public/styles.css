@@ -392,6 +392,12 @@ html, body {
   font-size: 15px;
   font-family: inherit;
   outline: none;
+  min-height: 40px;
+  max-height: 120px;
+  resize: none;
+  overflow-y: auto;
+  transition: height 0.2s ease, min-height 0.2s ease;
+  line-height: 1.4;
 }
 
 .composer-input:focus {
