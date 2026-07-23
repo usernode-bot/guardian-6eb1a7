@@ -174,9 +174,6 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="conversation-avatar-header">${conversation.avatar}</div>
             <div class="header-text">
               <div class="header-username">${conversation.username}</div>
-              <div class="header-status ${conversation.onlineStatus ? 'online' : 'offline'}">
-                <span class="online-indicator"></span>
-              </div>
             </div>
           </div>
           <button class="menu-button" aria-label="More options">⋮</button>

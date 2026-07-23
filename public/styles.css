@@ -288,27 +288,6 @@ html, body {
   line-height: 1.2;
 }
 
-.header-status {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 10px;
-  color: #999;
-  white-space: nowrap;
-  line-height: 1.2;
-}
-
-.header-status.online {
-  color: #34c759;
-}
-
-.online-indicator {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: #34c759;
-}
 
 .menu-button {
   background: none;
