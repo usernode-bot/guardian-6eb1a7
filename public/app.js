@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const pageContainer = document.getElementById('page-container');
+  const bottomNav = document.getElementById('bottom-nav');
   const navTabs = document.querySelectorAll('.nav-tab');
 
   // Dummy conversations data with messages
@@ -244,8 +245,12 @@ document.addEventListener('DOMContentLoaded', () => {
       const conversationId = path.split('/')[1];
       // Remove active from all nav tabs when on conversation screen
       navTabs.forEach(tab => tab.classList.remove('active'));
+      // Hide bottom nav on conversation screen
+      bottomNav.style.display = 'none';
       renderConversationPage(conversationId);
     } else {
+      // Show bottom nav on all other screens
+      bottomNav.style.display = 'flex';
       renderPage(path);
     }
   }
