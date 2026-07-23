@@ -242,6 +242,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Parse conversation routes like "conversation/conv_1"
     if (path.startsWith('conversation/')) {
       const conversationId = path.split('/')[1];
+      // Remove active from all nav tabs when on conversation screen
+      navTabs.forEach(tab => tab.classList.remove('active'));
       renderConversationPage(conversationId);
     } else {
       renderPage(path);
