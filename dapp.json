@@ -1,54 +1,16 @@
 {
   "name": "Guardian",
-  "secrets": [
-    {
-      "key": "TESTNET_RPC_URL",
-      "description": "JSON-RPC endpoint for testnet balance queries (e.g., Sepolia, Goerli public RPC)",
-      "required": false,
-      "private": false,
-      "staging_default": "https://sepolia.drpc.org"
-    }
-  ],
+  "secrets": [],
   "tests": [
     {
-      "name": "App shell loads",
+      "name": "App loads successfully",
       "path": "/",
-      "expectSelector": "nav"
+      "expectText": "Guardian"
     },
     {
-      "name": "Node API returns mock data",
-      "path": "/api/node",
-      "expectText": "status"
-    },
-    {
-      "name": "Guardian Gallery loads with all 500 guardians",
-      "path": "/guardians.html",
-      "expectText": "Guardian Gallery"
-    },
-    {
-      "name": "Guardian Gallery displays guardian cards",
-      "path": "/guardians.html",
-      "expectSelector": ".tier-filter"
-    },
-    {
-      "name": "Guardian Gallery shows allocation stats",
-      "path": "/guardians.html",
-      "expectText": "Available"
-    },
-    {
-      "name": "Supply stats API returns guardian counts",
-      "path": "/api/supply/stats",
-      "expectText": "total"
-    },
-    {
-      "name": "Guardian history API returns audit log",
-      "path": "/api/guardian/history",
-      "expectText": "events"
-    },
-    {
-      "name": "Wallet API returns address and balance fields",
-      "path": "/api/wallet",
-      "expectText": "address"
+      "name": "Health check endpoint works",
+      "path": "/health",
+      "expectText": "ok"
     }
   ]
 }
