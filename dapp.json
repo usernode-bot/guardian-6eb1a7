@@ -3,9 +3,29 @@
   "secrets": [],
   "tests": [
     {
-      "name": "App loads successfully",
+      "name": "Messages page loads (default)",
       "path": "/",
-      "expectText": "Guardian"
+      "expectText": "Messages"
+    },
+    {
+      "name": "Bottom navigation renders",
+      "path": "/",
+      "expectSelector": "#bottom-nav"
+    },
+    {
+      "name": "Create page navigates",
+      "path": "/#/create",
+      "expectText": "New Message"
+    },
+    {
+      "name": "Discover page navigates",
+      "path": "/#/discover",
+      "expectText": "Discover"
+    },
+    {
+      "name": "Profile page navigates",
+      "path": "/#/profile",
+      "expectText": "Profile"
     },
     {
       "name": "Health check endpoint works",

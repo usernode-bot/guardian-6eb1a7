@@ -1,0 +1,18 @@
+- generic [ref=e2]:
+  - heading "Home" [level=1] [ref=e5]
+  - navigation [ref=e6]:
+    - button "🏠 Home" [ref=e7] [cursor=pointer]:
+      - generic [ref=e8]: 🏠
+      - generic [ref=e9]: Home
+    - button "💬 Messages" [ref=e10] [cursor=pointer]:
+      - generic [ref=e11]: 💬
+      - generic [ref=e12]: Messages
+    - button "🧭 Discover" [ref=e13] [cursor=pointer]:
+      - generic [ref=e14]: 🧭
+      - generic [ref=e15]: Discover
+    - button "👛 Wallet" [ref=e16] [cursor=pointer]:
+      - generic [ref=e17]: 👛
+      - generic [ref=e18]: Wallet
+    - button "👤 Profile" [ref=e19] [cursor=pointer]:
+      - generic [ref=e20]: 👤
+      - generic [ref=e21]: Profile

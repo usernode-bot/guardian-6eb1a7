@@ -1,4 +1,4 @@
-// Guardian app - minimal scaffold
+// Guardian app - bottom navigation router
 document.addEventListener('DOMContentLoaded', () => {
   console.log('Guardian app loaded');
 
@@ -10,33 +10,58 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('usernode-token', token);
   }
 
-  // Example API call with auth header
-  async function fetchWithAuth(url, options = {}) {
-    const token = localStorage.getItem('usernode-token');
-    const headers = {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    };
+  // Page definitions
+  const pages = {
+    messages: { title: 'Messages', name: 'Messages' },
+    create: { title: 'New Message', name: 'New Message' },
+    discover: { title: 'Discover', name: 'Discover' },
+    profile: { title: 'Profile', name: 'Profile' }
+  };
 
-    if (token) {
-      headers['x-usernode-token'] = token;
+  const pageContainer = document.getElementById('page-container');
+  const navTabs = document.querySelectorAll('.nav-tab');
+
+  // Render a placeholder page
+  function renderPage(pageName) {
+    const page = pages[pageName];
+    if (!page) {
+      renderPage('home');
+      return;
     }
 
-    return fetch(url, { ...options, headers });
-  }
+    pageContainer.innerHTML = `
+      <div class="page">
+        <h1>${page.name}</h1>
+      </div>
+    `;
 
-  // Example: fetch app state
-  async function loadAppState() {
-    try {
-      const response = await fetchWithAuth('/api/state');
-      if (response.ok) {
-        const data = await response.json();
-        console.log('App state:', data);
+    // Update active tab
+    navTabs.forEach(tab => {
+      tab.classList.remove('active');
+      if (tab.dataset.page === pageName) {
+        tab.classList.add('active');
       }
-    } catch (err) {
-      console.error('Failed to load app state:', err);
-    }
+    });
   }
 
-  loadAppState();
+  // Handle navigation via hash
+  function handleNavigation() {
+    const hash = window.location.hash.slice(1) || 'messages';
+    const pageName = hash.startsWith('/') ? hash.slice(1) : hash;
+    renderPage(pageName);
+  }
+
+  // Set up nav tab click handlers
+  navTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const pageName = tab.dataset.page;
+      window.location.hash = `/${pageName}`;
+    });
+  });
+
+  // Listen for hash changes
+  window.addEventListener('hashchange', handleNavigation);
+
+  // Initial render
+  handleNavigation();
 });

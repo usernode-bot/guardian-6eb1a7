@@ -15,19 +15,75 @@ html, body {
 #app {
   display: flex;
   flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#page-container {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
+  min-height: 100%;
   padding: 20px;
 }
 
-h1 {
+.page h1 {
   font-size: 2.5rem;
-  margin-bottom: 1rem;
   color: #222;
 }
 
-p {
-  font-size: 1.1rem;
-  color: #666;
+/* Bottom Navigation */
+#bottom-nav {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  background-color: #fff;
+  border-top: 1px solid #e0e0e0;
+  padding: 8px 0;
+  flex-shrink: 0;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.nav-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #999;
+  font-size: 12px;
+  font-family: inherit;
+  transition: color 0.2s ease;
+  flex: 1;
+  max-width: 80px;
+}
+
+.nav-tab .nav-icon {
+  font-size: 18px;
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+
+.nav-tab .nav-label {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.nav-tab.active {
+  color: #007aff;
+}
+
+.nav-tab.active .nav-icon {
+  opacity: 1;
 }
