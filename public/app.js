@@ -12,10 +12,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Page definitions
   const pages = {
-    home: { title: 'Home', name: 'Home' },
     messages: { title: 'Messages', name: 'Messages' },
+    create: { title: 'New Message', name: 'New Message' },
     discover: { title: 'Discover', name: 'Discover' },
-    wallet: { title: 'Wallet', name: 'Wallet' },
     profile: { title: 'Profile', name: 'Profile' }
   };
 
@@ -47,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Handle navigation via hash
   function handleNavigation() {
-    const hash = window.location.hash.slice(1) || 'home';
+    const hash = window.location.hash.slice(1) || 'messages';
     const pageName = hash.startsWith('/') ? hash.slice(1) : hash;
     renderPage(pageName);
   }

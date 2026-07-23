@@ -3,9 +3,9 @@
   "secrets": [],
   "tests": [
     {
-      "name": "Home page loads",
+      "name": "Messages page loads (default)",
       "path": "/",
-      "expectText": "Home"
+      "expectText": "Messages"
     },
     {
       "name": "Bottom navigation renders",
@@ -13,19 +13,14 @@
       "expectSelector": "#bottom-nav"
     },
     {
-      "name": "Messages page navigates",
-      "path": "/#/messages",
-      "expectText": "Messages"
+      "name": "Create page navigates",
+      "path": "/#/create",
+      "expectText": "New Message"
     },
     {
       "name": "Discover page navigates",
       "path": "/#/discover",
       "expectText": "Discover"
-    },
-    {
-      "name": "Wallet page navigates",
-      "path": "/#/wallet",
-      "expectText": "Wallet"
     },
     {
       "name": "Profile page navigates",
