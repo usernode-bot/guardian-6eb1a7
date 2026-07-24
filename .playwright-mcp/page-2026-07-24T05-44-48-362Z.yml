@@ -1,0 +1,19 @@
+- generic [ref=e270]:
+  - generic [ref=e271]:
+    - button "Back to messages" [ref=e272] [cursor=pointer]: ←
+    - generic [ref=e273] [cursor=pointer]:
+      - generic [ref=e274]: E
+      - generic [ref=e275]:
+        - generic [ref=e276]: Engineering
+        - generic [ref=e277]: 2 members
+    - button "More options" [ref=e278] [cursor=pointer]: ⋮
+  - generic [ref=e280]:
+    - generic [ref=e281]: S
+    - generic [ref=e282]:
+      - generic [ref=e283]: System
+      - generic [ref=e284]: Channel created.
+      - generic [ref=e285]: 5:44 AM
+  - generic [ref=e286]:
+    - button "Emoji" [ref=e287] [cursor=pointer]: 😊
+    - textbox "Message..." [ref=e288]
+    - button "Send" [ref=e289] [cursor=pointer]: ➤

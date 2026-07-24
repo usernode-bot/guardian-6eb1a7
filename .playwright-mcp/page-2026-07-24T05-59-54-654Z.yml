@@ -1,0 +1,46 @@
+- generic [ref=e95]:
+  - generic [ref=e96]:
+    - button "Back to messages" [ref=e97] [cursor=pointer]: ←
+    - generic [ref=e98] [cursor=pointer]:
+      - generic [ref=e99]: G
+      - generic [ref=e100]:
+        - generic [ref=e101]: General
+        - generic [ref=e102]: 15 members
+    - button "More options" [ref=e103] [cursor=pointer]: ⋮
+  - generic [ref=e104]:
+    - generic [ref=e105]:
+      - generic [ref=e106]: A
+      - generic [ref=e107]:
+        - generic [ref=e108]: Welcome to the General channel!
+        - generic [ref=e109]: 5:59 AM
+    - generic [ref=e110]:
+      - generic [ref=e111]: B
+      - generic [ref=e112]:
+        - generic [ref=e113]: Thanks for creating this space
+        - generic [ref=e114]: 5:59 AM
+    - generic [ref=e115]:
+      - generic [ref=e116]: Looking forward to collaborating here
+      - generic [ref=e117]: 5:59 AM
+    - generic [ref=e118]:
+      - generic [ref=e119]: C
+      - generic [ref=e120]:
+        - generic [ref=e121]: Great initiative!
+        - generic [ref=e122]: 5:59 AM
+    - generic [ref=e123]:
+      - generic [ref=e124]: A
+      - generic [ref=e125]:
+        - generic [ref=e126]: Let's use this for team updates
+        - generic [ref=e127]: 5:59 AM
+    - generic [ref=e128]:
+      - generic [ref=e129]: Perfect, I'll share the project details tomorrow
+      - generic [ref=e130]: 5:59 AM
+    - generic [ref=e131]:
+      - generic [ref=e132]: B
+      - generic [ref=e133]:
+        - generic [ref=e134]: Can't wait to hear more!
+        - generic [ref=e135]: 5:59 AM
+    - generic [ref=e136]:
+      - generic [ref=e137]: A
+      - generic [ref=e138]:
+        - generic [ref=e139]: Meeting scheduled for Friday at 2pm
+        - generic [ref=e140]: 5:59 PM
