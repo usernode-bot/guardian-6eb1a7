@@ -161,6 +161,36 @@
       "name": "Add Members page displays available users",
       "path": "/#/group/group_1/add-members",
       "expectSelector": ".suggested-user-item"
+    },
+    {
+      "name": "Discover page loads",
+      "path": "/#/discover",
+      "expectText": "Discover"
+    },
+    {
+      "name": "Discover page displays tabs",
+      "path": "/#/discover",
+      "expectSelector": ".discover-tab"
+    },
+    {
+      "name": "Discover page displays featured carousel",
+      "path": "/#/discover",
+      "expectSelector": ".featured-carousel"
+    },
+    {
+      "name": "Discover page displays community cards",
+      "path": "/#/discover",
+      "expectSelector": ".community-card"
+    },
+    {
+      "name": "Group detail screen loads",
+      "path": "/#/discover/group/discover_group_1",
+      "expectText": "Tech Enthusiasts"
+    },
+    {
+      "name": "Channel detail screen loads",
+      "path": "/#/discover/channel/discover_channel_1",
+      "expectText": "Announcements"
     }
   ]
 }
