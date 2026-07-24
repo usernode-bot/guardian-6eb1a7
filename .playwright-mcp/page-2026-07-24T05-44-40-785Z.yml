@@ -1,0 +1,29 @@
+- generic [ref=e238]:
+  - generic [ref=e239]:
+    - button "Back to channel" [ref=e240] [cursor=pointer]: ←
+    - heading "Channel Info" [level=1] [ref=e241]
+  - generic [ref=e242]:
+    - generic [ref=e243]: E
+    - generic [ref=e245]:
+      - generic [ref=e246]:
+        - generic [ref=e247]: Channel Name
+        - generic [ref=e248]: Engineering
+      - generic [ref=e249]:
+        - generic [ref=e250]: Description
+        - generic [ref=e251]: No description
+      - generic [ref=e252]:
+        - generic [ref=e253]: Visibility
+        - generic [ref=e254]: 🌐 Public
+      - generic [ref=e255]:
+        - generic [ref=e256]: Members
+        - generic [ref=e257]: "2"
+    - generic [ref=e258]:
+      - generic [ref=e259]: Members (2)
+      - generic [ref=e260]:
+        - generic [ref=e261]:
+          - generic [ref=e262]: "Y"
+          - generic [ref=e263]: You
+        - generic [ref=e265]:
+          - generic [ref=e266]: AN
+          - generic [ref=e267]: aksaranft
+    - button "Leave Channel" [ref=e269] [cursor=pointer]

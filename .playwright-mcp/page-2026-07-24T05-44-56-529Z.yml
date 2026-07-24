@@ -1,0 +1,33 @@
+- generic [ref=e369]:
+  - generic [ref=e370]:
+    - button "Back to messages" [ref=e371] [cursor=pointer]: ←
+    - generic [ref=e372] [cursor=pointer]:
+      - generic [ref=e373]: A
+      - generic [ref=e374]:
+        - generic [ref=e375]: Announcements
+        - generic [ref=e376]: 20 members
+    - button "More options" [ref=e377] [cursor=pointer]: ⋮
+  - generic [ref=e378]:
+    - generic [ref=e379]:
+      - generic [ref=e380]: A
+      - generic [ref=e381]:
+        - generic [ref=e382]: Alice
+        - generic [ref=e383]: System maintenance scheduled for Sunday
+        - generic [ref=e384]: 5:43 AM
+    - generic [ref=e385]:
+      - generic [ref=e386]: A
+      - generic [ref=e387]:
+        - generic [ref=e388]: Alice
+        - generic [ref=e389]: New feature rollout completed
+        - generic [ref=e390]: 5:43 AM
+    - generic [ref=e391]:
+      - generic [ref=e392]: A
+      - generic [ref=e393]:
+        - generic [ref=e394]: Alice
+        - generic [ref=e395]: Q3 planning session starts Monday
+        - generic [ref=e396]: 11:43 PM
+  - generic [ref=e397]:
+    - generic [ref=e398]: View only
+    - button "Emoji" [ref=e399] [cursor=pointer]: 😊
+    - textbox "Message..." [disabled] [ref=e400]
+    - button "Send" [disabled] [ref=e401] [cursor=pointer]: ➤
