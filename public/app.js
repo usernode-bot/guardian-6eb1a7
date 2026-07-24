@@ -336,6 +336,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const timestamp = Date.now();
     const avatarValue = avatarData || generateDefaultAvatar(channelName);
 
+    // Only the current user is a member when creating a channel
     const newChannel = {
       id: channelId,
       name: channelName,
@@ -344,13 +345,12 @@ document.addEventListener('DOMContentLoaded', () => {
       visibility: visibility,
       createdAt: timestamp,
       creatorId: 'user_self',
-      memberCount: selectedMembers.length + 1,
+      memberCount: 1,
       currentUserIsMember: true,
       currentUserIsAdmin: true,
       currentUserCanSend: true,
       members: [
-        { id: 'user_self', username: 'You', role: 'admin', avatar: 'Y' },
-        ...selectedMembers.map(m => ({ ...m, role: 'member' }))
+        { id: 'user_self', username: 'You', role: 'admin', avatar: 'Y' }
       ],
       messages: [
         {
@@ -471,7 +471,6 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="conversations-list">
           ${conversationsList}
         </div>
-        <button class="fab-button" id="fab-button" aria-label="Create new message">+</button>
       </div>
     `;
 
@@ -482,14 +481,6 @@ document.addEventListener('DOMContentLoaded', () => {
         window.location.hash = routeHash;
       });
     });
-
-    // Add FAB button handler
-    const fabButton = document.getElementById('fab-button');
-    if (fabButton) {
-      fabButton.addEventListener('click', () => {
-        window.location.hash = '/create';
-      });
-    }
   }
 
   // Render conversation screen
@@ -2619,23 +2610,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const state = {
       channelName: '',
       channelDescription: '',
-      selectedMembers: [],
       visibility: 'public',
-      searchQuery: '',
       avatarFile: null,
       avatarPreview: null,
       validationError: ''
     };
-
-    const usersList = suggestedUsers.map(user => `
-      <div class="suggested-user-item" data-user-id="${user.id}">
-        <div class="user-avatar">${user.avatar}</div>
-        <div class="user-content">
-          <div class="user-username">${user.username}</div>
-          <div class="user-domain">${user.domain}</div>
-        </div>
-      </div>
-    `).join('');
 
     pageContainer.innerHTML = `
       <div class="create-channel-page">
@@ -2669,21 +2648,6 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
         </div>
 
-        <div class="form-section">
-          <input type="text" class="form-input" placeholder="🔍 Search username" id="search-members-input" />
-        </div>
-
-        <div class="members-chips-container" id="members-chips-container"></div>
-
-        <div class="suggested-users-section-create">
-          <div class="section-header">Suggested Users</div>
-          <div class="users-list" id="suggested-users-list">
-            ${usersList}
-          </div>
-        </div>
-
-        <div class="validation-error" id="members-error"></div>
-
         <button class="create-channel-button" id="create-channel-button">Create Channel</button>
       </div>
     `;
@@ -2691,14 +2655,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const backButton = document.querySelector('.back-button');
     const channelNameInput = document.getElementById('channel-name-input');
     const channelDescriptionInput = document.getElementById('channel-description-input');
-    const searchMembersInput = document.getElementById('search-members-input');
     const avatarPlaceholder = document.getElementById('avatar-placeholder');
     const avatarFileInput = document.getElementById('avatar-file-input');
-    const suggestedUsersList = document.getElementById('suggested-users-list');
-    const membersChipsContainer = document.getElementById('members-chips-container');
     const createChannelButton = document.getElementById('create-channel-button');
     const nameError = document.getElementById('name-error');
-    const membersError = document.getElementById('members-error');
 
     function updateAvatarDisplay() {
       if (state.avatarPreview) {
@@ -2720,87 +2680,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateButtonState() {
       const isNameFilled = state.channelName.trim().length > 0;
-      const isMembersSelected = state.selectedMembers.length >= 1;
-      const isDisabled = !(isNameFilled && isMembersSelected);
+      const isDisabled = !isNameFilled;
       createChannelButton.disabled = isDisabled;
-    }
-
-    function findUserById(userId) {
-      return suggestedUsers.find(u => u.id === userId);
-    }
-
-    function isUserSelected(userId) {
-      return state.selectedMembers.some(u => u.id === userId);
-    }
-
-    function toggleUser(userId) {
-      const user = findUserById(userId);
-      if (!user) return;
-
-      if (isUserSelected(userId)) {
-        state.selectedMembers = state.selectedMembers.filter(u => u.id !== userId);
-      } else {
-        state.selectedMembers.push(user);
-      }
-
-      renderMemberChips();
-      updateButtonState();
-      membersError.innerHTML = '';
-    }
-
-    function renderMemberChips() {
-      if (state.selectedMembers.length === 0) {
-        membersChipsContainer.innerHTML = '';
-        return;
-      }
-
-      const chipsHTML = state.selectedMembers.map(user => `
-        <div class="member-chip">
-          <div class="chip-avatar">${user.avatar}</div>
-          <span>${user.username}</span>
-          <button class="chip-remove" data-user-id="${user.id}" aria-label="Remove ${user.username}">×</button>
-        </div>
-      `).join('');
-
-      membersChipsContainer.innerHTML = chipsHTML;
-
-      document.querySelectorAll('.chip-remove').forEach(button => {
-        button.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const userId = button.dataset.userId;
-          toggleUser(userId);
-        });
-      });
-    }
-
-    function filterAndDisplayUsers() {
-      const query = state.searchQuery.toLowerCase();
-      const filteredUsers = query === ''
-        ? suggestedUsers
-        : suggestedUsers.filter(user =>
-            user.username.toLowerCase().includes(query) ||
-            user.domain.toLowerCase().includes(query)
-          );
-
-      const usersList = filteredUsers.map(user => `
-        <div class="suggested-user-item" data-user-id="${user.id}">
-          <div class="user-avatar">${user.avatar}</div>
-          <div class="user-content">
-            <div class="user-username">${user.username}</div>
-            <div class="user-domain">${user.domain}</div>
-          </div>
-        </div>
-      `).join('');
-
-      suggestedUsersList.innerHTML = usersList;
-
-      document.querySelectorAll('.suggested-user-item').forEach(item => {
-        item.addEventListener('click', () => {
-          const userId = item.dataset.userId;
-          toggleUser(userId);
-        });
-      });
     }
 
     backButton.addEventListener('click', () => {
@@ -2837,11 +2718,6 @@ document.addEventListener('DOMContentLoaded', () => {
       e.target.value = state.channelDescription;
     });
 
-    searchMembersInput.addEventListener('input', (e) => {
-      state.searchQuery = e.target.value;
-      filterAndDisplayUsers();
-    });
-
     // Visibility toggle
     document.querySelectorAll('.toggle-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -2851,31 +2727,18 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
 
-    document.querySelectorAll('.suggested-user-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const userId = item.dataset.userId;
-        toggleUser(userId);
-      });
-    });
-
     createChannelButton.addEventListener('click', () => {
       nameError.innerHTML = '';
-      membersError.innerHTML = '';
 
       if (!state.channelName.trim()) {
         nameError.innerHTML = 'Channel name is required.';
         return;
       }
 
-      if (state.selectedMembers.length < 1) {
-        membersError.innerHTML = 'Select at least 1 member.';
-        return;
-      }
-
       const channelId = createChannel(
         state.channelName,
         state.channelDescription,
-        state.selectedMembers,
+        [],
         state.visibility,
         state.avatarPreview
       );
