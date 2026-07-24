@@ -1,0 +1,19 @@
+- generic [ref=e166]:
+  - generic [ref=e167]:
+    - button "Back to messages" [ref=e168] [cursor=pointer]: ←
+    - generic [ref=e169] [cursor=pointer]:
+      - generic [ref=e170]: M
+      - generic [ref=e171]:
+        - generic [ref=e172]: Marketing
+        - generic [ref=e173]: 1 members
+    - button "More options" [ref=e174] [cursor=pointer]: ⋮
+  - generic [ref=e176]:
+    - generic [ref=e177]: S
+    - generic [ref=e178]:
+      - generic [ref=e179]: System
+      - generic [ref=e180]: Channel created.
+      - generic [ref=e181]: 5:51 AM
+  - generic [ref=e182]:
+    - button "Emoji" [ref=e183] [cursor=pointer]: 😊
+    - textbox "Message..." [ref=e184]
+    - button "Send" [ref=e185] [cursor=pointer]: ➤

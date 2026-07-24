@@ -1,0 +1,14 @@
+- generic [ref=e146]:
+  - generic [ref=e147]:
+    - button "Back to messages" [ref=e148] [cursor=pointer]: ←
+    - heading "Create Channel" [level=1] [ref=e149]
+  - generic [ref=e150]: + Add Photo
+  - generic [ref=e153]:
+    - textbox "Channel name" [active] [ref=e155]
+    - textbox "Add a description (optional)" [ref=e157]
+  - generic [ref=e159]:
+    - generic [ref=e160]: Visibility
+    - generic [ref=e161]:
+      - button "🌐 Public" [ref=e162] [cursor=pointer]
+      - button "🔒 Private" [ref=e163] [cursor=pointer]
+  - button "Create Channel" [disabled] [ref=e164]
