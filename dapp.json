@@ -126,6 +126,81 @@
       "name": "Health check endpoint works",
       "path": "/health",
       "expectText": "ok"
+    },
+    {
+      "name": "Messages page displays five tabs",
+      "path": "/",
+      "expectText": "All"
+    },
+    {
+      "name": "DM tab button appears in Messages",
+      "path": "/",
+      "expectText": "DM"
+    },
+    {
+      "name": "Groups tab button appears in Messages",
+      "path": "/",
+      "expectText": "Groups"
+    },
+    {
+      "name": "Channels tab button appears in Messages",
+      "path": "/",
+      "expectText": "Channels"
+    },
+    {
+      "name": "Requests tab button appears in Messages",
+      "path": "/",
+      "expectText": "Requests"
+    },
+    {
+      "name": "Tab navigation is sticky (sticky class present)",
+      "path": "/",
+      "expectSelector": ".messages-tabs-sticky"
+    },
+    {
+      "name": "Search bar appears when search icon clicked",
+      "path": "/",
+      "expectSelector": ".search-input"
+    },
+    {
+      "name": "All tab shows conversations (DMs and Groups mixed)",
+      "path": "/",
+      "expectText": "Alice Chen"
+    },
+    {
+      "name": "Unread badge appears on Alice Chen conversation",
+      "path": "/",
+      "expectText": "2"
+    },
+    {
+      "name": "Carol Davis conversation shows unread count",
+      "path": "/",
+      "expectText": "Carol Davis"
+    },
+    {
+      "name": "Request item layout renders",
+      "path": "/",
+      "expectSelector": ".request-item"
+    },
+    {
+      "name": "Accept button appears on requests",
+      "path": "/",
+      "expectSelector": ".request-accept"
+    },
+    {
+      "name": "Decline button appears on requests",
+      "path": "/",
+      "expectSelector": ".request-decline"
+    },
+    {
+      "name": "Timestamp formatting works (2m ago)",
+      "path": "/",
+      "expectText": "2m"
+    },
+    {
+      "name": "Timestamp formatting works (1h ago)",
+      "path": "/",
+      "expectText": "1h"
     }
   ]
 }
