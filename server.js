@@ -257,6 +257,116 @@ app.post('/api/conversations/:conversationId/mark-as-read', async (req, res) => 
   }
 });
 
+// Group Management API Endpoints
+
+// GET /api/groups/:groupId - Fetch group details
+app.get('/api/groups/:groupId', (req, res) => {
+  // For now, this is a no-op on the backend since data lives in the frontend
+  // In the future, this would query the database
+  res.json({ status: 'ok', message: 'Group fetch endpoint available' });
+});
+
+// PUT /api/groups/:groupId/name - Update group name
+app.put('/api/groups/:groupId/name', (req, res) => {
+  const { name } = req.body;
+  const { groupId } = req.params;
+
+  if (!name || name.trim().length === 0) {
+    return res.status(400).json({ error: 'Group name is required' });
+  }
+
+  if (name.length > 50) {
+    return res.status(400).json({ error: 'Group name must be 50 characters or less' });
+  }
+
+  // TODO: Validate user is group creator/admin
+  // TODO: Update database
+  res.json({ id: groupId, name: name.trim() });
+});
+
+// PUT /api/groups/:groupId/description - Update group description
+app.put('/api/groups/:groupId/description', (req, res) => {
+  const { description } = req.body;
+  const { groupId } = req.params;
+
+  if (description && description.length > 250) {
+    return res.status(400).json({ error: 'Description must be 250 characters or less' });
+  }
+
+  // TODO: Validate user is group creator/admin
+  // TODO: Update database
+  res.json({ id: groupId, description: description || '' });
+});
+
+// PUT /api/groups/:groupId/avatar - Update group avatar
+app.put('/api/groups/:groupId/avatar', (req, res) => {
+  const { avatar } = req.body;
+  const { groupId } = req.params;
+
+  if (!avatar) {
+    return res.status(400).json({ error: 'Avatar is required' });
+  }
+
+  // TODO: Validate user is group creator/admin
+  // TODO: Store avatar (base64 for now, cloud storage in future)
+  // TODO: Update database
+  res.json({ id: groupId, avatar });
+});
+
+// POST /api/groups/:groupId/members - Add members to group
+app.post('/api/groups/:groupId/members', (req, res) => {
+  const { userIds } = req.body;
+  const { groupId } = req.params;
+
+  if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+    return res.status(400).json({ error: 'At least one member must be selected' });
+  }
+
+  // TODO: Validate user is group creator/admin
+  // TODO: Validate users exist
+  // TODO: Check for duplicates
+  // TODO: Update database
+  res.json({
+    id: groupId,
+    members: [],
+    memberCount: 0,
+    message: 'Members added successfully'
+  });
+});
+
+// DELETE /api/groups/:groupId/members/:memberId - Remove member from group
+app.delete('/api/groups/:groupId/members/:memberId', (req, res) => {
+  const { groupId, memberId } = req.params;
+
+  // TODO: Validate user is group creator/admin or removing self
+  // TODO: Check if this is the last member
+  // TODO: Update database
+  // TODO: Add system message to chat
+  res.json({
+    id: groupId,
+    members: [],
+    memberCount: 0,
+    message: 'Member removed successfully'
+  });
+});
+
+// POST /api/groups/:groupId/leave - Leave the group
+app.post('/api/groups/:groupId/leave', (req, res) => {
+  const { groupId } = req.params;
+
+  // TODO: Validate user is member
+  // TODO: Check if user is only member (creator case)
+  // TODO: Update database
+  // TODO: Add system message to chat
+  res.json({
+    id: groupId,
+    members: [],
+    memberCount: 0,
+    isLeftByUser: true,
+    message: 'You have left the group'
+  });
+});
+
 // Initialize database schema
 async function initDatabase() {
   try {

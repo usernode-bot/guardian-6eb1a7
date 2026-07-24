@@ -1041,7 +1041,7 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="conversation-page">
         <div class="conversation-header">
           <button class="back-button" aria-label="Back to messages">←</button>
-          <div class="conversation-header-info">
+          <div class="conversation-header-info group-header-info" id="group-header-info-${groupId}">
             <div class="conversation-avatar-header">${group.avatar}</div>
             <div class="header-text">
               <div class="header-username">${group.name}</div>
@@ -1075,6 +1075,38 @@ document.addEventListener('DOMContentLoaded', () => {
       window.location.hash = '/messages';
     });
 
+    // Add interactive header controls for group management
+    const headerInfo = document.getElementById(`group-header-info-${groupId}`);
+    if (headerInfo) {
+      headerInfo.style.cursor = 'pointer';
+      // Tap on group name to edit
+      const headerUsername = headerInfo.querySelector('.header-username');
+      if (headerUsername) {
+        headerUsername.addEventListener('click', (e) => {
+          e.stopPropagation();
+          showEditNameDialog(groupId, group.name);
+        });
+      }
+      // Tap on avatar to change photo
+      const avatar = headerInfo.querySelector('.conversation-avatar-header');
+      if (avatar) {
+        avatar.style.cursor = 'pointer';
+        avatar.addEventListener('click', (e) => {
+          e.stopPropagation();
+          showAvatarPickerDialog(groupId, group);
+        });
+      }
+    }
+
+    // Add group menu button for more options (members, leave, edit description)
+    const menuButton = document.querySelector('.menu-button');
+    if (menuButton) {
+      menuButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showGroupMenuDialog(groupId, group);
+      });
+    }
+
     // Scroll to latest message after DOM renders
     setTimeout(() => {
       const messagesContainer = document.querySelector('.messages-container');
@@ -1088,6 +1120,308 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Set up send button and reply state management
     setupComposer(group);
+  }
+
+  // Show group menu with all options (members, edit description, leave)
+  function showGroupMenuDialog(groupId, group) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog group-menu-dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>${group.name}</h2>
+        <button class="close-dialog-button">✕</button>
+      </div>
+      <div class="dialog-content group-menu-content">
+        <button class="menu-option" id="view-members-btn">
+          <span class="option-icon">👥</span>
+          <span class="option-label">Members (${group.memberCount})</span>
+          <span class="option-chevron">›</span>
+        </button>
+        <button class="menu-option" id="edit-description-btn">
+          <span class="option-icon">📝</span>
+          <span class="option-label">Edit Description</span>
+          <span class="option-chevron">›</span>
+        </button>
+        <button class="menu-option" id="add-members-btn">
+          <span class="option-icon">➕</span>
+          <span class="option-label">Add Members</span>
+          <span class="option-chevron">›</span>
+        </button>
+        <button class="menu-option leave-option" id="leave-group-btn">
+          <span class="option-icon">🚪</span>
+          <span class="option-label">Leave Group</span>
+        </button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const closeBtn = dialog.querySelector('.close-dialog-button');
+    closeBtn.addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    document.getElementById('view-members-btn').addEventListener('click', () => {
+      overlay.remove();
+      showMembersSheet(groupId, group);
+    });
+
+    document.getElementById('edit-description-btn').addEventListener('click', () => {
+      overlay.remove();
+      showEditDescriptionDialog(groupId, group.description);
+    });
+
+    document.getElementById('add-members-btn').addEventListener('click', () => {
+      overlay.remove();
+      showAddMembersSheet(groupId, group);
+    });
+
+    document.getElementById('leave-group-btn').addEventListener('click', () => {
+      overlay.remove();
+      showLeaveGroupDialog(groupId, group.name);
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
+    });
+  }
+
+  // Show members list in a sheet/modal
+  function showMembersSheet(groupId, group) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog members-sheet-dialog';
+
+    const membersList = group.members.map(member => `
+      <div class="members-sheet-item" data-member-id="${member.id}">
+        <div class="member-avatar">${member.avatar || member.username.charAt(0).toUpperCase()}</div>
+        <div class="member-info">
+          <div class="member-name">${member.username}</div>
+        </div>
+        ${member.id !== 'user_self' ? `<button class="member-remove-btn" data-member-id="${member.id}">✕</button>` : ''}
+      </div>
+    `).join('');
+
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Members (${group.memberCount})</h2>
+        <button class="close-dialog-button">✕</button>
+      </div>
+      <div class="dialog-content members-list-container">
+        ${membersList}
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const closeBtn = dialog.querySelector('.close-dialog-button');
+    closeBtn.addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    // Long-press or click remove button to remove member
+    document.querySelectorAll('.member-remove-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const memberId = btn.dataset.memberId;
+        const member = group.members.find(m => m.id === memberId);
+        overlay.remove();
+        showRemoveMemberConfirmation(groupId, memberId, member);
+      });
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
+    });
+  }
+
+  // Show add members sheet
+  function showAddMembersSheet(groupId, group) {
+    let selectedMembers = [];
+
+    const availableUsers = suggestedUsers.filter(u => !group.members.find(m => m.id === u.id));
+
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog add-members-sheet-dialog';
+
+    const usersList = availableUsers.map(user => `
+      <div class="suggested-user-item" data-user-id="${user.id}">
+        <div class="user-avatar">${user.avatar}</div>
+        <div class="user-content">
+          <div class="user-username">${user.username}</div>
+          <div class="user-domain">${user.domain}</div>
+        </div>
+        <div class="selection-indicator"></div>
+      </div>
+    `).join('');
+
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Add Members</h2>
+        <button class="close-dialog-button">✕</button>
+      </div>
+      <div class="dialog-content">
+        <input type="text" class="form-input search-members-add-sheet" placeholder="🔍 Search username" id="search-members-add-sheet" />
+        <div class="members-chips-container" id="members-chips-container-sheet"></div>
+        <div class="users-list add-members-sheet-list" id="add-members-sheet-list">
+          ${usersList}
+        </div>
+        <div class="validation-error" id="add-members-error"></div>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="cancel-add-members-sheet">Cancel</button>
+        <button class="button-primary" id="save-add-members-sheet">Add Members</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const closeBtn = dialog.querySelector('.close-dialog-button');
+    closeBtn.addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    const searchInput = document.getElementById('search-members-add-sheet');
+    const membersChipsContainer = document.getElementById('members-chips-container-sheet');
+    const usersListEl = document.getElementById('add-members-sheet-list');
+    const errorEl = document.getElementById('add-members-error');
+
+    function renderChips() {
+      if (selectedMembers.length === 0) {
+        membersChipsContainer.innerHTML = '';
+        return;
+      }
+
+      membersChipsContainer.innerHTML = selectedMembers.map(user => `
+        <div class="member-chip">
+          <div class="chip-avatar">${user.avatar}</div>
+          <span>${user.username}</span>
+          <button class="chip-remove" data-user-id="${user.id}" aria-label="Remove ${user.username}">×</button>
+        </div>
+      `).join('');
+
+      document.querySelectorAll('.chip-remove').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          const userId = btn.dataset.userId;
+          selectedMembers = selectedMembers.filter(u => u.id !== userId);
+          renderChips();
+          filterAndDisplay();
+        });
+      });
+    }
+
+    function toggleUser(userId) {
+      const user = suggestedUsers.find(u => u.id === userId);
+      if (!user || group.members.find(m => m.id === userId)) return;
+
+      if (selectedMembers.find(u => u.id === userId)) {
+        selectedMembers = selectedMembers.filter(u => u.id !== userId);
+      } else {
+        selectedMembers.push(user);
+      }
+
+      renderChips();
+      filterAndDisplay();
+      errorEl.innerHTML = '';
+    }
+
+    function filterAndDisplay() {
+      const query = searchInput.value.toLowerCase();
+      const filtered = availableUsers.filter(u =>
+        u.username.toLowerCase().includes(query) || u.domain.toLowerCase().includes(query)
+      );
+
+      usersListEl.innerHTML = filtered.map(user => `
+        <div class="suggested-user-item ${selectedMembers.find(m => m.id === user.id) ? 'selected' : ''}" data-user-id="${user.id}">
+          <div class="user-avatar">${user.avatar}</div>
+          <div class="user-content">
+            <div class="user-username">${user.username}</div>
+            <div class="user-domain">${user.domain}</div>
+          </div>
+          <div class="selection-indicator">${selectedMembers.find(m => m.id === user.id) ? '✓' : ''}</div>
+        </div>
+      `).join('');
+
+      document.querySelectorAll('.suggested-user-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const userId = item.dataset.userId;
+          toggleUser(userId);
+        });
+      });
+    }
+
+    searchInput.addEventListener('input', filterAndDisplay);
+
+    document.querySelectorAll('.suggested-user-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const userId = item.dataset.userId;
+        toggleUser(userId);
+      });
+    });
+
+    document.getElementById('cancel-add-members-sheet').addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    document.getElementById('save-add-members-sheet').addEventListener('click', async () => {
+      if (selectedMembers.length === 0) {
+        errorEl.textContent = 'Select at least 1 member';
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/groups/${groupId}/members`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-usernode-token': localStorage.getItem('usernode-token')
+          },
+          body: JSON.stringify({ userIds: selectedMembers.map(u => u.id) })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to add members');
+        }
+
+        group.members.push(...selectedMembers);
+        group.memberCount = group.members.length;
+
+        // Update conversation
+        const conversation = conversations.find(c => c.groupId === groupId);
+        if (conversation) {
+          conversation.memberCount = group.memberCount;
+        }
+
+        overlay.remove();
+        renderGroupConversationPage(groupId);
+        showToast(`Added ${selectedMembers.length} member(s)`, { type: 'success' });
+      } catch (error) {
+        errorEl.textContent = 'Failed to add members';
+        console.error(error);
+      }
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
+    });
   }
 
   // Render new message page
@@ -1420,6 +1754,726 @@ document.addEventListener('DOMContentLoaded', () => {
     updateButtonState();
   }
 
+  // Render Group Info page
+  function renderGroupInfoPage(groupId) {
+    const group = groups.find(g => g.id === groupId);
+    if (!group) {
+      window.location.hash = '/messages';
+      return;
+    }
+
+    const membersList = group.members.map(member => `
+      <div class="group-member-item" data-member-id="${member.id}">
+        <div class="member-avatar">${member.avatar || member.username.charAt(0).toUpperCase()}</div>
+        <div class="member-info">
+          <div class="member-name">${member.username}</div>
+        </div>
+      </div>
+    `).join('');
+
+    pageContainer.innerHTML = `
+      <div class="group-info-page">
+        <div class="group-info-header">
+          <button class="back-button" aria-label="Back to group">←</button>
+          <h1>Group Info</h1>
+          <div style="width: 32px;"></div>
+        </div>
+
+        <div class="group-info-content">
+          <div class="group-avatar-section">
+            <div class="group-avatar-large" id="group-avatar-large">${group.avatar}</div>
+            <button class="edit-avatar-button" id="edit-avatar-button">Change Photo</button>
+          </div>
+
+          <div class="group-details-section">
+            <div class="detail-item">
+              <div class="detail-label">Group Name</div>
+              <div class="detail-value" id="group-name-value">${group.name}</div>
+              <button class="detail-edit-button" id="edit-name-button">Edit</button>
+            </div>
+
+            <div class="detail-item">
+              <div class="detail-label">Description</div>
+              <div class="detail-value" id="group-description-value">${group.description || 'No description'}</div>
+              <button class="detail-edit-button" id="edit-description-button">Edit</button>
+            </div>
+          </div>
+
+          <div class="members-section">
+            <div class="section-title">Members (${group.memberCount})</div>
+            <button class="add-members-button" id="add-members-button">+ Add Members</button>
+            <div class="members-list" id="members-list">
+              ${membersList}
+            </div>
+          </div>
+
+          <button class="leave-group-button" id="leave-group-button">Leave Group</button>
+        </div>
+      </div>
+    `;
+
+    // Back button
+    document.querySelector('.back-button').addEventListener('click', () => {
+      window.location.hash = `/group/${groupId}`;
+    });
+
+    // Edit name
+    document.getElementById('edit-name-button').addEventListener('click', () => {
+      showEditNameDialog(groupId, group.name);
+    });
+
+    // Edit description
+    document.getElementById('edit-description-button').addEventListener('click', () => {
+      showEditDescriptionDialog(groupId, group.description);
+    });
+
+    // Change avatar
+    document.getElementById('edit-avatar-button').addEventListener('click', () => {
+      showAvatarPickerDialog(groupId, group);
+    });
+
+    // Add members
+    document.getElementById('add-members-button').addEventListener('click', () => {
+      window.location.hash = `/group/${groupId}/add-members`;
+    });
+
+    // Leave group
+    document.getElementById('leave-group-button').addEventListener('click', () => {
+      showLeaveGroupDialog(groupId, group.name);
+    });
+
+    // Member long-press handlers
+    document.querySelectorAll('.group-member-item').forEach(item => {
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const memberId = item.dataset.memberId;
+        showRemoveMemberConfirmation(groupId, memberId, group.members.find(m => m.id === memberId));
+      });
+    });
+  }
+
+  // Show edit name dialog - stays on chat page
+  function showEditNameDialog(groupId, currentName) {
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Edit Group Name</h2>
+      </div>
+      <div class="dialog-content">
+        <input type="text" id="edit-name-input" class="form-input" value="${currentName}" maxlength="50" />
+        <div class="char-count"><span id="name-char-count">0</span>/50</div>
+        <div class="validation-error" id="edit-name-error"></div>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="cancel-edit-name">Cancel</button>
+        <button class="button-primary" id="save-edit-name">Save</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const input = document.getElementById('edit-name-input');
+    const charCount = document.getElementById('name-char-count');
+    const errorEl = document.getElementById('edit-name-error');
+
+    input.addEventListener('input', () => {
+      charCount.textContent = input.value.length;
+    });
+
+    charCount.textContent = currentName.length;
+
+    document.getElementById('cancel-edit-name').addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    document.getElementById('save-edit-name').addEventListener('click', async () => {
+      const newName = input.value.trim();
+      if (!newName) {
+        errorEl.textContent = 'Group name is required';
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/groups/${groupId}/name`, {
+          method: 'PUT',
+          headers: {
+            'content-type': 'application/json',
+            'x-usernode-token': localStorage.getItem('usernode-token')
+          },
+          body: JSON.stringify({ name: newName })
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          errorEl.textContent = error.error || 'Failed to update group name';
+          return;
+        }
+
+        group.name = newName;
+
+        // Update Messages list
+        const conversation = conversations.find(c => c.groupId === groupId);
+        if (conversation) {
+          conversation.name = newName;
+        }
+
+        // Update header immediately without navigation
+        const headerUsername = document.querySelector('.header-username');
+        if (headerUsername) {
+          headerUsername.textContent = newName;
+        }
+
+        overlay.remove();
+        showToast('Group name updated', { type: 'success' });
+        renderMessagesPage(); // Update messages list
+      } catch (error) {
+        errorEl.textContent = 'Failed to update group name';
+        console.error(error);
+      }
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
+    });
+
+    input.focus();
+  }
+
+  // Show edit description dialog - stays on chat page
+  function showEditDescriptionDialog(groupId, currentDescription) {
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Edit Description</h2>
+      </div>
+      <div class="dialog-content">
+        <textarea id="edit-desc-input" class="form-input" maxlength="250" placeholder="Add a description...">${currentDescription || ''}</textarea>
+        <div class="char-count"><span id="desc-char-count">0</span>/250</div>
+        <div class="validation-error" id="edit-desc-error"></div>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="cancel-edit-desc">Cancel</button>
+        <button class="button-primary" id="save-edit-desc">Save</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const textarea = document.getElementById('edit-desc-input');
+    const charCount = document.getElementById('desc-char-count');
+
+    textarea.addEventListener('input', () => {
+      charCount.textContent = textarea.value.length;
+    });
+
+    charCount.textContent = (currentDescription || '').length;
+
+    document.getElementById('cancel-edit-desc').addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    document.getElementById('save-edit-desc').addEventListener('click', async () => {
+      const newDesc = textarea.value.trim();
+
+      try {
+        const response = await fetch(`/api/groups/${groupId}/description`, {
+          method: 'PUT',
+          headers: {
+            'content-type': 'application/json',
+            'x-usernode-token': localStorage.getItem('usernode-token')
+          },
+          body: JSON.stringify({ description: newDesc })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to update description');
+        }
+
+        group.description = newDesc;
+
+        overlay.remove();
+        showToast('Description updated', { type: 'success' });
+      } catch (error) {
+        document.getElementById('edit-desc-error').textContent = 'Failed to update description';
+        console.error(error);
+      }
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
+    });
+
+    textarea.focus();
+  }
+
+  // Show avatar picker dialog - stays on chat page
+  function showAvatarPickerDialog(groupId, groupData) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Change Group Photo</h2>
+      </div>
+      <div class="dialog-content">
+        <div id="avatar-preview" class="avatar-preview">
+          <div class="avatar-placeholder-large">${groupData.avatar}</div>
+        </div>
+        <input type="file" id="avatar-file-picker" accept="image/*" style="display: none;" />
+        <button class="button-secondary" id="select-photo-button">Select Photo</button>
+        <div class="validation-error" id="avatar-error"></div>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="cancel-avatar">Cancel</button>
+        <button class="button-primary" id="save-avatar" disabled>Use Photo</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    let selectedFile = null;
+    const filePicker = document.getElementById('avatar-file-picker');
+    const preview = document.getElementById('avatar-preview');
+    const selectBtn = document.getElementById('select-photo-button');
+    const saveBtn = document.getElementById('save-avatar');
+    const errorEl = document.getElementById('avatar-error');
+
+    selectBtn.addEventListener('click', () => {
+      filePicker.click();
+    });
+
+    filePicker.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        selectedFile = file;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          preview.innerHTML = `<img src="${event.target.result}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />`;
+          saveBtn.disabled = false;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    document.getElementById('cancel-avatar').addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    document.getElementById('save-avatar').addEventListener('click', async () => {
+      if (!selectedFile) return;
+
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const base64 = event.target.result;
+
+        try {
+          const response = await fetch(`/api/groups/${groupId}/avatar`, {
+            method: 'PUT',
+            headers: {
+              'content-type': 'application/json',
+              'x-usernode-token': localStorage.getItem('usernode-token')
+            },
+            body: JSON.stringify({ avatar: base64 })
+          });
+
+          if (!response.ok) {
+            throw new Error('Failed to update avatar');
+          }
+
+          const group = groups.find(g => g.id === groupId);
+          group.avatar = base64;
+
+          // Update Messages list
+          const conversation = conversations.find(c => c.groupId === groupId);
+          if (conversation) {
+            conversation.avatar = base64;
+          }
+
+          // Update header avatar immediately
+          const headerAvatar = document.querySelector('.conversation-avatar-header');
+          if (headerAvatar) {
+            headerAvatar.innerHTML = base64.includes('data:') ? `<img src="${base64}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />` : base64;
+          }
+
+          overlay.remove();
+          showToast('Photo updated', { type: 'success' });
+          renderMessagesPage(); // Update messages list
+        } catch (error) {
+          errorEl.textContent = 'Failed to update photo';
+          console.error(error);
+        }
+      };
+      reader.readAsDataURL(selectedFile);
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
+    });
+  }
+
+  // Show add members screen
+  function renderAddMembersPage(groupId) {
+    const group = groups.find(g => g.id === groupId);
+    if (!group) {
+      window.location.hash = '/messages';
+      return;
+    }
+
+    let selectedMembers = [];
+
+    const usersList = suggestedUsers.filter(u => !group.members.find(m => m.id === u.id))
+      .map(user => `
+        <div class="suggested-user-item" data-user-id="${user.id}">
+          <div class="user-avatar">${user.avatar}</div>
+          <div class="user-content">
+            <div class="user-username">${user.username}</div>
+            <div class="user-domain">${user.domain}</div>
+          </div>
+          <div class="selection-indicator"></div>
+        </div>
+      `).join('');
+
+    pageContainer.innerHTML = `
+      <div class="add-members-page">
+        <div class="create-group-header">
+          <button class="back-button" aria-label="Back to group info">←</button>
+          <h1>Add Members</h1>
+        </div>
+
+        <div class="form-section">
+          <input type="text" class="form-input" placeholder="🔍 Search username" id="search-members-add" />
+        </div>
+
+        <div class="members-chips-container" id="members-chips-container-add"></div>
+
+        <div class="suggested-users-section-create">
+          <div class="section-header">Available Users</div>
+          <div class="users-list" id="suggested-users-list-add">
+            ${usersList}
+          </div>
+        </div>
+
+        <div class="validation-error" id="add-members-error"></div>
+
+        <button class="create-group-button" id="add-members-button">Add Members</button>
+      </div>
+    `;
+
+    document.querySelector('.back-button').addEventListener('click', () => {
+      window.location.hash = `/group/${groupId}/info`;
+    });
+
+    const searchInput = document.getElementById('search-members-add');
+    const membersChipsContainer = document.getElementById('members-chips-container-add');
+    const suggestedList = document.getElementById('suggested-users-list-add');
+    const addBtn = document.getElementById('add-members-button');
+    const errorEl = document.getElementById('add-members-error');
+
+    function renderChips() {
+      if (selectedMembers.length === 0) {
+        membersChipsContainer.innerHTML = '';
+        return;
+      }
+
+      membersChipsContainer.innerHTML = selectedMembers.map(user => `
+        <div class="member-chip">
+          <div class="chip-avatar">${user.avatar}</div>
+          <span>${user.username}</span>
+          <button class="chip-remove" data-user-id="${user.id}" aria-label="Remove ${user.username}">×</button>
+        </div>
+      `).join('');
+
+      document.querySelectorAll('.chip-remove').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          const userId = btn.dataset.userId;
+          selectedMembers = selectedMembers.filter(u => u.id !== userId);
+          renderChips();
+          filterAndDisplay();
+        });
+      });
+    }
+
+    function toggleUser(userId) {
+      const user = suggestedUsers.find(u => u.id === userId);
+      if (!user) return;
+
+      if (selectedMembers.find(u => u.id === userId)) {
+        selectedMembers = selectedMembers.filter(u => u.id !== userId);
+      } else {
+        selectedMembers.push(user);
+      }
+
+      renderChips();
+      filterAndDisplay();
+      errorEl.innerHTML = '';
+    }
+
+    function filterAndDisplay() {
+      const query = searchInput.value.toLowerCase();
+      const filtered = suggestedUsers.filter(u =>
+        !group.members.find(m => m.id === u.id) &&
+        (u.username.toLowerCase().includes(query) || u.domain.toLowerCase().includes(query))
+      );
+
+      suggestedList.innerHTML = filtered.map(user => `
+        <div class="suggested-user-item ${selectedMembers.find(m => m.id === user.id) ? 'selected' : ''}" data-user-id="${user.id}">
+          <div class="user-avatar">${user.avatar}</div>
+          <div class="user-content">
+            <div class="user-username">${user.username}</div>
+            <div class="user-domain">${user.domain}</div>
+          </div>
+          <div class="selection-indicator">${selectedMembers.find(m => m.id === user.id) ? '✓' : ''}</div>
+        </div>
+      `).join('');
+
+      document.querySelectorAll('.suggested-user-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const userId = item.dataset.userId;
+          toggleUser(userId);
+        });
+      });
+    }
+
+    searchInput.addEventListener('input', filterAndDisplay);
+
+    document.querySelectorAll('.suggested-user-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const userId = item.dataset.userId;
+        toggleUser(userId);
+      });
+    });
+
+    addBtn.addEventListener('click', async () => {
+      if (selectedMembers.length === 0) {
+        errorEl.textContent = 'Select at least 1 member';
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/groups/${groupId}/members`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-usernode-token': localStorage.getItem('usernode-token')
+          },
+          body: JSON.stringify({ userIds: selectedMembers.map(u => u.id) })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to add members');
+        }
+
+        // Add members to group
+        group.members.push(...selectedMembers);
+        group.memberCount = group.members.length;
+
+        window.location.hash = `/group/${groupId}/info`;
+        showToast(`Added ${selectedMembers.length} member(s)`, { type: 'success' });
+      } catch (error) {
+        errorEl.textContent = 'Failed to add members';
+        console.error(error);
+      }
+    });
+  }
+
+  // Show remove member confirmation - stays on chat page
+  function showRemoveMemberConfirmation(groupId, memberId, member) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Remove Member</h2>
+      </div>
+      <div class="dialog-content">
+        <div class="member-confirm-card">
+          <div class="member-avatar">${member.avatar || member.username.charAt(0).toUpperCase()}</div>
+          <div class="member-confirm-info">
+            <div class="member-name">${member.username}</div>
+            <div class="member-text">Remove ${member.username}? They can rejoin with an invite link.</div>
+          </div>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="cancel-remove">Cancel</button>
+        <button class="button-danger" id="confirm-remove">Remove</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    document.getElementById('cancel-remove').addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    document.getElementById('confirm-remove').addEventListener('click', async () => {
+      try {
+        const response = await fetch(`/api/groups/${groupId}/members/${memberId}`, {
+          method: 'DELETE',
+          headers: {
+            'x-usernode-token': localStorage.getItem('usernode-token')
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to remove member');
+        }
+
+        const group = groups.find(g => g.id === groupId);
+        group.members = group.members.filter(m => m.id !== memberId);
+        group.memberCount = group.members.length;
+
+        // Add system message
+        group.messages.push({
+          id: 'msg_' + Date.now(),
+          senderId: 'system',
+          senderName: 'System',
+          text: `${member.username} was removed`,
+          timestamp: Date.now(),
+          isOutgoing: false,
+          isSystemMessage: true
+        });
+
+        // Update header member count
+        const headerMemberCount = document.querySelector('.header-member-count');
+        if (headerMemberCount) {
+          headerMemberCount.textContent = `${group.memberCount} members`;
+        }
+
+        overlay.remove();
+        showToast(`${member.username} removed`, { type: 'success' });
+        renderGroupConversationPage(groupId); // Re-render to show system message
+      } catch (error) {
+        console.error(error);
+        showToast('Failed to remove member', { type: 'error' });
+      }
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
+    });
+  }
+
+  // Show leave group confirmation - navigates back to messages
+  function showLeaveGroupDialog(groupId, groupName) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Leave Group</h2>
+      </div>
+      <div class="dialog-content">
+        <p>Leave ${groupName}? You can rejoin with an invite link.</p>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="cancel-leave">Cancel</button>
+        <button class="button-danger" id="confirm-leave">Leave</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    document.getElementById('cancel-leave').addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    document.getElementById('confirm-leave').addEventListener('click', async () => {
+      try {
+        const response = await fetch(`/api/groups/${groupId}/leave`, {
+          method: 'POST',
+          headers: {
+            'x-usernode-token': localStorage.getItem('usernode-token')
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to leave group');
+        }
+
+        const group = groups.find(g => g.id === groupId);
+        group.members = group.members.filter(m => m.id !== 'user_self');
+        group.memberCount = group.members.length;
+        group.isLeftByUser = true;
+
+        // Add system message
+        group.messages.push({
+          id: 'msg_' + Date.now(),
+          senderId: 'system',
+          senderName: 'System',
+          text: 'You left the group',
+          timestamp: Date.now(),
+          isOutgoing: false,
+          isSystemMessage: true
+        });
+
+        overlay.remove();
+        window.location.hash = '/messages';
+        showToast('You left the group', { type: 'success' });
+      } catch (error) {
+        console.error(error);
+        showToast('Failed to leave group', { type: 'error' });
+      }
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
+    });
+  }
+
+  // Show toast notification
+  function showToast(message, options = {}) {
+    const toast = document.createElement('div');
+    toast.className = `toast ${options.type || 'info'}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+      toast.classList.add('show');
+    }, 10);
+
+    setTimeout(() => {
+      toast.classList.remove('show');
+      setTimeout(() => toast.remove(), 300);
+    }, 3000);
+  }
+
   // Render a placeholder page
   function renderPage(pageName) {
     const page = pages[pageName];
@@ -1464,12 +2518,22 @@ document.addEventListener('DOMContentLoaded', () => {
       bottomNav.style.display = 'none';
       renderConversationPage(conversationId);
     } else if (path.startsWith('group/')) {
-      const groupId = path.split('/')[1];
+      const parts = path.split('/');
+      const groupId = parts[1];
+      const action = parts[2];
+
       // Remove active from all nav tabs when on group screen
       navTabs.forEach(tab => tab.classList.remove('active'));
       // Hide bottom nav on group screen
       bottomNav.style.display = 'none';
-      renderGroupConversationPage(groupId);
+
+      if (action === 'info') {
+        renderGroupInfoPage(groupId);
+      } else if (action === 'add-members') {
+        renderAddMembersPage(groupId);
+      } else {
+        renderGroupConversationPage(groupId);
+      }
     } else if (path === 'create-group') {
       // Hide bottom nav on create group screen
       bottomNav.style.display = 'none';
