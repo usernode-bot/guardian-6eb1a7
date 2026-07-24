@@ -200,6 +200,116 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   ];
 
+  // Broadcast channels data
+  let channels = [
+    {
+      id: 'channel_1',
+      name: 'Solana Indonesia',
+      description: 'Latest news and updates about Solana ecosystem in Indonesia',
+      avatar: 'SI',
+      isPublic: true,
+      creatorId: 'user_4',
+      createdAt: Date.now() - 7 * 24 * 60 * 60 * 1000,
+      followerCount: 12500,
+      followers: { 'user_self': true, 'user_1': true, 'user_2': true },
+      mutedByUsers: {},
+      posts: [
+        {
+          id: 'post_1',
+          channelId: 'channel_1',
+          authorId: 'user_4',
+          text: 'Mainnet Beta is Live 🚀\n\nExciting times ahead as we launch the next phase of development!',
+          timestamp: Date.now() - 2 * 60 * 1000,
+          likes: { 'user_self': true, 'user_1': true, 'user_2': true },
+          isPinned: false
+        },
+        {
+          id: 'post_2',
+          channelId: 'channel_1',
+          authorId: 'user_4',
+          text: 'Monthly Update: Progress Report\n\nWe\'ve completed major milestones this month. Check the roadmap for details.',
+          timestamp: Date.now() - 24 * 60 * 60 * 1000,
+          likes: { 'user_1': true },
+          isPinned: false
+        }
+      ]
+    },
+    {
+      id: 'channel_2',
+      name: 'Web3 Builders',
+      description: 'Community for web3 developers and creators',
+      avatar: 'WB',
+      isPublic: true,
+      creatorId: 'user_self',
+      createdAt: Date.now() - 3 * 24 * 60 * 60 * 1000,
+      followerCount: 245,
+      followers: { 'user_self': true },
+      mutedByUsers: {},
+      posts: [
+        {
+          id: 'post_3',
+          channelId: 'channel_2',
+          authorId: 'user_self',
+          text: 'Welcome to Web3 Builders! 👨‍💻\n\nThis is a space to share projects, learn together, and build the future of web3.',
+          timestamp: Date.now() - 60 * 60 * 1000,
+          likes: {},
+          isPinned: false
+        }
+      ]
+    },
+    {
+      id: 'channel_3',
+      name: 'Design Tips',
+      description: 'Daily design inspiration and tutorials',
+      avatar: 'DT',
+      isPublic: true,
+      creatorId: 'user_8',
+      createdAt: Date.now() - 10 * 24 * 60 * 60 * 1000,
+      followerCount: 2000,
+      followers: {},
+      mutedByUsers: {},
+      posts: [
+        {
+          id: 'post_4',
+          channelId: 'channel_3',
+          authorId: 'user_8',
+          text: 'Tip of the day: Golden Ratio in UI Design\n\nUsing the golden ratio can create more aesthetically pleasing layouts.',
+          timestamp: Date.now() - 12 * 60 * 60 * 1000,
+          likes: { 'user_1': true, 'user_2': true },
+          isPinned: false
+        }
+      ]
+    }
+  ];
+
+  // Add channel conversations to the conversations list
+  conversations = conversations.concat([
+    {
+      id: 'conv_channel_1',
+      type: 'channel',
+      channelId: 'channel_1',
+      name: 'Solana Indonesia',
+      avatar: 'SI',
+      lastMessage: 'Mainnet Beta is Live 🚀\n\nExciting times ahead as we launch the next phase of development!',
+      timestamp: Date.now() - 2 * 60 * 1000,
+      unreadCount: 0,
+      archived: false,
+      pinned: false
+    },
+    {
+      id: 'conv_channel_2',
+      type: 'channel',
+      channelId: 'channel_2',
+      name: 'Web3 Builders',
+      avatar: 'WB',
+      lastMessage: 'Welcome to Web3 Builders! 👨‍💻\n\nThis is a space to share projects, learn together, and build the future of web3.',
+      timestamp: Date.now() - 60 * 60 * 1000,
+      unreadCount: 0,
+      archived: false,
+      pinned: false
+    }
+  ]);
+
   // Active tab state
   let activeMessagesTab = 'all';
   let searchQuery = '';
@@ -313,7 +423,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (tab === 'groups') {
       filtered = conversations.filter(c => c.type === 'group' && !c.archived);
     } else if (tab === 'channels') {
-      filtered = [];
+      filtered = conversations.filter(c => c.type === 'channel' && !c.archived);
     } else if (tab === 'requests') {
       filtered = requests;
     }
@@ -1438,6 +1548,11 @@ document.addEventListener('DOMContentLoaded', () => {
           <span class="group-label">Create Group</span>
           <span class="group-chevron">></span>
         </div>
+        <div class="create-group-card">
+          <span class="group-icon">📢</span>
+          <span class="group-label">Create Channel</span>
+          <span class="group-chevron">></span>
+        </div>
         <div class="suggested-users-section">
           <div class="section-header">Suggested Users</div>
           <div class="users-list">
@@ -1452,9 +1567,13 @@ document.addEventListener('DOMContentLoaded', () => {
       window.location.hash = '/messages';
     });
 
-    // Add create group card handler
-    document.querySelector('.create-group-card').addEventListener('click', () => {
+    // Add create group/channel card handlers
+    const cards = document.querySelectorAll('.create-group-card');
+    cards[0].addEventListener('click', () => {
       window.location.hash = '/create-group';
+    });
+    cards[1].addEventListener('click', () => {
+      window.location.hash = '/create-channel';
     });
 
     // Add user item handlers
@@ -2443,6 +2562,645 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Create a new channel
+  function createChannel(name, description, visibility, avatarData) {
+    const channelId = 'channel_' + Date.now();
+    const timestamp = Date.now();
+    const avatarValue = avatarData || name.charAt(0).toUpperCase();
+
+    const newChannel = {
+      id: channelId,
+      name: name,
+      description: description,
+      avatar: avatarValue,
+      isPublic: visibility === 'public',
+      creatorId: 'user_self',
+      createdAt: timestamp,
+      followerCount: 1,
+      followers: { 'user_self': true },
+      mutedByUsers: {},
+      posts: []
+    };
+
+    channels.push(newChannel);
+
+    const newConversation = {
+      id: 'conv_channel_' + channelId,
+      type: 'channel',
+      channelId: channelId,
+      name: name,
+      avatar: avatarValue,
+      lastMessage: 'No posts yet',
+      timestamp: timestamp,
+      unreadCount: 0,
+      archived: false,
+      pinned: false
+    };
+
+    conversations.unshift(newConversation);
+    return channelId;
+  }
+
+  // Publish a post to a channel
+  function publishPost(channelId, text, imageData) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel || channel.creatorId !== 'user_self') {
+      return null;
+    }
+
+    const postId = 'post_' + Date.now();
+    const timestamp = Date.now();
+
+    const newPost = {
+      id: postId,
+      channelId: channelId,
+      authorId: 'user_self',
+      text: text,
+      imageData: imageData || null,
+      timestamp: timestamp,
+      likes: {},
+      isPinned: false
+    };
+
+    channel.posts.unshift(newPost);
+
+    // Update last post in conversation
+    const conv = conversations.find(c => c.type === 'channel' && c.channelId === channelId);
+    if (conv) {
+      conv.lastMessage = text.substring(0, 100);
+      conv.timestamp = timestamp;
+    }
+
+    // Increment unread for followers (unless muted)
+    Object.keys(channel.followers).forEach(userId => {
+      if (userId !== 'user_self' && !channel.mutedByUsers[userId]) {
+        const followerConv = conversations.find(c => c.type === 'channel' && c.channelId === channelId);
+        if (followerConv) {
+          followerConv.unreadCount++;
+        }
+      }
+    });
+
+    return postId;
+  }
+
+  // Follow a channel
+  function followChannel(channelId) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel) return;
+
+    channel.followers['user_self'] = true;
+    channel.followerCount++;
+
+    const existingConv = conversations.find(c => c.type === 'channel' && c.channelId === channelId);
+    if (!existingConv) {
+      const newConversation = {
+        id: 'conv_channel_' + channelId,
+        type: 'channel',
+        channelId: channelId,
+        name: channel.name,
+        avatar: channel.avatar,
+        lastMessage: channel.posts[0]?.text.substring(0, 100) || 'No posts yet',
+        timestamp: channel.posts[0]?.timestamp || channel.createdAt,
+        unreadCount: channel.posts.length,
+        archived: false,
+        pinned: false
+      };
+      conversations.unshift(newConversation);
+    }
+  }
+
+  // Unfollow a channel
+  function unfollowChannel(channelId) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel) return;
+
+    delete channel.followers['user_self'];
+    channel.followerCount--;
+
+    const conv = conversations.find(c => c.type === 'channel' && c.channelId === channelId);
+    if (conv) {
+      conv.archived = true;
+    }
+  }
+
+  // Toggle like on a post
+  function toggleLikePost(postId, channelId) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel) return;
+
+    const post = channel.posts.find(p => p.id === postId);
+    if (!post) return;
+
+    if (post.likes['user_self']) {
+      delete post.likes['user_self'];
+    } else {
+      post.likes['user_self'] = true;
+    }
+  }
+
+  // Mute/unmute channel notifications
+  function toggleMuteChannel(channelId, isMuted) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel) return;
+
+    if (isMuted) {
+      channel.mutedByUsers['user_self'] = true;
+    } else {
+      delete channel.mutedByUsers['user_self'];
+    }
+  }
+
+  // Delete a post (owner only)
+  function deletePost(channelId, postId) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel || channel.creatorId !== 'user_self') return;
+
+    const postIndex = channel.posts.findIndex(p => p.id === postId);
+    if (postIndex > -1) {
+      channel.posts.splice(postIndex, 1);
+
+      // Update conversation last message
+      const conv = conversations.find(c => c.type === 'channel' && c.channelId === channelId);
+      if (conv) {
+        if (channel.posts.length > 0) {
+          conv.lastMessage = channel.posts[0].text.substring(0, 100);
+          conv.timestamp = channel.posts[0].timestamp;
+        } else {
+          conv.lastMessage = 'No posts yet';
+        }
+      }
+    }
+  }
+
+  // Delete a channel (owner only)
+  function deleteChannel(channelId) {
+    const channelIndex = channels.findIndex(c => c.id === channelId);
+    if (channelIndex > -1) {
+      channels.splice(channelIndex, 1);
+    }
+
+    conversations = conversations.filter(c => !(c.type === 'channel' && c.channelId === channelId));
+  }
+
+  // Render Create Channel page
+  function renderCreateChannelPage() {
+    const state = {
+      channelName: '',
+      channelDescription: '',
+      visibility: 'public',
+      avatarFile: null,
+      avatarPreview: null,
+      validationError: ''
+    };
+
+    pageContainer.innerHTML = `
+      <div class="create-group-page">
+        <div class="create-group-header">
+          <button class="back-button" aria-label="Back to new message">←</button>
+          <h1>Create Channel</h1>
+        </div>
+
+        <div class="group-avatar-section">
+          <div class="avatar-placeholder" id="avatar-placeholder">
+            <div class="avatar-placeholder-text">+ Add Photo</div>
+          </div>
+          <input type="file" id="avatar-file-input" accept="image/*" style="display: none;" />
+        </div>
+
+        <div class="form-section">
+          <div>
+            <input type="text" class="form-input" placeholder="Channel name" id="channel-name-input" maxlength="50" />
+            <div class="validation-error" id="name-error"></div>
+          </div>
+          <input type="text" class="form-input" placeholder="Add a description (optional)" id="channel-description-input" maxlength="250" />
+        </div>
+
+        <div class="form-section">
+          <div class="visibility-label">Visibility</div>
+          <div class="visibility-options">
+            <label class="visibility-option">
+              <input type="radio" name="visibility" value="public" checked />
+              <span>○ Public</span>
+            </label>
+            <label class="visibility-option">
+              <input type="radio" name="visibility" value="private" />
+              <span>○ Private</span>
+            </label>
+          </div>
+        </div>
+
+        <button class="create-group-button" id="create-channel-button">Create Channel</button>
+      </div>
+    `;
+
+    const backButton = document.querySelector('.back-button');
+    const channelNameInput = document.getElementById('channel-name-input');
+    const channelDescriptionInput = document.getElementById('channel-description-input');
+    const visibilityInputs = document.querySelectorAll('input[name="visibility"]');
+    const avatarPlaceholder = document.getElementById('avatar-placeholder');
+    const avatarFileInput = document.getElementById('avatar-file-input');
+    const createButton = document.getElementById('create-channel-button');
+    const nameError = document.getElementById('name-error');
+
+    function updateButtonState() {
+      const isValid = state.channelName.trim().length > 0;
+      createButton.disabled = !isValid;
+      createButton.style.opacity = isValid ? '1' : '0.5';
+    }
+
+    backButton.addEventListener('click', () => {
+      window.location.hash = '/create';
+    });
+
+    channelNameInput.addEventListener('input', (e) => {
+      state.channelName = e.target.value;
+      nameError.textContent = '';
+      updateButtonState();
+    });
+
+    channelDescriptionInput.addEventListener('input', (e) => {
+      state.channelDescription = e.target.value;
+    });
+
+    visibilityInputs.forEach(input => {
+      input.addEventListener('change', (e) => {
+        state.visibility = e.target.value;
+      });
+    });
+
+    avatarPlaceholder.addEventListener('click', () => {
+      avatarFileInput.click();
+    });
+
+    avatarFileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          state.avatarPreview = event.target.result;
+          avatarPlaceholder.style.backgroundImage = `url(${state.avatarPreview})`;
+          avatarPlaceholder.style.backgroundSize = 'cover';
+          avatarPlaceholder.innerHTML = '';
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    createButton.addEventListener('click', () => {
+      if (!state.channelName.trim()) {
+        nameError.textContent = 'Channel name is required';
+        return;
+      }
+
+      const channelId = createChannel(
+        state.channelName,
+        state.channelDescription,
+        state.visibility,
+        state.avatarPreview
+      );
+
+      window.location.hash = `/channel/${channelId}`;
+    });
+
+    updateButtonState();
+  }
+
+  // Render Channel View page
+  function renderChannelView(channelId) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel) {
+      window.location.hash = '/messages';
+      return;
+    }
+
+    const isOwner = channel.creatorId === 'user_self';
+    const isFollowing = channel.followers['user_self'];
+    const isMuted = channel.mutedByUsers['user_self'];
+
+    // Render posts in reverse chronological order
+    const postsList = channel.posts.map(post => {
+      const likeCount = Object.keys(post.likes).length;
+      const userLiked = post.likes['user_self'];
+      return `
+        <div class="post-item" data-post-id="${post.id}">
+          <div class="post-timestamp">${formatMessageTime(post.timestamp)}</div>
+          <div class="post-content">${post.text}</div>
+          <div class="post-actions">
+            <button class="post-like-button ${userLiked ? 'liked' : ''}" data-post-id="${post.id}" title="Like">
+              <span class="like-icon">❤️</span>
+              <span class="like-count">${likeCount}</span>
+            </button>
+            <button class="post-share-button" data-post-id="${post.id}" title="Share">
+              <span>🔁</span>
+            </button>
+            <button class="post-menu-button" data-post-id="${post.id}" title="More options">⋯</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    pageContainer.innerHTML = `
+      <div class="conversation-page">
+        <div class="conversation-header">
+          <button class="back-button" aria-label="Back to messages">←</button>
+          <div class="conversation-header-info group-header-info" id="channel-header-info-${channelId}">
+            <div class="conversation-avatar-header">${channel.avatar}</div>
+            <div class="header-text">
+              <div class="header-username">${channel.name}</div>
+              <div class="header-member-count">${channel.followerCount.toLocaleString()} Followers</div>
+            </div>
+          </div>
+          <button class="menu-button" aria-label="More options">⋮</button>
+        </div>
+        <div class="messages-container">
+          ${postsList || '<div class="empty-state">No posts yet</div>'}
+        </div>
+        <div class="channel-footer">
+          ${isOwner ? `
+            <div class="composer-container">
+              <textarea class="composer-input" placeholder="What's happening?" rows="1"></textarea>
+              <div class="composer-actions">
+                <button class="image-button" aria-label="Add image">📷</button>
+                <button class="publish-button" aria-label="Publish">Publish</button>
+              </div>
+            </div>
+          ` : `
+            <div class="follower-status">
+              ${isFollowing ? `
+                <button class="follow-button following">✓ Following</button>
+              ` : `
+                <button class="follow-button">Follow</button>
+              `}
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+
+    // Back button handler
+    document.querySelector('.back-button').addEventListener('click', () => {
+      window.location.hash = '/messages';
+    });
+
+    // Menu button handler
+    const menuButton = document.querySelector('.menu-button');
+    if (menuButton) {
+      menuButton.addEventListener('click', () => {
+        showChannelMenu(channelId, channel, isOwner);
+      });
+    }
+
+    // Follow/Unfollow button handler
+    const followButton = document.querySelector('.follow-button');
+    if (followButton) {
+      followButton.addEventListener('click', () => {
+        if (isFollowing) {
+          unfollowChannel(channelId);
+          showToast('Unfollowed channel', { type: 'success' });
+        } else {
+          followChannel(channelId);
+          showToast('Following channel', { type: 'success' });
+        }
+        renderChannelView(channelId);
+      });
+    }
+
+    // Like button handlers
+    document.querySelectorAll('.post-like-button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const postId = btn.dataset.postId;
+        toggleLikePost(postId, channelId);
+        renderChannelView(channelId);
+      });
+    });
+
+    // Share button handlers
+    document.querySelectorAll('.post-share-button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const postId = btn.dataset.postId;
+        const post = channel.posts.find(p => p.id === postId);
+        if (post) {
+          const shareText = `Check out this post from ${channel.name}:\n\n"${post.text}"`;
+          if (navigator.share) {
+            navigator.share({
+              title: channel.name,
+              text: shareText
+            }).catch(err => console.log('Share cancelled or failed'));
+          } else {
+            // Fallback: copy to clipboard
+            navigator.clipboard.writeText(shareText).then(() => {
+              showToast('Post link copied to clipboard', { type: 'success' });
+            }).catch(() => {
+              showToast('Failed to copy link', { type: 'error' });
+            });
+          }
+        }
+      });
+    });
+
+    // Post menu button handlers
+    document.querySelectorAll('.post-menu-button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const postId = btn.dataset.postId;
+        showPostMenu(channelId, postId, isOwner);
+      });
+    });
+
+    // Composer handlers (owner only)
+    if (isOwner) {
+      const composerInput = document.querySelector('.composer-input');
+      const publishButton = document.querySelector('.publish-button');
+
+      function autoExpandTextarea() {
+        composerInput.style.height = 'auto';
+        const newHeight = Math.min(composerInput.scrollHeight, 120);
+        composerInput.style.height = newHeight + 'px';
+      }
+
+      composerInput.addEventListener('input', autoExpandTextarea);
+
+      publishButton.addEventListener('click', () => {
+        const text = composerInput.value.trim();
+        if (!text) return;
+
+        publishPost(channelId, text);
+        composerInput.value = '';
+        composerInput.style.height = '40px';
+        renderChannelView(channelId);
+        showToast('Post published', { type: 'success' });
+      });
+    }
+
+    // Scroll to latest post
+    setTimeout(() => {
+      const messagesContainer = document.querySelector('.messages-container');
+      if (messagesContainer) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
+    }, 0);
+  }
+
+  // Show channel menu
+  function showChannelMenu(channelId, channel, isOwner) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog group-menu-dialog';
+
+    let menuHTML = `
+      <div class="dialog-header">
+        <h2>${channel.name}</h2>
+        <button class="close-dialog-button">✕</button>
+      </div>
+      <div class="dialog-content group-menu-content">
+    `;
+
+    if (isOwner) {
+      menuHTML += `
+        <button class="menu-option" id="edit-channel-btn">
+          <span class="option-icon">✏️</span>
+          <span class="option-label">Edit Channel</span>
+          <span class="option-chevron">›</span>
+        </button>
+        <button class="menu-option leave-option" id="delete-channel-btn">
+          <span class="option-icon">🗑️</span>
+          <span class="option-label">Delete Channel</span>
+        </button>
+      `;
+    } else {
+      menuHTML += `
+        <button class="menu-option" id="copy-link-btn">
+          <span class="option-icon">🔗</span>
+          <span class="option-label">Copy Link</span>
+          <span class="option-chevron">›</span>
+        </button>
+        <button class="menu-option" id="mute-notifications-btn">
+          <span class="option-icon">🔔</span>
+          <span class="option-label">${channel.mutedByUsers['user_self'] ? 'Unmute' : 'Mute'} Notifications</span>
+          <span class="option-chevron">›</span>
+        </button>
+        <button class="menu-option leave-option" id="unfollow-btn">
+          <span class="option-icon">👋</span>
+          <span class="option-label">Unfollow</span>
+        </button>
+      `;
+    }
+
+    menuHTML += `</div>`;
+    dialog.innerHTML = menuHTML;
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const closeButton = dialog.querySelector('.close-dialog-button');
+    closeButton.addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+
+    if (isOwner) {
+      document.getElementById('delete-channel-btn')?.addEventListener('click', () => {
+        overlay.remove();
+        showConfirmDialog('Delete Channel', `Delete "${channel.name}"? This cannot be undone.`, () => {
+          deleteChannel(channelId);
+          window.location.hash = '/messages';
+          showToast('Channel deleted', { type: 'success' });
+        });
+      });
+    } else {
+      document.getElementById('copy-link-btn')?.addEventListener('click', () => {
+        const link = `channel/${channelId}`;
+        navigator.clipboard.writeText(link).then(() => {
+          overlay.remove();
+          showToast('Link copied to clipboard', { type: 'success' });
+        });
+      });
+
+      document.getElementById('mute-notifications-btn')?.addEventListener('click', () => {
+        const isMuted = channel.mutedByUsers['user_self'];
+        toggleMuteChannel(channelId, !isMuted);
+        overlay.remove();
+        renderChannelView(channelId);
+        showToast(isMuted ? 'Notifications unmuted' : 'Notifications muted', { type: 'success' });
+      });
+
+      document.getElementById('unfollow-btn')?.addEventListener('click', () => {
+        overlay.remove();
+        unfollowChannel(channelId);
+        window.location.hash = '/messages';
+        showToast('Unfollowed channel', { type: 'success' });
+      });
+    }
+  }
+
+  // Show post menu
+  function showPostMenu(channelId, postId, isOwner) {
+    if (!isOwner) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+    dialog.innerHTML = `
+      <div class="dialog-content group-menu-content">
+        <button class="menu-option" id="delete-post-btn">
+          <span class="option-icon">🗑️</span>
+          <span class="option-label">Delete Post</span>
+        </button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+
+    document.getElementById('delete-post-btn').addEventListener('click', () => {
+      overlay.remove();
+      deletePost(channelId, postId);
+      renderChannelView(channelId);
+      showToast('Post deleted', { type: 'success' });
+    });
+  }
+
+  // Show confirm dialog
+  function showConfirmDialog(title, message, onConfirm) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>${title}</h2>
+      </div>
+      <div class="dialog-content">
+        <p>${message}</p>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="cancel-btn">Cancel</button>
+        <button class="button-danger" id="confirm-btn">Confirm</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    document.getElementById('cancel-btn').addEventListener('click', () => overlay.remove());
+    document.getElementById('confirm-btn').addEventListener('click', () => {
+      overlay.remove();
+      onConfirm();
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+  }
+
   // Show toast notification
   function showToast(message, options = {}) {
     const toast = document.createElement('div');
@@ -2520,12 +3278,25 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         renderGroupConversationPage(groupId);
       }
+    } else if (path.startsWith('channel/')) {
+      const channelId = path.split('/')[1];
+      // Remove active from all nav tabs when on channel screen
+      navTabs.forEach(tab => tab.classList.remove('active'));
+      // Hide bottom nav on channel screen
+      bottomNav.style.display = 'none';
+      renderChannelView(channelId);
     } else if (path === 'create-group') {
       // Hide bottom nav on create group screen
       bottomNav.style.display = 'none';
       // Remove active from all nav tabs
       navTabs.forEach(tab => tab.classList.remove('active'));
       renderCreateGroupPage();
+    } else if (path === 'create-channel') {
+      // Hide bottom nav on create channel screen
+      bottomNav.style.display = 'none';
+      // Remove active from all nav tabs
+      navTabs.forEach(tab => tab.classList.remove('active'));
+      renderCreateChannelPage();
     } else {
       // Show bottom nav on all other screens
       bottomNav.style.display = 'flex';
