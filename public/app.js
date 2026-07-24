@@ -513,6 +513,309 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Current user profile global
+  let currentUserProfile = {
+    userId: null,
+    username: null,
+    usernode_pubkey: null,
+    bio: null,
+    avatarUrl: null,
+    avatar: null
+  };
+
+  // Update profile cache and sync across screens
+  function updateProfileCache(data) {
+    currentUserProfile = {
+      userId: data.userId,
+      username: data.username,
+      usernode_pubkey: data.usernode_pubkey,
+      bio: data.bio,
+      avatarUrl: data.avatarUrl,
+      avatar: data.avatar
+    };
+    window.dispatchEvent(new CustomEvent('profileUpdated', { detail: currentUserProfile }));
+  }
+
+  // Render profile page
+  function renderProfilePage() {
+    pageContainer.innerHTML = `
+      <div class="profile-page">
+        <div class="profile-header">
+          <button class="back-button" aria-label="Back to messages">←</button>
+          <h1>Profile</h1>
+          <div style="width: 32px;"></div>
+        </div>
+
+        <div class="profile-content">
+          <div class="profile-avatar-section">
+            <div class="profile-avatar-large" id="profile-avatar-large">${currentUserProfile.avatar ? `<img src="data:image/png;base64,${currentUserProfile.avatar}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />` : (currentUserProfile.username ? currentUserProfile.username.charAt(0).toUpperCase() : '?')}</div>
+            <button class="edit-avatar-button" id="edit-avatar-button">Change Photo</button>
+          </div>
+
+          <div class="profile-details-section">
+            <div class="detail-item">
+              <div class="detail-label">Username</div>
+              <div class="detail-value">${currentUserProfile.username || 'Loading...'}</div>
+            </div>
+
+            <div class="detail-item">
+              <div class="detail-label">Wallet Address</div>
+              <div class="detail-value-with-button">
+                <div class="detail-value detail-wallet">${currentUserProfile.usernode_pubkey ? currentUserProfile.usernode_pubkey.substring(0, 12) + '...' : 'Not linked'}</div>
+                <button class="detail-copy-button" id="copy-wallet-button" title="Copy wallet address">📋</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="profile-bio-section">
+            <div class="detail-item">
+              <div class="detail-label">Bio</div>
+              <div class="detail-value" id="profile-bio-value">${currentUserProfile.bio || 'No bio yet'}</div>
+              <button class="detail-edit-button" id="edit-bio-button">Edit</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Back button
+    document.querySelector('.back-button').addEventListener('click', () => {
+      window.location.hash = '/messages';
+    });
+
+    // Copy wallet button
+    document.getElementById('copy-wallet-button').addEventListener('click', () => {
+      if (currentUserProfile.usernode_pubkey) {
+        navigator.clipboard.writeText(currentUserProfile.usernode_pubkey);
+        showToast('Wallet address copied', { type: 'success' });
+      }
+    });
+
+    // Edit bio button
+    document.getElementById('edit-bio-button').addEventListener('click', () => {
+      showEditBioDialog(currentUserProfile.bio);
+    });
+
+    // Edit avatar button
+    document.getElementById('edit-avatar-button').addEventListener('click', () => {
+      showEditAvatarDialog(currentUserProfile);
+    });
+  }
+
+  // Show edit bio dialog
+  function showEditBioDialog(currentBio) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Edit Bio</h2>
+      </div>
+      <div class="dialog-content">
+        <textarea id="edit-bio-input" class="form-input" maxlength="250" placeholder="Add a bio...">${currentBio || ''}</textarea>
+        <div class="char-count"><span id="bio-char-count">0</span>/250</div>
+        <div class="validation-error" id="edit-bio-error"></div>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="cancel-edit-bio">Cancel</button>
+        <button class="button-primary" id="save-edit-bio">Save</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const textarea = document.getElementById('edit-bio-input');
+    const charCount = document.getElementById('bio-char-count');
+    const errorEl = document.getElementById('edit-bio-error');
+
+    textarea.addEventListener('input', () => {
+      charCount.textContent = textarea.value.length;
+    });
+
+    charCount.textContent = (currentBio || '').length;
+
+    document.getElementById('cancel-edit-bio').addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    document.getElementById('save-edit-bio').addEventListener('click', async () => {
+      const newBio = textarea.value.trim();
+
+      try {
+        const response = await fetch('/api/profile/bio', {
+          method: 'PUT',
+          headers: {
+            'content-type': 'application/json',
+            'x-usernode-token': localStorage.getItem('usernode-token')
+          },
+          body: JSON.stringify({ bio: newBio || null })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to update bio');
+        }
+
+        currentUserProfile.bio = newBio || null;
+        updateProfileCache(currentUserProfile);
+
+        overlay.remove();
+        showToast('Bio updated', { type: 'success' });
+        renderProfilePage();
+      } catch (error) {
+        errorEl.textContent = 'Failed to update bio';
+        console.error(error);
+      }
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
+    });
+
+    textarea.focus();
+  }
+
+  // Show edit avatar dialog
+  function showEditAvatarDialog(profileData) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Change Photo</h2>
+      </div>
+      <div class="dialog-content">
+        <div id="avatar-preview" class="avatar-preview">
+          <div class="avatar-placeholder-large">${profileData.avatar ? `<img src="data:image/png;base64,${profileData.avatar}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />` : (profileData.username ? profileData.username.charAt(0).toUpperCase() : '?')}</div>
+        </div>
+        <input type="file" id="avatar-file-picker" accept="image/*" style="display: none;" />
+        <button class="button-secondary" id="select-photo-button">Select Photo</button>
+        <div class="validation-error" id="avatar-error"></div>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="cancel-avatar">Cancel</button>
+        <button class="button-primary" id="save-avatar" disabled>Use Photo</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    let selectedFile = null;
+    const filePicker = document.getElementById('avatar-file-picker');
+    const preview = document.getElementById('avatar-preview');
+    const selectBtn = document.getElementById('select-photo-button');
+    const saveBtn = document.getElementById('save-avatar');
+    const errorEl = document.getElementById('avatar-error');
+
+    selectBtn.addEventListener('click', () => {
+      filePicker.click();
+    });
+
+    filePicker.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        selectedFile = file;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          preview.innerHTML = `<img src="${event.target.result}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />`;
+          saveBtn.disabled = false;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    document.getElementById('cancel-avatar').addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    document.getElementById('save-avatar').addEventListener('click', async () => {
+      if (!selectedFile) return;
+
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const base64 = event.target.result;
+
+        try {
+          const response = await fetch('/api/profile/avatar', {
+            method: 'PUT',
+            headers: {
+              'content-type': 'application/json',
+              'x-usernode-token': localStorage.getItem('usernode-token')
+            },
+            body: JSON.stringify({ avatar: base64 })
+          });
+
+          if (!response.ok) {
+            throw new Error('Failed to update avatar');
+          }
+
+          currentUserProfile.avatar = base64.includes('data:') ? base64 : null;
+          updateProfileCache(currentUserProfile);
+
+          overlay.remove();
+          showToast('Photo updated', { type: 'success' });
+          renderProfilePage();
+        } catch (error) {
+          errorEl.textContent = 'Failed to update photo';
+          console.error(error);
+        }
+      };
+      reader.readAsDataURL(selectedFile);
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
+    });
+  }
+
+  // Load current user profile on app start
+  async function loadCurrentUserProfile() {
+    try {
+      const response = await fetch('/api/profile', {
+        headers: {
+          'x-usernode-token': localStorage.getItem('usernode-token')
+        }
+      });
+
+      if (response.ok) {
+        const profile = await response.json();
+        updateProfileCache(profile);
+
+        // Fetch avatar if available
+        if (profile.avatarUrl) {
+          try {
+            const avatarResponse = await fetch(profile.avatarUrl, {
+              headers: {
+                'x-usernode-token': localStorage.getItem('usernode-token')
+              }
+            });
+            if (avatarResponse.ok) {
+              const avatarBlob = await avatarResponse.blob();
+              const reader = new FileReader();
+              reader.onload = (e) => {
+                currentUserProfile.avatar = e.target.result.split(',')[1];
+              };
+              reader.readAsDataURL(avatarBlob);
+            }
+          } catch (err) {
+            console.error('Failed to fetch avatar:', err);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load user profile:', error);
+    }
+  }
+
   // Render messages page with tabs
   function renderMessagesPage(tab = null) {
     if (tab) activeMessagesTab = tab;
@@ -3710,6 +4013,8 @@ document.addEventListener('DOMContentLoaded', () => {
       renderMessagesPage();
     } else if (pageName === 'create') {
       renderNewMessagePage();
+    } else if (pageName === 'profile') {
+      renderProfilePage();
     } else {
       pageContainer.innerHTML = `
         <div class="page">
@@ -3794,6 +4099,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Listen for hash changes
   window.addEventListener('hashchange', handleNavigation);
+
+  // Load user profile on app start
+  loadCurrentUserProfile();
 
   // Initial render
   handleNavigation();

@@ -161,9 +161,143 @@ app.post('/api/groups/:groupId/leave', (req, res) => {
   });
 });
 
+// Profile API Endpoints
+
+// GET /api/profile - Fetch current user's profile
+app.get('/api/profile', async (req, res) => {
+  try {
+    const userId = req.user.id || req.user.username;
+    const result = await pool.query(
+      'SELECT bio FROM user_profiles WHERE user_id = $1',
+      [userId]
+    );
+
+    const profile = result.rows[0];
+    res.json({
+      userId: req.user.id || req.user.username,
+      username: req.user.username,
+      usernode_pubkey: req.user.usernode_pubkey || null,
+      bio: profile ? profile.bio : null,
+      avatar: null,
+      avatarUrl: '/api/profile/avatar'
+    });
+  } catch (err) {
+    console.error('Error fetching profile:', err);
+    res.status(500).json({ error: 'Failed to fetch profile' });
+  }
+});
+
+// PUT /api/profile/bio - Update user's bio
+app.put('/api/profile/bio', async (req, res) => {
+  try {
+    const { bio } = req.body;
+    const userId = req.user.id || req.user.username;
+
+    if (bio && bio.length > 250) {
+      return res.status(400).json({ error: 'Bio must be 250 characters or less' });
+    }
+
+    await pool.query(
+      `INSERT INTO user_profiles (user_id, username, bio)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id) DO UPDATE SET bio = $3, updated_at = CURRENT_TIMESTAMP`,
+      [userId, req.user.username, bio || null]
+    );
+
+    res.json({
+      bio: bio || null,
+      updated_at: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Error updating bio:', err);
+    res.status(500).json({ error: 'Failed to update bio' });
+  }
+});
+
+// PUT /api/profile/avatar - Update user's avatar
+app.put('/api/profile/avatar', async (req, res) => {
+  try {
+    const { avatar } = req.body;
+    const userId = req.user.id || req.user.username;
+
+    if (!avatar) {
+      return res.status(400).json({ error: 'Avatar is required' });
+    }
+
+    // Handle base64 data URL
+    let avatarBuffer;
+    if (avatar.startsWith('data:')) {
+      const base64Data = avatar.split(',')[1];
+      avatarBuffer = Buffer.from(base64Data, 'base64');
+    } else {
+      avatarBuffer = Buffer.from(avatar, 'base64');
+    }
+
+    if (avatarBuffer.length > 5 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Avatar must be 5MB or less' });
+    }
+
+    await pool.query(
+      `INSERT INTO user_profiles (user_id, username, avatar)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id) DO UPDATE SET avatar = $3, updated_at = CURRENT_TIMESTAMP`,
+      [userId, req.user.username, avatarBuffer]
+    );
+
+    res.json({
+      avatarUrl: '/api/profile/avatar',
+      updated_at: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Error updating avatar:', err);
+    res.status(500).json({ error: 'Failed to update avatar' });
+  }
+});
+
+// GET /api/profile/avatar - Fetch current user's avatar image
+app.get('/api/profile/avatar', async (req, res) => {
+  try {
+    const userId = req.user.id || req.user.username;
+    const result = await pool.query(
+      'SELECT avatar FROM user_profiles WHERE user_id = $1',
+      [userId]
+    );
+
+    if (!result.rows[0] || !result.rows[0].avatar) {
+      return res.status(204).end();
+    }
+
+    res.set('Content-Type', 'image/png');
+    res.send(result.rows[0].avatar);
+  } catch (err) {
+    console.error('Error fetching avatar:', err);
+    res.status(500).json({ error: 'Failed to fetch avatar' });
+  }
+});
+
 // Initialize database schema
 async function initDatabase() {
   try {
+    // Create user_profiles table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS user_profiles (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL UNIQUE,
+        username TEXT NOT NULL,
+        bio TEXT,
+        avatar BYTEA,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Mark table as private for staging
+    await pool.query(`
+      COMMENT ON TABLE user_profiles IS 'staging:private'
+    `).catch(() => {
+      // Ignore if comment already exists
+    });
+
     // Create a basic example table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS app_state (
@@ -174,6 +308,16 @@ async function initDatabase() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    // Seed staging data if in staging environment
+    if (process.env.USERNODE_ENV === 'staging') {
+      await pool.query(`
+        INSERT INTO user_profiles (user_id, username, bio)
+        VALUES ('staging-demo-user', 'staging-demo-user', 'Staging demo user bio')
+        ON CONFLICT (user_id) DO NOTHING
+      `);
+    }
+
     console.log('Database initialized');
   } catch (err) {
     console.error('Database initialization error:', err);
