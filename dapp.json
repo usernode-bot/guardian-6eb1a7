@@ -126,6 +126,41 @@
       "name": "Health check endpoint works",
       "path": "/health",
       "expectText": "ok"
+    },
+    {
+      "name": "Group Info page displays group name",
+      "path": "/#/group/group_1/info",
+      "expectText": "Seeker Club"
+    },
+    {
+      "name": "Group Info page displays member count",
+      "path": "/#/group/group_1/info",
+      "expectText": "Members"
+    },
+    {
+      "name": "Group Info page shows edit buttons",
+      "path": "/#/group/group_1/info",
+      "expectSelector": ".detail-edit-button"
+    },
+    {
+      "name": "Group Info page displays leave button",
+      "path": "/#/group/group_1/info",
+      "expectSelector": ".leave-group-button"
+    },
+    {
+      "name": "Add Members page loads",
+      "path": "/#/group/group_1/add-members",
+      "expectText": "Add Members"
+    },
+    {
+      "name": "Add Members page shows search input",
+      "path": "/#/group/group_1/add-members",
+      "expectSelector": "#search-members-add"
+    },
+    {
+      "name": "Add Members page displays available users",
+      "path": "/#/group/group_1/add-members",
+      "expectSelector": ".suggested-user-item"
     }
   ]
 }
