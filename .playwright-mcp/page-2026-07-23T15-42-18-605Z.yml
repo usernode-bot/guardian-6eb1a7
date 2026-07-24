@@ -1,0 +1,66 @@
+- generic [ref=e2]:
+  - generic [ref=e268]:
+    - generic [ref=e269]:
+      - button "Back to messages" [ref=e270] [cursor=pointer]: ←
+      - heading "New Message" [level=1] [ref=e271]
+    - textbox "🔍 Search wallet, username" [ref=e273]
+    - generic [ref=e274] [cursor=pointer]:
+      - generic [ref=e275]: 👥
+      - generic [ref=e276]: Create Group
+      - generic [ref=e277]: ">"
+    - generic [ref=e278]:
+      - generic [ref=e279]: Suggested Users
+      - generic [ref=e280]:
+        - generic [ref=e281] [cursor=pointer]:
+          - generic [ref=e282]: AN
+          - generic [ref=e283]:
+            - generic [ref=e284]: aksaranft
+            - generic [ref=e285]: aksaranft.node
+        - generic [ref=e286] [cursor=pointer]:
+          - generic [ref=e287]: CS
+          - generic [ref=e288]:
+            - generic [ref=e289]: cryptosmith
+            - generic [ref=e290]: smith.crypto
+        - generic [ref=e291] [cursor=pointer]:
+          - generic [ref=e292]: NA
+          - generic [ref=e293]:
+            - generic [ref=e294]: nodeart
+            - generic [ref=e295]: art.node
+        - generic [ref=e296] [cursor=pointer]:
+          - generic [ref=e297]: VM
+          - generic [ref=e298]:
+            - generic [ref=e299]: vibemaster
+            - generic [ref=e300]: vibe.eth
+        - generic [ref=e301] [cursor=pointer]:
+          - generic [ref=e302]: CW
+          - generic [ref=e303]:
+            - generic [ref=e304]: chainwizard
+            - generic [ref=e305]: wizard.node
+        - generic [ref=e306] [cursor=pointer]:
+          - generic [ref=e307]: NC
+          - generic [ref=e308]:
+            - generic [ref=e309]: nftcollector
+            - generic [ref=e310]: collector.crypto
+        - generic [ref=e311] [cursor=pointer]:
+          - generic [ref=e312]: WB
+          - generic [ref=e313]:
+            - generic [ref=e314]: webbuilder
+            - generic [ref=e315]: web.node
+        - generic [ref=e316] [cursor=pointer]:
+          - generic [ref=e317]: DP
+          - generic [ref=e318]:
+            - generic [ref=e319]: designpro
+            - generic [ref=e320]: design.eth
+  - navigation [ref=e53]:
+    - button "💬 Messages" [ref=e54] [cursor=pointer]:
+      - generic [ref=e55]: 💬
+      - generic [ref=e56]: Messages
+    - button "➕ Create" [ref=e57] [cursor=pointer]:
+      - generic [ref=e58]: ➕
+      - generic [ref=e59]: Create
+    - button "🧭 Discover" [ref=e60] [cursor=pointer]:
+      - generic [ref=e61]: 🧭
+      - generic [ref=e62]: Discover
+    - button "👤 Profile" [ref=e63] [cursor=pointer]:
+      - generic [ref=e64]: 👤
+      - generic [ref=e65]: Profile

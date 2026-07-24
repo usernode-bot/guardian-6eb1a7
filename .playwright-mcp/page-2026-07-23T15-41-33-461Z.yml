@@ -1,0 +1,63 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - heading "Messages" [level=1] [ref=e6]
+      - generic [ref=e7] [cursor=pointer]: 🔍
+    - generic [ref=e8]:
+      - generic [ref=e9]:
+        - generic [ref=e10]: AC
+        - generic [ref=e11]:
+          - generic [ref=e12]:
+            - generic [ref=e13]: Alice Chen
+            - generic [ref=e14]: 2m
+          - paragraph [ref=e15]: That sounds great! Let's meet up soon.
+        - generic [ref=e16]: "2"
+      - generic [ref=e17]:
+        - generic [ref=e18]: BW
+        - generic [ref=e19]:
+          - generic [ref=e20]:
+            - generic [ref=e21]: Bob Wilson
+            - generic [ref=e22]: 1h
+          - paragraph [ref=e23]: Did you see the latest updates?
+      - generic [ref=e24]:
+        - generic [ref=e25]: CD
+        - generic [ref=e26]:
+          - generic [ref=e27]:
+            - generic [ref=e28]: Carol Davis
+            - generic [ref=e29]: Yesterday
+          - paragraph [ref=e30]: Thanks for the help yesterday!
+        - generic [ref=e31]: "1"
+      - generic [ref=e32]:
+        - generic [ref=e33]: DL
+        - generic [ref=e34]:
+          - generic [ref=e35]:
+            - generic [ref=e36]: David Lee
+            - generic [ref=e37]: 2d
+          - paragraph [ref=e38]: Looking forward to the event next week
+      - generic [ref=e39]:
+        - generic [ref=e40]: SC
+        - generic [ref=e41]:
+          - generic [ref=e42]:
+            - generic [ref=e43]: Seeker Club
+            - generic [ref=e44]: 5m
+          - paragraph [ref=e45]: Let's catch up soon!
+      - generic [ref=e46]:
+        - generic [ref=e47]: DT
+        - generic [ref=e48]:
+          - generic [ref=e49]:
+            - generic [ref=e50]: Design Team
+            - generic [ref=e51]: 25m
+          - paragraph [ref=e52]: Thanks! Reviewing now
+  - navigation [ref=e53]:
+    - button "💬 Messages" [ref=e54] [cursor=pointer]:
+      - generic [ref=e55]: 💬
+      - generic [ref=e56]: Messages
+    - button "➕ Create" [ref=e57] [cursor=pointer]:
+      - generic [ref=e58]: ➕
+      - generic [ref=e59]: Create
+    - button "🧭 Discover" [ref=e60] [cursor=pointer]:
+      - generic [ref=e61]: 🧭
+      - generic [ref=e62]: Discover
+    - button "👤 Profile" [ref=e63] [cursor=pointer]:
+      - generic [ref=e64]: 👤
+      - generic [ref=e65]: Profile

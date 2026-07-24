@@ -23,9 +23,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const navTabs = document.querySelectorAll('.nav-tab');
 
   // Dummy conversations data with messages
-  const conversations = [
+  let conversations = [
     {
       id: 'conv_1',
+      type: 'direct',
       username: 'Alice Chen',
       avatar: 'AC',
       lastMessage: 'That sounds great! Let\'s meet up soon.',
@@ -43,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
     },
     {
       id: 'conv_2',
+      type: 'direct',
       username: 'Bob Wilson',
       avatar: 'BW',
       lastMessage: 'Did you see the latest updates?',
@@ -57,6 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
     },
     {
       id: 'conv_3',
+      type: 'direct',
       username: 'Carol Davis',
       avatar: 'CD',
       lastMessage: 'Thanks for the help yesterday!',
@@ -73,6 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
     },
     {
       id: 'conv_4',
+      type: 'direct',
       username: 'David Lee',
       avatar: 'DL',
       lastMessage: 'Looking forward to the event next week',
@@ -100,11 +104,12 @@ document.addEventListener('DOMContentLoaded', () => {
   ];
 
   // Dummy groups data with messages
-  const groups = [
+  let groups = [
     {
       id: 'group_1',
       name: 'Seeker Club',
       avatar: 'SC',
+      description: 'A community of seekers and explorers',
       memberCount: 128,
       members: [
         { id: 'user_self', username: 'You' },
@@ -120,8 +125,105 @@ document.addEventListener('DOMContentLoaded', () => {
         { id: 'msg_5', senderId: 'user_alice', senderName: 'Alice', text: 'Let\'s catch up soon!', timestamp: Date.now() - 6*60*1000, isOutgoing: false },
         { id: 'msg_6', senderId: 'user_self', text: 'Absolutely! Looking forward to it.', timestamp: Date.now() - 5*60*1000, isOutgoing: true }
       ]
+    },
+    {
+      id: 'group_2',
+      name: 'Design Team',
+      avatar: 'DT',
+      description: 'Collaborate on visual designs and UI/UX',
+      memberCount: 3,
+      members: [
+        { id: 'user_self', username: 'You' },
+        { id: 'user_1', username: 'aksaranft' },
+        { id: 'user_8', username: 'designpro' }
+      ],
+      messages: [
+        { id: 'msg_1', senderId: 'user_8', senderName: 'designpro', text: 'Just posted the new mockups', timestamp: Date.now() - 30*60*1000, isOutgoing: false },
+        { id: 'msg_2', senderId: 'user_self', text: 'Thanks! Reviewing now', timestamp: Date.now() - 25*60*1000, isOutgoing: true }
+      ]
     }
   ];
+
+  // Add group conversations to the conversations list
+  conversations = conversations.concat([
+    {
+      id: 'conv_group_1',
+      type: 'group',
+      groupId: 'group_1',
+      name: 'Seeker Club',
+      avatar: 'SC',
+      lastMessage: 'Let\'s catch up soon!',
+      timestamp: Date.now() - 5*60*1000,
+      unreadCount: 0
+    },
+    {
+      id: 'conv_group_2',
+      type: 'group',
+      groupId: 'group_2',
+      name: 'Design Team',
+      avatar: 'DT',
+      lastMessage: 'Thanks! Reviewing now',
+      timestamp: Date.now() - 25*60*1000,
+      unreadCount: 0
+    }
+  ]);
+
+  // Helper: generate unique group ID
+  function generateGroupId() {
+    return 'group_' + Date.now();
+  }
+
+  // Helper: generate default avatar from first letter of group name
+  function generateDefaultAvatar(groupName) {
+    if (!groupName || groupName.length === 0) return '';
+    return groupName.charAt(0).toUpperCase();
+  }
+
+  // Helper: create a new group and associated conversation
+  function createGroup(groupName, groupDescription, selectedMembers, avatarData) {
+    const groupId = generateGroupId();
+    const timestamp = Date.now();
+    const avatarValue = avatarData || generateDefaultAvatar(groupName);
+
+    const newGroup = {
+      id: groupId,
+      name: groupName,
+      description: groupDescription,
+      avatar: avatarValue,
+      memberCount: selectedMembers.length + 1, // +1 for the user
+      members: [{ id: 'user_self', username: 'You' }, ...selectedMembers],
+      createdAt: timestamp,
+      messages: [
+        {
+          id: 'msg_' + timestamp,
+          senderId: 'system',
+          senderName: 'System',
+          text: 'Group created.',
+          timestamp: timestamp,
+          isOutgoing: false,
+          isSystemMessage: true
+        }
+      ]
+    };
+
+    groups.push(newGroup);
+
+    const newConversation = {
+      id: 'conv_' + groupId,
+      type: 'group',
+      groupId: groupId,
+      name: groupName,
+      avatar: avatarValue,
+      lastMessage: 'Group created.',
+      timestamp: timestamp,
+      unreadCount: 0
+    };
+
+    conversations.unshift(newConversation);
+
+    console.log('Group created:', newGroup);
+    return groupId;
+  }
 
   // Format relative timestamp for conversation list
   function formatTimestamp(timestamp) {
@@ -160,19 +262,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Render messages page with conversation list
   function renderMessagesPage() {
-    const conversationsList = conversations.map(conv => `
-      <div class="conversation-item" data-conversation-id="${conv.id}">
-        <div class="conversation-avatar">${conv.avatar}</div>
-        <div class="conversation-content">
-          <div class="conversation-header">
-            <span class="conversation-username">${conv.username}</span>
-            <span class="conversation-timestamp">${formatTimestamp(conv.timestamp)}</span>
+    const conversationsList = conversations.map(conv => {
+      const displayName = conv.type === 'group' ? conv.name : conv.username;
+      const routeHash = conv.type === 'group' ? `/group/${conv.groupId}` : `/conversation/${conv.id}`;
+
+      return `
+        <div class="conversation-item" data-conversation-id="${conv.id}" data-route-hash="${routeHash}">
+          <div class="conversation-avatar">${conv.avatar}</div>
+          <div class="conversation-content">
+            <div class="conversation-header">
+              <span class="conversation-username">${displayName}</span>
+              <span class="conversation-timestamp">${formatTimestamp(conv.timestamp)}</span>
+            </div>
+            <p class="conversation-message">${conv.lastMessage}</p>
           </div>
-          <p class="conversation-message">${conv.lastMessage}</p>
+          ${conv.unreadCount > 0 ? `<div class="unread-badge">${conv.unreadCount}</div>` : ''}
         </div>
-        ${conv.unreadCount > 0 ? `<div class="unread-badge">${conv.unreadCount}</div>` : ''}
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     pageContainer.innerHTML = `
       <div class="messages-page">
@@ -189,8 +296,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Add click handlers for conversation items
     document.querySelectorAll('.conversation-item').forEach(item => {
       item.addEventListener('click', () => {
-        const convId = item.dataset.conversationId;
-        window.location.hash = `/conversation/${convId}`;
+        const routeHash = item.dataset.routeHash;
+        window.location.hash = routeHash;
       });
     });
   }
@@ -751,7 +858,10 @@ document.addEventListener('DOMContentLoaded', () => {
       groupName: '',
       groupDescription: '',
       selectedMembers: [],
-      searchQuery: ''
+      searchQuery: '',
+      avatarFile: null,
+      avatarPreview: null,
+      validationError: ''
     };
 
     const usersList = suggestedUsers.map(user => `
@@ -772,18 +882,22 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
 
         <div class="group-avatar-section">
-          <div class="avatar-placeholder">
+          <div class="avatar-placeholder" id="avatar-placeholder">
             <div class="avatar-placeholder-text">+ Add Photo</div>
           </div>
+          <input type="file" id="avatar-file-input" accept="image/*" style="display: none;" />
         </div>
 
         <div class="form-section">
-          <input type="text" class="form-input" placeholder="Group name" id="group-name-input" />
-          <input type="text" class="form-input" placeholder="Add a description (optional)" id="group-description-input" />
+          <div>
+            <input type="text" class="form-input" placeholder="Group name" id="group-name-input" maxlength="50" />
+            <div class="validation-error" id="name-error"></div>
+          </div>
+          <input type="text" class="form-input" placeholder="Add a description (optional)" id="group-description-input" maxlength="250" />
         </div>
 
         <div class="form-section">
-          <input type="text" class="form-input" placeholder="🔍 Search wallet, username or domain" id="search-members-input" />
+          <input type="text" class="form-input" placeholder="🔍 Search username" id="search-members-input" />
         </div>
 
         <div class="members-chips-container" id="members-chips-container"></div>
@@ -795,6 +909,8 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
         </div>
 
+        <div class="validation-error" id="members-error"></div>
+
         <button class="create-group-button" id="create-group-button">Create Group</button>
       </div>
     `;
@@ -804,10 +920,32 @@ document.addEventListener('DOMContentLoaded', () => {
     const groupNameInput = document.getElementById('group-name-input');
     const groupDescriptionInput = document.getElementById('group-description-input');
     const searchMembersInput = document.getElementById('search-members-input');
-    const avatarPlaceholder = document.querySelector('.avatar-placeholder');
+    const avatarPlaceholder = document.getElementById('avatar-placeholder');
+    const avatarFileInput = document.getElementById('avatar-file-input');
     const suggestedUsersList = document.getElementById('suggested-users-list');
     const membersChipsContainer = document.getElementById('members-chips-container');
     const createGroupButton = document.getElementById('create-group-button');
+    const nameError = document.getElementById('name-error');
+    const membersError = document.getElementById('members-error');
+
+    // Helper function to update avatar display
+    function updateAvatarDisplay() {
+      if (state.avatarPreview) {
+        const img = document.createElement('img');
+        img.src = state.avatarPreview;
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.borderRadius = '50%';
+        img.style.objectFit = 'cover';
+        avatarPlaceholder.innerHTML = '';
+        avatarPlaceholder.appendChild(img);
+      } else if (state.groupName.trim()) {
+        const initials = generateDefaultAvatar(state.groupName);
+        avatarPlaceholder.innerHTML = `<div style="font-size: 48px; color: #fff; font-weight: 600;">${initials}</div>`;
+      } else {
+        avatarPlaceholder.innerHTML = '<div class="avatar-placeholder-text">+ Add Photo</div>';
+      }
+    }
 
     // Helper function to check if button should be disabled
     function updateButtonState() {
@@ -840,6 +978,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       renderMemberChips();
       updateButtonState();
+      membersError.innerHTML = '';
     }
 
     // Helper function to render member chips
@@ -870,30 +1009,80 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
+    // Helper function to filter and display users based on search
+    function filterAndDisplayUsers() {
+      const query = state.searchQuery.toLowerCase();
+      const filteredUsers = query === ''
+        ? suggestedUsers
+        : suggestedUsers.filter(user =>
+            user.username.toLowerCase().includes(query) ||
+            user.domain.toLowerCase().includes(query)
+          );
+
+      const usersList = filteredUsers.map(user => `
+        <div class="suggested-user-item" data-user-id="${user.id}">
+          <div class="user-avatar">${user.avatar}</div>
+          <div class="user-content">
+            <div class="user-username">${user.username}</div>
+            <div class="user-domain">${user.domain}</div>
+          </div>
+        </div>
+      `).join('');
+
+      suggestedUsersList.innerHTML = usersList;
+
+      // Re-attach event listeners
+      document.querySelectorAll('.suggested-user-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const userId = item.dataset.userId;
+          toggleUser(userId);
+        });
+      });
+    }
+
     // Back button handler
     backButton.addEventListener('click', () => {
       window.location.hash = '/create';
     });
 
+    // Avatar placeholder handler - opens file picker
+    avatarPlaceholder.addEventListener('click', () => {
+      avatarFileInput.click();
+    });
+
+    // Avatar file input handler
+    avatarFileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          state.avatarFile = file;
+          state.avatarPreview = event.target.result;
+          updateAvatarDisplay();
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
     // Group name input handler
     groupNameInput.addEventListener('input', (e) => {
-      state.groupName = e.target.value;
+      state.groupName = e.target.value.substring(0, 50);
+      e.target.value = state.groupName;
+      updateAvatarDisplay();
       updateButtonState();
+      nameError.innerHTML = '';
     });
 
     // Group description input handler
     groupDescriptionInput.addEventListener('input', (e) => {
-      state.groupDescription = e.target.value;
+      state.groupDescription = e.target.value.substring(0, 250);
+      e.target.value = state.groupDescription;
     });
 
     // Search members input handler
     searchMembersInput.addEventListener('input', (e) => {
       state.searchQuery = e.target.value;
-    });
-
-    // Avatar placeholder handler
-    avatarPlaceholder.addEventListener('click', () => {
-      console.log('Avatar tapped');
+      filterAndDisplayUsers();
     });
 
     // Suggested user item handlers
@@ -906,12 +1095,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Create Group button handler
     createGroupButton.addEventListener('click', () => {
-      if (!createGroupButton.disabled) {
-        console.log('Group creation initiated');
-        console.log('Group name:', state.groupName);
-        console.log('Group description:', state.groupDescription);
-        console.log('Selected members:', state.selectedMembers);
+      nameError.innerHTML = '';
+      membersError.innerHTML = '';
+
+      // Validate group name
+      if (!state.groupName.trim()) {
+        nameError.innerHTML = 'Group name is required.';
+        return;
       }
+
+      // Validate members
+      if (state.selectedMembers.length < 2) {
+        membersError.innerHTML = 'Select at least 2 members.';
+        return;
+      }
+
+      // Create the group
+      const groupId = createGroup(
+        state.groupName,
+        state.groupDescription,
+        state.selectedMembers,
+        state.avatarPreview
+      );
+
+      // Navigate to the new group chat
+      window.location.hash = `/group/${groupId}`;
     });
 
     // Initialize button state

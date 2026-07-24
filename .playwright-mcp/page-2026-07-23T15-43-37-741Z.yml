@@ -1,0 +1,53 @@
+- generic [ref=f1e66]:
+  - generic [ref=f1e67]:
+    - button "Back to new message" [ref=f1e68] [cursor=pointer]: ←
+    - heading "Create Group" [level=1] [ref=f1e69]
+  - generic [ref=f1e70]: + Add Photo
+  - generic [ref=f1e73]:
+    - textbox "Group name" [ref=f1e75]
+    - textbox "Add a description (optional)" [ref=f1e77]
+  - textbox "🔍 Search username" [ref=f1e79]
+  - generic [ref=f1e81]:
+    - generic [ref=f1e82]: Suggested Users
+    - generic [ref=f1e83]:
+      - generic [ref=f1e84] [cursor=pointer]:
+        - generic [ref=f1e85]: AN
+        - generic [ref=f1e86]:
+          - generic [ref=f1e87]: aksaranft
+          - generic [ref=f1e88]: aksaranft.node
+      - generic [ref=f1e89] [cursor=pointer]:
+        - generic [ref=f1e90]: CS
+        - generic [ref=f1e91]:
+          - generic [ref=f1e92]: cryptosmith
+          - generic [ref=f1e93]: smith.crypto
+      - generic [ref=f1e94] [cursor=pointer]:
+        - generic [ref=f1e95]: NA
+        - generic [ref=f1e96]:
+          - generic [ref=f1e97]: nodeart
+          - generic [ref=f1e98]: art.node
+      - generic [ref=f1e99] [cursor=pointer]:
+        - generic [ref=f1e100]: VM
+        - generic [ref=f1e101]:
+          - generic [ref=f1e102]: vibemaster
+          - generic [ref=f1e103]: vibe.eth
+      - generic [ref=f1e104] [cursor=pointer]:
+        - generic [ref=f1e105]: CW
+        - generic [ref=f1e106]:
+          - generic [ref=f1e107]: chainwizard
+          - generic [ref=f1e108]: wizard.node
+      - generic [ref=f1e109] [cursor=pointer]:
+        - generic [ref=f1e110]: NC
+        - generic [ref=f1e111]:
+          - generic [ref=f1e112]: nftcollector
+          - generic [ref=f1e113]: collector.crypto
+      - generic [ref=f1e114] [cursor=pointer]:
+        - generic [ref=f1e115]: WB
+        - generic [ref=f1e116]:
+          - generic [ref=f1e117]: webbuilder
+          - generic [ref=f1e118]: web.node
+      - generic [ref=f1e119] [cursor=pointer]:
+        - generic [ref=f1e120]: DP
+        - generic [ref=f1e121]:
+          - generic [ref=f1e122]: designpro
+          - generic [ref=f1e123]: design.eth
+  - button "Create Group" [disabled] [ref=f1e125]
