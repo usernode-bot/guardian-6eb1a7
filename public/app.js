@@ -3336,6 +3336,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Render a placeholder page
+  // Initialize discover page state
+  window.discoverActiveTab = 'all';
+  window.discoverActiveCategory = 'all';
+  window.discoverSearchQuery = '';
+
   // Discover Communities - Helper Functions
   function filterCommunitiesByType(communities, type) {
     if (type === 'all') return communities;
