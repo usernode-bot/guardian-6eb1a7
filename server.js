@@ -228,6 +228,25 @@ app.delete('/api/conversations/:conversationId', async (req, res) => {
   }
 });
 
+// Mark messages in a conversation as read
+app.post('/api/conversations/:conversationId/mark-as-read', async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const userId = req.user.id;
+
+    // Clear unread count for this conversation
+    await pool.query(
+      'UPDATE conversations SET unread_count = 0 WHERE id = $1 AND user_id = $2',
+      [conversationId, userId]
+    );
+
+    res.json({ message: 'Conversation marked as read' });
+  } catch (err) {
+    console.error('Error marking conversation as read:', err);
+    res.status(500).json({ error: 'Failed to mark conversation as read' });
+  }
+});
+
 // Initialize database schema
 async function initDatabase() {
   try {

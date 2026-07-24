@@ -10,6 +10,9 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('usernode-token', token);
   }
 
+  // Notification popup state
+  let activeNotification = null;
+
   // Page definitions
   const pages = {
     messages: { title: 'Messages', name: 'Messages' },
@@ -225,6 +228,49 @@ document.addEventListener('DOMContentLoaded', () => {
     return groupId;
   }
 
+  // Notification popup functions
+  function showNotification(message, conversationId) {
+    // Dismiss any existing notification
+    if (activeNotification) {
+      dismissNotification();
+    }
+
+    const notification = document.createElement('div');
+    notification.className = 'notification-popup';
+    notification.innerHTML = `
+      <div class="notification-content">
+        <span class="notification-icon">🔔</span>
+        <span class="notification-text">${message}</span>
+        <button class="notification-close" aria-label="Dismiss">✕</button>
+      </div>
+    `;
+
+    document.body.appendChild(notification);
+    activeNotification = {
+      element: notification,
+      conversationId: conversationId,
+      timeout: setTimeout(() => {
+        dismissNotification();
+      }, 5000) // Auto-dismiss after 5 seconds
+    };
+
+    // Add close button handler
+    notification.querySelector('.notification-close').addEventListener('click', dismissNotification);
+  }
+
+  function dismissNotification() {
+    if (activeNotification) {
+      clearTimeout(activeNotification.timeout);
+      activeNotification.element.classList.add('dismissing');
+      setTimeout(() => {
+        if (activeNotification && activeNotification.element.parentNode) {
+          activeNotification.element.parentNode.removeChild(activeNotification.element);
+        }
+        activeNotification = null;
+      }, 300);
+    }
+  }
+
   // Format relative timestamp for conversation list
   function formatTimestamp(timestamp) {
     const now = Date.now();
@@ -326,6 +372,15 @@ document.addEventListener('DOMContentLoaded', () => {
     return '?';
   }
 
+  // Show notification for the most recent unread conversation
+  function showUnreadNotification() {
+    const unreadConv = conversations.find(c => c.unreadCount > 0);
+    if (unreadConv) {
+      const displayName = unreadConv.type === 'group' ? unreadConv.name : unreadConv.username;
+      showNotification(`New message from ${displayName}`, unreadConv.id);
+    }
+  }
+
   // Render messages page with five tabs
   function renderMessagesPage() {
     pageContainer.innerHTML = `
@@ -387,6 +442,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Load and render conversations for active tab
     renderConversationsList('all');
+
+    // Show notification for unread messages
+    showUnreadNotification();
   }
 
   // Render conversations list for a specific tab
@@ -533,6 +591,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!conversation) {
       renderPage('messages');
       return;
+    }
+
+    // Mark messages as read and dismiss notification
+    dismissNotification();
+    if (conversation.unreadCount > 0) {
+      conversation.unreadCount = 0; // Clear unread count locally
+      // Call API to mark as read (fire and forget)
+      fetch(`/api/conversations/${conversationId}/mark-as-read`, {
+        method: 'POST',
+        headers: { 'x-usernode-token': localStorage.getItem('usernode-token') }
+      }).catch(err => console.error('Error marking as read:', err));
     }
 
     const messagesList = conversation.messages.map(msg => {
