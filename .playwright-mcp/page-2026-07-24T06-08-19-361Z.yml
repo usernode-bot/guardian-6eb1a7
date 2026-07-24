@@ -1,0 +1,27 @@
+- generic [ref=e95]:
+  - generic [ref=e96]:
+    - heading "Messages" [level=1] [ref=e97]
+    - generic [ref=e98] [cursor=pointer]: 🔍
+  - generic [ref=e99]:
+    - button "All" [ref=e100] [cursor=pointer]
+    - button "DM" [ref=e101] [cursor=pointer]
+    - button "Groups" [ref=e102] [cursor=pointer]
+    - button "Channels" [ref=e103] [cursor=pointer]
+    - button "Requests 2" [ref=e104] [cursor=pointer]:
+      - text: Requests
+      - generic [ref=e105]: "2"
+  - generic [ref=e106]:
+    - generic [ref=e108]:
+      - generic [ref=e109]: SI
+      - generic [ref=e110]:
+        - generic [ref=e111]:
+          - generic [ref=e112]: undefined
+          - generic [ref=e113]: 2m
+        - paragraph [ref=e114]: Mainnet Beta is Live 🚀 Exciting times ahead as we launch the next phase of development!
+    - generic [ref=e116]:
+      - generic [ref=e117]: WB
+      - generic [ref=e118]:
+        - generic [ref=e119]:
+          - generic [ref=e120]: undefined
+          - generic [ref=e121]: 1h
+        - paragraph [ref=e122]: Welcome to Web3 Builders! 👨‍💻 This is a space to share projects, learn together, and build the future of web3.

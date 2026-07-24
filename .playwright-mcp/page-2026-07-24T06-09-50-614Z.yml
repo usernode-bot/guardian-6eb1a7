@@ -1,0 +1,29 @@
+- generic [ref=e315]:
+  - generic [ref=e316]:
+    - button "Back to messages" [ref=e317] [cursor=pointer]: ←
+    - generic [ref=e318] [cursor=pointer]:
+      - generic [ref=e319]: SI
+      - generic [ref=e320]:
+        - generic [ref=e321]: Solana Indonesia
+        - generic [ref=e322]: 12,500 Followers
+    - button "More options" [ref=e323] [cursor=pointer]: ⋮
+  - generic [ref=e324]:
+    - generic [ref=e325]:
+      - generic [ref=e326]: 6:05 AM
+      - generic [ref=e327]: Mainnet Beta is Live 🚀 Exciting times ahead as we launch the next phase of development!
+      - generic [ref=e328]:
+        - button "❤️ 3" [ref=e329] [cursor=pointer]:
+          - generic [ref=e330]: ❤️
+          - generic [ref=e331]: "3"
+        - button "🔁" [ref=e332] [cursor=pointer]
+        - button "⋯" [ref=e334] [cursor=pointer]
+    - generic [ref=e335]:
+      - generic [ref=e336]: 6:07 AM
+      - generic [ref=e337]: "Monthly Update: Progress Report We've completed major milestones this month. Check the roadmap for details."
+      - generic [ref=e338]:
+        - button "❤️ 1" [ref=e339] [cursor=pointer]:
+          - generic [ref=e340]: ❤️
+          - generic [ref=e341]: "1"
+        - button "🔁" [ref=e342] [cursor=pointer]
+        - button "⋯" [ref=e344] [cursor=pointer]
+  - button "✓ Following" [ref=e347] [cursor=pointer]

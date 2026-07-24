@@ -474,8 +474,17 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
         `;
       } else {
-        const displayName = item.type === 'group' ? item.name : item.username;
-        const routeHash = item.type === 'group' ? `/group/${item.groupId}` : `/conversation/${item.id}`;
+        let displayName, routeHash;
+        if (item.type === 'group') {
+          displayName = item.name;
+          routeHash = `/group/${item.groupId}`;
+        } else if (item.type === 'channel') {
+          displayName = item.name;
+          routeHash = `/channel/${item.channelId}`;
+        } else {
+          displayName = item.username;
+          routeHash = `/conversation/${item.id}`;
+        }
 
         return `
           <div class="swipe-container" data-conversation-id="${item.id}">
