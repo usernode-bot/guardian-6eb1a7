@@ -924,7 +924,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const reader = new FileReader();
       reader.onload = async (event) => {
-        const base64 = event.target.result;
+        const base64DataUrl = event.target.result;
 
         try {
           const response = await fetch('/api/profile/avatar', {
@@ -933,14 +933,16 @@ document.addEventListener('DOMContentLoaded', () => {
               'content-type': 'application/json',
               'x-usernode-token': localStorage.getItem('usernode-token')
             },
-            body: JSON.stringify({ avatar: base64 })
+            body: JSON.stringify({ avatar: base64DataUrl })
           });
 
           if (!response.ok) {
             throw new Error('Failed to update avatar');
           }
 
-          currentUserProfile.avatar = base64.includes('data:') ? base64 : null;
+          // Extract just the base64 part from the data URL for storage
+          const base64Part = base64DataUrl.includes(',') ? base64DataUrl.split(',')[1] : base64DataUrl;
+          currentUserProfile.avatar = base64Part;
           updateProfileCache(currentUserProfile);
 
           overlay.remove();
@@ -983,12 +985,10 @@ document.addEventListener('DOMContentLoaded', () => {
               }
             });
             if (avatarResponse.ok) {
-              const avatarBlob = await avatarResponse.blob();
-              const reader = new FileReader();
-              reader.onload = (e) => {
-                currentUserProfile.avatar = e.target.result.split(',')[1];
-              };
-              reader.readAsDataURL(avatarBlob);
+              const avatarData = await avatarResponse.json();
+              if (avatarData.avatar) {
+                currentUserProfile.avatar = avatarData.avatar;
+              }
             }
           } catch (err) {
             console.error('Failed to fetch avatar:', err);

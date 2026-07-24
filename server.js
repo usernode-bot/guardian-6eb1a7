@@ -254,7 +254,7 @@ app.put('/api/profile/avatar', async (req, res) => {
   }
 });
 
-// GET /api/profile/avatar - Fetch current user's avatar image
+// GET /api/profile/avatar - Fetch current user's avatar as base64
 app.get('/api/profile/avatar', async (req, res) => {
   try {
     const userId = req.user.id || req.user.username;
@@ -267,8 +267,9 @@ app.get('/api/profile/avatar', async (req, res) => {
       return res.status(204).end();
     }
 
-    res.set('Content-Type', 'image/png');
-    res.send(result.rows[0].avatar);
+    const avatarBuffer = result.rows[0].avatar;
+    const base64Avatar = avatarBuffer.toString('base64');
+    res.json({ avatar: base64Avatar });
   } catch (err) {
     console.error('Error fetching avatar:', err);
     res.status(500).json({ error: 'Failed to fetch avatar' });
