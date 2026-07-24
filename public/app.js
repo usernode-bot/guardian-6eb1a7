@@ -242,6 +242,31 @@ document.addEventListener('DOMContentLoaded', () => {
         { id: 'msg_tp1', senderId: 'user_bob', senderName: 'Bob', text: 'Draft goals for next quarter', timestamp: Date.now() - 8*24*60*60*1000, isOutgoing: false },
         { id: 'msg_tp2', senderId: 'user_charlie', senderName: 'Charlie', text: 'I think we should focus on performance', timestamp: Date.now() - 7*24*60*60*1000, isOutgoing: false }
       ]
+    },
+    {
+      id: 'channel_4',
+      name: 'My Private Channel',
+      description: 'A channel I created and manage',
+      avatar: 'MPC',
+      visibility: 'private',
+      createdAt: Date.now() - 5*24*60*60*1000,
+      creatorId: 'user_self',
+      memberCount: 3,
+      currentUserIsMember: true,
+      currentUserIsAdmin: true,
+      currentUserCanSend: true,
+      members: [
+        { id: 'user_self', username: 'You', role: 'admin', avatar: 'Y' },
+        { id: 'user_bob', username: 'Bob', role: 'member', avatar: 'B' },
+        { id: 'user_charlie', username: 'Charlie', role: 'member', avatar: 'C' }
+      ],
+      messages: [
+        { id: 'msg_mpc1', senderId: 'user_self', text: 'Channel created.', timestamp: Date.now() - 5*24*60*60*1000, isOutgoing: true },
+        { id: 'msg_mpc2', senderId: 'user_bob', senderName: 'Bob', text: 'Thanks for creating this!', timestamp: Date.now() - 4*24*60*60*1000, isOutgoing: false },
+        { id: 'msg_mpc3', senderId: 'user_self', text: 'Welcome! This is our collaboration space', timestamp: Date.now() - 3*24*60*60*1000, isOutgoing: true },
+        { id: 'msg_mpc4', senderId: 'user_charlie', senderName: 'Charlie', text: 'Great to be here!', timestamp: Date.now() - 2*24*60*60*1000, isOutgoing: false },
+        { id: 'msg_mpc5', senderId: 'user_self', text: 'Let\'s discuss the project plan', timestamp: Date.now() - 1*60*60*1000, isOutgoing: true }
+      ]
     }
   ];
 
@@ -249,7 +274,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let channelUnreadCounts = {
     'channel_1': 0,
     'channel_2': 3,
-    'channel_3': 0
+    'channel_3': 0,
+    'channel_4': 0
   };
 
   // Add channel conversations to the conversations list
@@ -2393,7 +2419,6 @@ document.addEventListener('DOMContentLoaded', () => {
         messageHTML += `
           <div class="message-avatar">${msg.senderName ? msg.senderName.charAt(0).toUpperCase() : ''}</div>
           <div class="message-content">
-            <div class="message-sender-name">${msg.senderName}</div>
             <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
             <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
           </div>
@@ -2405,6 +2430,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const composerDisabled = !channel.currentUserCanSend ? 'disabled' : '';
     const viewOnlyBadge = !channel.currentUserCanSend ? '<div class="view-only-badge">View only</div>' : '';
+    const composerDisplay = channel.currentUserIsAdmin ? '' : 'display: none;';
 
     pageContainer.innerHTML = `
       <div class="conversation-page">
@@ -2422,7 +2448,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="messages-container">
           ${messagesList}
         </div>
-        <div class="composer-container">
+        <div class="composer-container" style="${composerDisplay}">
           ${viewOnlyBadge}
           <div class="reply-preview-bar" style="display: none;">
             <div class="reply-preview-content">
