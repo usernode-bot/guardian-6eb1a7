@@ -597,10 +597,14 @@ document.addEventListener('DOMContentLoaded', () => {
     dismissNotification();
     if (conversation.unreadCount > 0) {
       conversation.unreadCount = 0; // Clear unread count locally
-      // Call API to mark as read (fire and forget)
+      // Call API to mark as read (fire and forget, suppress errors for dummy data)
       fetch(`/api/conversations/${conversationId}/mark-as-read`, {
         method: 'POST',
         headers: { 'x-usernode-token': localStorage.getItem('usernode-token') }
+      }).then(res => {
+        if (!res.ok && res.status !== 404) {
+          console.error('Error marking as read: HTTP', res.status);
+        }
       }).catch(err => console.error('Error marking as read:', err));
     }
 

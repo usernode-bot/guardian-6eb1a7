@@ -232,7 +232,16 @@ app.delete('/api/conversations/:conversationId', async (req, res) => {
 app.post('/api/conversations/:conversationId/mark-as-read', async (req, res) => {
   try {
     const { conversationId } = req.params;
+
+    // Check authentication
+    if (!req.user) {
+      console.warn('Unauthorized: No user in request');
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
     const userId = req.user.id;
+
+    console.log(`Marking conversation ${conversationId} as read for user ${userId}`);
 
     // Validate conversation exists and belongs to user
     const validateResult = await pool.query(
@@ -241,19 +250,22 @@ app.post('/api/conversations/:conversationId/mark-as-read', async (req, res) => 
     );
 
     if (validateResult.rows.length === 0) {
+      console.warn(`Conversation ${conversationId} not found for user ${userId}`);
       return res.status(404).json({ error: 'Conversation not found or you do not have access' });
     }
 
     // Clear unread count for this conversation
-    await pool.query(
+    const updateResult = await pool.query(
       'UPDATE conversations SET unread_count = 0 WHERE id = $1 AND user_id = $2',
       [conversationId, userId]
     );
 
+    console.log(`Successfully marked conversation ${conversationId} as read (${updateResult.rowCount} rows updated)`);
     res.json({ message: 'Conversation marked as read' });
   } catch (err) {
-    console.error('Error marking conversation as read:', err);
-    res.status(500).json({ error: 'Failed to mark conversation as read' });
+    console.error('Error marking conversation as read:', err.message);
+    console.error('Stack:', err.stack);
+    res.status(500).json({ error: 'Failed to mark conversation as read', details: err.message });
   }
 });
 
