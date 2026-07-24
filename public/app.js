@@ -119,6 +119,9 @@ document.addEventListener('DOMContentLoaded', () => {
       avatar: 'SC',
       description: 'A community of seekers and explorers',
       memberCount: 128,
+      visibility: 'public',
+      category: 'Technology',
+      isFeatured: false,
       members: [
         { id: 'user_self', username: 'You' },
         { id: 'user_alice', username: 'Alice' },
@@ -140,6 +143,9 @@ document.addEventListener('DOMContentLoaded', () => {
       avatar: 'DT',
       description: 'Collaborate on visual designs and UI/UX',
       memberCount: 3,
+      visibility: 'public',
+      category: 'Technology',
+      isFeatured: false,
       members: [
         { id: 'user_self', username: 'You' },
         { id: 'user_1', username: 'aksaranft' },
@@ -149,6 +155,117 @@ document.addEventListener('DOMContentLoaded', () => {
         { id: 'msg_1', senderId: 'user_8', senderName: 'designpro', text: 'Just posted the new mockups', timestamp: Date.now() - 30*60*1000, isOutgoing: false },
         { id: 'msg_2', senderId: 'user_self', text: 'Thanks! Reviewing now', timestamp: Date.now() - 25*60*1000, isOutgoing: true }
       ]
+    },
+    // Discover communities - public groups
+    {
+      id: 'discover_group_1',
+      name: 'Usernode Builders',
+      avatar: 'UB',
+      description: 'Connect with developers building on Usernode. Share projects, get feedback, and collaborate.',
+      memberCount: 3200,
+      visibility: 'public',
+      category: 'Technology',
+      isFeatured: true,
+      members: []
+    },
+    {
+      id: 'discover_group_2',
+      name: 'Crypto Collective',
+      avatar: 'CC',
+      description: 'Discuss cryptocurrency trends, trading strategies, and blockchain technology.',
+      memberCount: 5100,
+      visibility: 'public',
+      category: 'Crypto',
+      isFeatured: false,
+      members: []
+    },
+    {
+      id: 'discover_group_3',
+      name: 'Web3 Developers',
+      avatar: 'W3',
+      description: 'Learn Web3 development, share smart contracts, and build decentralized applications.',
+      memberCount: 2800,
+      visibility: 'public',
+      category: 'Technology',
+      isFeatured: true,
+      members: []
+    },
+    {
+      id: 'discover_group_4',
+      name: 'Gaming Guild',
+      avatar: 'GG',
+      description: 'Gamers unite! Discuss games, organize tournaments, and find teammates.',
+      memberCount: 4300,
+      visibility: 'public',
+      category: 'Gaming',
+      isFeatured: false,
+      members: []
+    },
+    {
+      id: 'discover_group_5',
+      name: 'AI Research Lab',
+      avatar: 'AR',
+      description: 'Cutting-edge AI and machine learning research, papers, and discussions.',
+      memberCount: 1900,
+      visibility: 'public',
+      category: 'AI',
+      isFeatured: false,
+      members: []
+    },
+    {
+      id: 'discover_group_6',
+      name: 'Music Producers',
+      avatar: 'MP',
+      description: 'Share beats, collaborate on tracks, and discuss music production techniques.',
+      memberCount: 890,
+      visibility: 'public',
+      category: 'Music',
+      isFeatured: false,
+      members: []
+    },
+    {
+      id: 'discover_group_7',
+      name: 'Digital Artists',
+      avatar: 'DA',
+      description: 'Showcase digital art, get feedback, and connect with fellow artists.',
+      memberCount: 2100,
+      visibility: 'public',
+      category: 'Art',
+      isFeatured: false,
+      members: []
+    },
+    {
+      id: 'discover_group_8',
+      name: 'Sports Talk',
+      avatar: 'ST',
+      description: 'Discuss sports, share highlights, and debate favorite teams.',
+      memberCount: 6200,
+      visibility: 'public',
+      category: 'Sports',
+      isFeatured: false,
+      members: []
+    },
+    {
+      id: 'discover_group_9',
+      name: 'News Hub',
+      avatar: 'NH',
+      description: 'Stay updated with the latest news and discuss current events.',
+      memberCount: 8500,
+      visibility: 'public',
+      category: 'News',
+      isFeatured: false,
+      members: []
+    },
+    {
+      id: 'discover_group_10',
+      name: 'Education Initiatives',
+      avatar: 'EI',
+      description: 'Share learning resources, discuss educational methods, and help each other learn.',
+      memberCount: 3700,
+      visibility: 'public',
+      category: 'Education',
+      isFeatured: false,
+      members: []
     }
   ];
 
@@ -188,12 +305,15 @@ document.addEventListener('DOMContentLoaded', () => {
       description: 'General discussion and announcements',
       avatar: 'G',
       visibility: 'public',
+      category: 'Technology',
       createdAt: Date.now() - 30*24*60*60*1000,
       creatorId: 'user_alice',
       memberCount: 15,
+      followerCount: 15,
       currentUserIsMember: true,
       currentUserIsAdmin: false,
       currentUserCanSend: true,
+      isFeatured: false,
       members: [
         { id: 'user_self', username: 'You', role: 'member', avatar: 'Y' },
         { id: 'user_alice', username: 'Alice', role: 'admin', avatar: 'A' },
@@ -217,12 +337,15 @@ document.addEventListener('DOMContentLoaded', () => {
       description: 'Important announcements and updates',
       avatar: 'A',
       visibility: 'public',
+      category: 'News',
       createdAt: Date.now() - 45*24*60*60*1000,
       creatorId: 'user_alice',
       memberCount: 20,
+      followerCount: 20,
       currentUserIsMember: true,
       currentUserIsAdmin: false,
       currentUserCanSend: false,
+      isFeatured: false,
       members: [
         { id: 'user_self', username: 'You', role: 'member', avatar: 'Y' },
         { id: 'user_alice', username: 'Alice', role: 'admin', avatar: 'A' }
@@ -239,12 +362,15 @@ document.addEventListener('DOMContentLoaded', () => {
       description: 'Q3 and Q4 planning discussions',
       avatar: 'TP',
       visibility: 'private',
+      category: 'Technology',
       createdAt: Date.now() - 10*24*60*60*1000,
       creatorId: 'user_bob',
       memberCount: 4,
+      followerCount: 4,
       currentUserIsMember: true,
       currentUserIsAdmin: false,
       currentUserCanSend: true,
+      isFeatured: false,
       members: [
         { id: 'user_self', username: 'You', role: 'member', avatar: 'Y' },
         { id: 'user_bob', username: 'Bob', role: 'admin', avatar: 'B' },
@@ -261,12 +387,15 @@ document.addEventListener('DOMContentLoaded', () => {
       description: 'A channel I created and manage',
       avatar: 'MPC',
       visibility: 'private',
+      category: 'Technology',
       createdAt: Date.now() - 5*24*60*60*1000,
       creatorId: 'user_self',
       memberCount: 3,
+      followerCount: 3,
       currentUserIsMember: true,
       currentUserIsAdmin: true,
       currentUserCanSend: true,
+      isFeatured: false,
       members: [
         { id: 'user_self', username: 'You', role: 'admin', avatar: 'Y' },
         { id: 'user_bob', username: 'Bob', role: 'member', avatar: 'B' },
@@ -279,6 +408,177 @@ document.addEventListener('DOMContentLoaded', () => {
         { id: 'msg_mpc4', senderId: 'user_charlie', senderName: 'Charlie', text: 'Great to be here!', timestamp: Date.now() - 2*24*60*60*1000, isOutgoing: false },
         { id: 'msg_mpc5', senderId: 'user_self', text: 'Let\'s discuss the project plan', timestamp: Date.now() - 1*60*60*1000, isOutgoing: true }
       ]
+    },
+    // Discover communities - public channels
+    {
+      id: 'discover_channel_1',
+      name: 'Solana Indonesia',
+      description: 'Indonesian community for Solana blockchain development and trading.',
+      avatar: 'SI',
+      visibility: 'public',
+      category: 'Crypto',
+      createdAt: Date.now() - 60*24*60*60*1000,
+      creatorId: 'user_unknown',
+      memberCount: 12500,
+      followerCount: 12500,
+      currentUserIsMember: false,
+      currentUserIsAdmin: false,
+      currentUserCanSend: true,
+      isFeatured: true,
+      members: []
+    },
+    {
+      id: 'discover_channel_2',
+      name: 'Bitcoin Updates',
+      description: 'Stay updated with Bitcoin news, price discussions, and analysis.',
+      avatar: 'BU',
+      visibility: 'public',
+      category: 'Crypto',
+      createdAt: Date.now() - 80*24*60*60*1000,
+      creatorId: 'user_unknown',
+      memberCount: 8300,
+      followerCount: 8300,
+      currentUserIsMember: false,
+      currentUserIsAdmin: false,
+      currentUserCanSend: true,
+      isFeatured: false,
+      members: []
+    },
+    {
+      id: 'discover_channel_3',
+      name: 'React Tips',
+      description: 'Share React best practices, tricks, and solutions.',
+      avatar: 'RT',
+      visibility: 'public',
+      category: 'Technology',
+      createdAt: Date.now() - 90*24*60*60*1000,
+      creatorId: 'user_unknown',
+      memberCount: 5200,
+      followerCount: 5200,
+      currentUserIsMember: false,
+      currentUserIsAdmin: false,
+      currentUserCanSend: true,
+      isFeatured: false,
+      members: []
+    },
+    {
+      id: 'discover_channel_4',
+      name: 'Gaming News',
+      description: 'Latest gaming news, reviews, and discussions.',
+      avatar: 'GN',
+      visibility: 'public',
+      category: 'Gaming',
+      createdAt: Date.now() - 70*24*60*60*1000,
+      creatorId: 'user_unknown',
+      memberCount: 4100,
+      followerCount: 4100,
+      currentUserIsMember: false,
+      currentUserIsAdmin: false,
+      currentUserCanSend: true,
+      isFeatured: false,
+      members: []
+    },
+    {
+      id: 'discover_channel_5',
+      name: 'AI Announcements',
+      description: 'News and announcements about AI and machine learning breakthroughs.',
+      avatar: 'AA',
+      visibility: 'public',
+      category: 'AI',
+      createdAt: Date.now() - 50*24*60*60*1000,
+      creatorId: 'user_unknown',
+      memberCount: 3600,
+      followerCount: 3600,
+      currentUserIsMember: false,
+      currentUserIsAdmin: false,
+      currentUserCanSend: false,
+      isFeatured: false,
+      members: []
+    },
+    {
+      id: 'discover_channel_6',
+      name: 'Music Production',
+      description: 'Techniques, tools, and discussions for music production.',
+      avatar: 'MP',
+      visibility: 'public',
+      category: 'Music',
+      createdAt: Date.now() - 100*24*60*60*1000,
+      creatorId: 'user_unknown',
+      memberCount: 2400,
+      followerCount: 2400,
+      currentUserIsMember: false,
+      currentUserIsAdmin: false,
+      currentUserCanSend: true,
+      isFeatured: false,
+      members: []
+    },
+    {
+      id: 'discover_channel_7',
+      name: 'Art Gallery',
+      description: 'Showcase and discuss digital and traditional art.',
+      avatar: 'AG',
+      visibility: 'public',
+      category: 'Art',
+      createdAt: Date.now() - 85*24*60*60*1000,
+      creatorId: 'user_unknown',
+      memberCount: 1800,
+      followerCount: 1800,
+      currentUserIsMember: false,
+      currentUserIsAdmin: false,
+      currentUserCanSend: true,
+      isFeatured: false,
+      members: []
+    },
+    {
+      id: 'discover_channel_8',
+      name: 'Sports Scores',
+      description: 'Live sports scores, standings, and discussions.',
+      avatar: 'SS',
+      visibility: 'public',
+      category: 'Sports',
+      createdAt: Date.now() - 110*24*60*60*1000,
+      creatorId: 'user_unknown',
+      memberCount: 9800,
+      followerCount: 9800,
+      currentUserIsMember: false,
+      currentUserIsAdmin: false,
+      currentUserCanSend: true,
+      isFeatured: false,
+      members: []
+    },
+    {
+      id: 'discover_channel_9',
+      name: 'Daily News',
+      description: 'Breaking news and current events from around the world.',
+      avatar: 'DN',
+      visibility: 'public',
+      category: 'News',
+      createdAt: Date.now() - 120*24*60*60*1000,
+      creatorId: 'user_unknown',
+      memberCount: 15200,
+      followerCount: 15200,
+      currentUserIsMember: false,
+      currentUserIsAdmin: false,
+      currentUserCanSend: false,
+      isFeatured: true,
+      members: []
+    },
+    {
+      id: 'discover_channel_10',
+      name: 'Learning Resources',
+      description: 'Educational materials, tutorials, and learning resources.',
+      avatar: 'LR',
+      visibility: 'public',
+      category: 'Education',
+      createdAt: Date.now() - 75*24*60*60*1000,
+      creatorId: 'user_unknown',
+      memberCount: 2900,
+      followerCount: 2900,
+      currentUserIsMember: false,
+      currentUserIsAdmin: false,
+      currentUserCanSend: true,
+      isFeatured: false,
+      members: []
     }
   ];
 
@@ -3036,6 +3336,372 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Render a placeholder page
+  // Discover Communities - Helper Functions
+  function filterCommunitiesByType(communities, type) {
+    if (type === 'all') return communities;
+    if (type === 'groups') return communities.filter(c => c.isGroup === true);
+    if (type === 'channels') return communities.filter(c => c.isGroup !== true);
+    return communities;
+  }
+
+  function filterCommunitiesByCategory(communities, category) {
+    if (category === 'all') return communities;
+    return communities.filter(c => c.category === category);
+  }
+
+  function searchCommunities(communities, query) {
+    if (!query.trim()) return communities;
+    const q = query.toLowerCase();
+    return communities.filter(c =>
+      c.name.toLowerCase().includes(q) ||
+      c.description.toLowerCase().includes(q)
+    );
+  }
+
+  function checkIfUserJoined(groupId) {
+    return groups.some(g => g.id === groupId && g.members.some(m => m.id === 'user_self'));
+  }
+
+  function checkIfUserFollows(channelId) {
+    return channels.some(ch => ch.id === channelId && ch.currentUserIsMember);
+  }
+
+  function joinGroup(groupId) {
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return false;
+
+    // Check if already joined
+    if (group.members.some(m => m.id === 'user_self')) return true;
+
+    // Add user to group members
+    group.members.push({ id: 'user_self', username: 'You' });
+    group.memberCount++;
+
+    // Add to conversations
+    const existingConv = conversations.find(c => c.groupId === groupId);
+    if (!existingConv) {
+      conversations.unshift({
+        id: `conv_${groupId}`,
+        type: 'group',
+        groupId: groupId,
+        name: group.name,
+        avatar: group.avatar,
+        lastMessage: 'You joined this group',
+        timestamp: Date.now(),
+        unreadCount: 0
+      });
+    }
+
+    return true;
+  }
+
+  function followChannel(channelId) {
+    const channel = channels.find(ch => ch.id === channelId);
+    if (!channel) return false;
+
+    // Check if already following
+    if (channel.currentUserIsMember) return true;
+
+    // Mark as member
+    channel.currentUserIsMember = true;
+
+    // Add to conversations
+    const existingConv = conversations.find(c => c.channelId === channelId);
+    if (!existingConv) {
+      conversations.unshift({
+        id: `conv_channel_${channelId}`,
+        type: 'channel',
+        channelId: channelId,
+        name: channel.name,
+        avatar: channel.avatar,
+        lastMessage: channel.messages.length > 0 ? channel.messages[channel.messages.length - 1].text : '',
+        timestamp: channel.messages.length > 0 ? channel.messages[channel.messages.length - 1].timestamp : channel.createdAt,
+        unreadCount: 0
+      });
+    }
+
+    return true;
+  }
+
+  function getDiscoverCommunities() {
+    // Get all public communities (groups and channels)
+    const publicGroups = groups.filter(g => g.visibility === 'public' && g.id.startsWith('discover_')).map(g => ({
+      ...g,
+      isGroup: true,
+      count: g.memberCount,
+      countLabel: g.memberCount > 999 ? (g.memberCount / 1000).toFixed(1) + 'K' : g.memberCount.toString(),
+      status: 'Active community'
+    }));
+
+    const publicChannels = channels.filter(ch => ch.visibility === 'public' && ch.id.startsWith('discover_')).map(ch => ({
+      ...ch,
+      isGroup: false,
+      count: ch.followerCount,
+      countLabel: ch.followerCount > 999 ? (ch.followerCount / 1000).toFixed(1) + 'K' : ch.followerCount.toString(),
+      status: ch.description.substring(0, 50)
+    }));
+
+    return [...publicGroups, ...publicChannels];
+  }
+
+  function formatCount(num) {
+    if (num > 999999) return (num / 1000000).toFixed(1) + 'M';
+    if (num > 999) return (num / 1000).toFixed(1) + 'K';
+    return num.toString();
+  }
+
+  function renderDiscoverPage(tab = null, category = null, searchQuery = null) {
+    if (tab !== null) window.discoverActiveTab = tab;
+    if (category !== null) window.discoverActiveCategory = category;
+    if (searchQuery !== null) window.discoverSearchQuery = searchQuery;
+
+    const activeTab = window.discoverActiveTab || 'all';
+    const activeCategory = window.discoverActiveCategory || 'all';
+    const currentSearchQuery = window.discoverSearchQuery || '';
+
+    let allCommunities = getDiscoverCommunities();
+
+    // Apply type filter
+    allCommunities = filterCommunitiesByType(allCommunities, activeTab);
+
+    // Apply category filter
+    allCommunities = filterCommunitiesByCategory(allCommunities, activeCategory);
+
+    // Apply search filter
+    allCommunities = searchCommunities(allCommunities, currentSearchQuery);
+
+    // Get featured communities (first 3-5)
+    const featured = allCommunities.filter(c => c.isFeatured).slice(0, 5);
+
+    // Get non-featured communities sorted by member/follower count
+    const nonFeatured = allCommunities.filter(c => !c.isFeatured).sort((a, b) => b.count - a.count);
+
+    const communityList = allCommunities.map(community => {
+      const isGroup = community.isGroup;
+      const isJoined = isGroup ? checkIfUserJoined(community.id) : false;
+      const isFollowing = !isGroup ? checkIfUserFollows(community.id) : false;
+      const buttonText = isGroup ? (isJoined ? 'Joined' : 'Join') : (isFollowing ? 'Following ✓' : 'Follow');
+      const buttonDisabled = isGroup ? isJoined : isFollowing;
+      const typeLabel = isGroup ? 'Group' : 'Channel';
+      const countLabel = isGroup ? formatCount(community.memberCount) + ' Members' : formatCount(community.followerCount) + ' Followers';
+
+      return `
+        <div class="community-card" data-community-id="${community.id}" data-is-group="${isGroup}">
+          <div class="community-avatar">${community.avatar}</div>
+          <div class="community-info">
+            <div class="community-header">
+              <div class="community-name">${community.name}</div>
+              <div class="community-badge">${typeLabel}</div>
+            </div>
+            <div class="community-count">${countLabel}</div>
+            <div class="community-status">${community.status}</div>
+          </div>
+          <button class="community-action-button ${buttonDisabled ? 'disabled' : ''}" data-action="${isGroup ? 'join' : 'follow'}" data-community-id="${community.id}" ${buttonDisabled ? 'disabled' : ''}>
+            ${buttonText}
+          </button>
+        </div>
+      `;
+    }).join('');
+
+    const featuredCards = featured.map(community => {
+      const isGroup = community.isGroup;
+      const isJoined = isGroup ? checkIfUserJoined(community.id) : false;
+      const isFollowing = !isGroup ? checkIfUserFollows(community.id) : false;
+      const buttonText = isGroup ? (isJoined ? 'Joined' : 'Join') : (isFollowing ? 'Following ✓' : 'Follow');
+      const buttonDisabled = isGroup ? isJoined : isFollowing;
+      const typeLabel = isGroup ? 'Group' : 'Channel';
+      const countLabel = isGroup ? formatCount(community.memberCount) + ' Members' : formatCount(community.followerCount) + ' Followers';
+
+      return `
+        <div class="featured-card" data-community-id="${community.id}" data-is-group="${isGroup}">
+          <div class="featured-avatar">${community.avatar}</div>
+          <div class="featured-info">
+            <div class="featured-name">${community.name}</div>
+            <div class="featured-type">${typeLabel}</div>
+            <div class="featured-count">${countLabel}</div>
+          </div>
+          <button class="featured-action-button ${buttonDisabled ? 'disabled' : ''}" data-action="${isGroup ? 'join' : 'follow'}" data-community-id="${community.id}" ${buttonDisabled ? 'disabled' : ''}>
+            ${buttonText}
+          </button>
+        </div>
+      `;
+    }).join('');
+
+    const emptyMessage = allCommunities.length === 0 ? '<div class="empty-state">No communities found.</div>' : '';
+
+    pageContainer.innerHTML = `
+      <div class="discover-page">
+        <div class="discover-header">
+          <h1>Discover</h1>
+          <span class="search-icon">🔍</span>
+        </div>
+        <div class="discover-search" id="discover-search" style="display: none;">
+          <input type="text" class="search-input" id="discover-search-input" placeholder="🔍 Search communities" value="${currentSearchQuery}" />
+          <button class="search-close">✕</button>
+        </div>
+        <div class="discover-tabs">
+          <button class="discover-tab ${activeTab === 'all' ? 'active' : ''}" data-tab="all">All</button>
+          <button class="discover-tab ${activeTab === 'groups' ? 'active' : ''}" data-tab="groups">Groups</button>
+          <button class="discover-tab ${activeTab === 'channels' ? 'active' : ''}" data-tab="channels">Channels</button>
+        </div>
+        <div class="category-filter">
+          <button class="category-item ${activeCategory === 'all' ? 'active' : ''}" data-category="all">All</button>
+          <button class="category-item ${activeCategory === 'Crypto' ? 'active' : ''}" data-category="Crypto">Crypto</button>
+          <button class="category-item ${activeCategory === 'Technology' ? 'active' : ''}" data-category="Technology">Technology</button>
+          <button class="category-item ${activeCategory === 'Gaming' ? 'active' : ''}" data-category="Gaming">Gaming</button>
+          <button class="category-item ${activeCategory === 'AI' ? 'active' : ''}" data-category="AI">AI</button>
+          <button class="category-item ${activeCategory === 'News' ? 'active' : ''}" data-category="News">News</button>
+          <button class="category-item ${activeCategory === 'Education' ? 'active' : ''}" data-category="Education">Education</button>
+          <button class="category-item ${activeCategory === 'Sports' ? 'active' : ''}" data-category="Sports">Sports</button>
+          <button class="category-item ${activeCategory === 'Music' ? 'active' : ''}" data-category="Music">Music</button>
+          <button class="category-item ${activeCategory === 'Art' ? 'active' : ''}" data-category="Art">Art</button>
+        </div>
+        ${featured.length > 0 ? `
+          <div class="featured-section">
+            <div class="featured-title">Featured Communities</div>
+            <div class="featured-carousel">
+              ${featuredCards}
+            </div>
+          </div>
+        ` : ''}
+        <div class="community-list">
+          ${communityList || emptyMessage}
+        </div>
+      </div>
+    `;
+
+    // Search icon handler
+    document.querySelector('.search-icon').addEventListener('click', () => {
+      const searchContainer = document.getElementById('discover-search');
+      searchContainer.style.display = 'flex';
+      document.getElementById('discover-search-input').focus();
+    });
+
+    // Search input handler
+    const searchInput = document.getElementById('discover-search-input');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        renderDiscoverPage(null, null, e.target.value);
+      });
+
+      document.querySelector('.search-close').addEventListener('click', () => {
+        renderDiscoverPage(null, null, '');
+        document.getElementById('discover-search').style.display = 'none';
+      });
+    }
+
+    // Tab click handlers
+    document.querySelectorAll('.discover-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        renderDiscoverPage(tab.dataset.tab, null, '');
+      });
+    });
+
+    // Category click handlers
+    document.querySelectorAll('.category-item').forEach(cat => {
+      cat.addEventListener('click', () => {
+        renderDiscoverPage(null, cat.dataset.category, '');
+      });
+    });
+
+    // Community card click handlers (navigate to detail)
+    document.querySelectorAll('.community-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.community-action-button')) return;
+        const communityId = card.dataset.communityId;
+        const isGroup = card.dataset.isGroup === 'true';
+        window.location.hash = isGroup ? `/discover/group/${communityId}` : `/discover/channel/${communityId}`;
+      });
+    });
+
+    // Featured card click handlers (navigate to detail)
+    document.querySelectorAll('.featured-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.featured-action-button')) return;
+        const communityId = card.dataset.communityId;
+        const isGroup = card.dataset.isGroup === 'true';
+        window.location.hash = isGroup ? `/discover/group/${communityId}` : `/discover/channel/${communityId}`;
+      });
+    });
+
+    // Action button handlers
+    document.querySelectorAll('.community-action-button, .featured-action-button').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const action = btn.dataset.action;
+        const communityId = btn.dataset.communityId;
+
+        if (action === 'join') {
+          joinGroup(communityId);
+        } else if (action === 'follow') {
+          followChannel(communityId);
+        }
+
+        // Re-render to update button states
+        renderDiscoverPage(null, null, null);
+        showToast(action === 'join' ? 'Joined group!' : 'Following channel!', { type: 'success' });
+      });
+    });
+  }
+
+  function renderCommunityDetailPage(communityId, isGroup) {
+    const community = isGroup ?
+      groups.find(g => g.id === communityId) :
+      channels.find(ch => ch.id === communityId);
+
+    if (!community) {
+      window.location.hash = '/discover';
+      return;
+    }
+
+    const isJoined = isGroup ? checkIfUserJoined(communityId) : false;
+    const isFollowing = !isGroup ? checkIfUserFollows(communityId) : false;
+    const buttonText = isGroup ? (isJoined ? 'Joined' : 'Join Group') : (isFollowing ? 'Following ✓' : 'Follow');
+    const buttonDisabled = isGroup ? isJoined : isFollowing;
+    const countLabel = isGroup ? community.memberCount + ' Members' : community.followerCount + ' Followers';
+    const typeLabel = isGroup ? 'Public Group' : 'Channel';
+
+    pageContainer.innerHTML = `
+      <div class="community-detail-page">
+        <div class="community-detail-header">
+          <button class="back-button">← Back</button>
+          <div class="detail-avatar">${community.avatar}</div>
+          <h1>${community.name}</h1>
+          <div class="detail-meta">${typeLabel} • ${countLabel}</div>
+        </div>
+        <div class="community-detail-content">
+          <p class="detail-description">${community.description}</p>
+        </div>
+        <div class="community-detail-action">
+          <button class="detail-action-button ${buttonDisabled ? 'disabled' : ''}" data-action="${isGroup ? 'join' : 'follow'}" data-community-id="${communityId}" ${buttonDisabled ? 'disabled' : ''}>
+            ${buttonText}
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.querySelector('.back-button').addEventListener('click', () => {
+      window.location.hash = '/discover';
+    });
+
+    document.querySelector('.detail-action-button').addEventListener('click', (e) => {
+      if (buttonDisabled) return;
+      const action = e.target.dataset.action;
+      const commId = e.target.dataset.communityId;
+
+      if (action === 'join') {
+        joinGroup(commId);
+      } else if (action === 'follow') {
+        followChannel(commId);
+      }
+
+      showToast(action === 'join' ? 'Joined group!' : 'Following channel!', { type: 'success' });
+      setTimeout(() => {
+        window.location.hash = '/discover';
+      }, 800);
+    });
+  }
+
   function renderPage(pageName) {
     const page = pages[pageName];
     if (!page) {
@@ -3048,6 +3714,8 @@ document.addEventListener('DOMContentLoaded', () => {
       renderMessagesPage();
     } else if (pageName === 'create') {
       renderNewMessagePage();
+    } else if (pageName === 'discover') {
+      renderDiscoverPage();
     } else {
       pageContainer.innerHTML = `
         <div class="page">
@@ -3122,6 +3790,26 @@ document.addEventListener('DOMContentLoaded', () => {
       // Remove active from all nav tabs
       navTabs.forEach(tab => tab.classList.remove('active'));
       renderCreateChannelPage();
+    } else if (path.startsWith('discover/')) {
+      const parts = path.split('/');
+      const action = parts[1];
+      const communityId = parts[2];
+
+      if (action === 'group' && communityId) {
+        // Hide bottom nav on discover detail screen
+        navTabs.forEach(tab => tab.classList.remove('active'));
+        bottomNav.style.display = 'none';
+        renderCommunityDetailPage(communityId, true);
+      } else if (action === 'channel' && communityId) {
+        // Hide bottom nav on discover detail screen
+        navTabs.forEach(tab => tab.classList.remove('active'));
+        bottomNav.style.display = 'none';
+        renderCommunityDetailPage(communityId, false);
+      } else {
+        // Show bottom nav on discover main screen
+        bottomNav.style.display = 'flex';
+        renderPage('discover');
+      }
     } else {
       // Show bottom nav on all other screens
       bottomNav.style.display = 'flex';
