@@ -1,0 +1,85 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - heading "Messages" [level=1] [ref=e6]
+      - generic [ref=e7] [cursor=pointer]: 🔍
+    - generic [ref=e8]:
+      - button "All" [ref=e9] [cursor=pointer]
+      - button "DM" [ref=e10] [cursor=pointer]
+      - button "Groups" [ref=e11] [cursor=pointer]
+      - button "Channels" [ref=e12] [cursor=pointer]
+      - button "Requests 2" [ref=e13] [cursor=pointer]:
+        - text: Requests
+        - generic [ref=e14]: "2"
+    - generic [ref=e15]:
+      - generic [ref=e17]:
+        - generic [ref=e18]: AC
+        - generic [ref=e19]:
+          - generic [ref=e20]:
+            - generic [ref=e21]: Alice Chen
+            - generic [ref=e22]: 2m
+          - paragraph [ref=e23]: That sounds great! Let's meet up soon.
+        - generic [ref=e24]: "2"
+      - generic [ref=e26]:
+        - generic [ref=e27]: SI
+        - generic [ref=e28]:
+          - generic [ref=e29]:
+            - generic [ref=e30]: undefined
+            - generic [ref=e31]: 2m
+          - paragraph [ref=e32]: Mainnet Beta is Live 🚀 Exciting times ahead as we launch the next phase of development!
+      - generic [ref=e34]:
+        - generic [ref=e35]: SC
+        - generic [ref=e36]:
+          - generic [ref=e37]:
+            - generic [ref=e38]: Seeker Club
+            - generic [ref=e39]: 5m
+          - paragraph [ref=e40]: Let's catch up soon!
+      - generic [ref=e42]:
+        - generic [ref=e43]: DT
+        - generic [ref=e44]:
+          - generic [ref=e45]:
+            - generic [ref=e46]: Design Team
+            - generic [ref=e47]: 25m
+          - paragraph [ref=e48]: Thanks! Reviewing now
+      - generic [ref=e50]:
+        - generic [ref=e51]: BW
+        - generic [ref=e52]:
+          - generic [ref=e53]:
+            - generic [ref=e54]: Bob Wilson
+            - generic [ref=e55]: 1h
+          - paragraph [ref=e56]: Did you see the latest updates?
+      - generic [ref=e58]:
+        - generic [ref=e59]: WB
+        - generic [ref=e60]:
+          - generic [ref=e61]:
+            - generic [ref=e62]: undefined
+            - generic [ref=e63]: 1h
+          - paragraph [ref=e64]: Welcome to Web3 Builders! 👨‍💻 This is a space to share projects, learn together, and build the future of web3.
+      - generic [ref=e66]:
+        - generic [ref=e67]: CD
+        - generic [ref=e68]:
+          - generic [ref=e69]:
+            - generic [ref=e70]: Carol Davis
+            - generic [ref=e71]: Yesterday
+          - paragraph [ref=e72]: Thanks for the help yesterday!
+        - generic [ref=e73]: "1"
+      - generic [ref=e75]:
+        - generic [ref=e76]: DL
+        - generic [ref=e77]:
+          - generic [ref=e78]:
+            - generic [ref=e79]: David Lee
+            - generic [ref=e80]: 2d
+          - paragraph [ref=e81]: Looking forward to the event next week
+  - navigation [ref=e82]:
+    - button "💬 Messages" [ref=e83] [cursor=pointer]:
+      - generic [ref=e84]: 💬
+      - generic [ref=e85]: Messages
+    - button "➕ Create" [ref=e86] [cursor=pointer]:
+      - generic [ref=e87]: ➕
+      - generic [ref=e88]: Create
+    - button "🧭 Discover" [ref=e89] [cursor=pointer]:
+      - generic [ref=e90]: 🧭
+      - generic [ref=e91]: Discover
+    - button "👤 Profile" [ref=e92] [cursor=pointer]:
+      - generic [ref=e93]: 👤
+      - generic [ref=e94]: Profile

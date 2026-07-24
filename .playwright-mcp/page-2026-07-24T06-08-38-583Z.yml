@@ -1,0 +1,23 @@
+- generic [ref=e156]:
+  - generic [ref=e157]:
+    - button "Back to messages" [ref=e158] [cursor=pointer]: ←
+    - generic [ref=e159] [cursor=pointer]:
+      - generic [ref=e160]: WB
+      - generic [ref=e161]:
+        - generic [ref=e162]: Web3 Builders
+        - generic [ref=e163]: 245 Followers
+    - button "More options" [ref=e164] [cursor=pointer]: ⋮
+  - generic [ref=e166]:
+    - generic [ref=e167]: 5:07 AM
+    - generic [ref=e168]: Welcome to Web3 Builders! 👨‍💻 This is a space to share projects, learn together, and build the future of web3.
+    - generic [ref=e169]:
+      - button "❤️ 0" [ref=e170] [cursor=pointer]:
+        - generic [ref=e171]: ❤️
+        - generic [ref=e172]: "0"
+      - button "🔁" [ref=e173] [cursor=pointer]
+      - button "⋯" [ref=e175] [cursor=pointer]
+  - generic [ref=e177]:
+    - textbox "What's happening?" [ref=e178]
+    - generic [ref=e179]:
+      - button "Add image" [ref=e180] [cursor=pointer]: 📷
+      - button "Publish" [ref=e181] [cursor=pointer]

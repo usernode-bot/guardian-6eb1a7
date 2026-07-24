@@ -1923,6 +1923,179 @@ html, body {
   border-top: 1px solid #e0e0e0;
 }
 
+/* Channel-specific styles */
+.channel-footer {
+  padding: 12px;
+  border-top: 1px solid #e0e0e0;
+  background-color: #fff;
+}
+
+.composer-container {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.composer-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 20px;
+  resize: none;
+  font-family: inherit;
+  font-size: 14px;
+  max-height: 120px;
+  overflow-y: auto;
+  height: 40px;
+}
+
+.composer-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.image-button,
+.publish-button {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 50%;
+  background-color: #f0f0f0;
+  cursor: pointer;
+  font-size: 18px;
+  transition: background-color 0.2s;
+}
+
+.image-button:active,
+.publish-button:active {
+  background-color: #e0e0e0;
+}
+
+.publish-button {
+  background-color: #007AFF;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 8px;
+}
+
+.publish-button:active {
+  background-color: #0056b3;
+}
+
+.follower-status {
+  text-align: center;
+  padding: 16px;
+}
+
+.follow-button {
+  padding: 8px 24px;
+  border: 1px solid #ccc;
+  background-color: #fff;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.follow-button:active {
+  background-color: #f0f0f0;
+}
+
+.follow-button.following {
+  border-color: #007AFF;
+  color: #007AFF;
+}
+
+.post-item {
+  padding: 16px 12px;
+  border-bottom: 1px solid #e0e0e0;
+  background-color: #fff;
+}
+
+.post-timestamp {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 8px;
+}
+
+.post-content {
+  font-size: 15px;
+  line-height: 1.4;
+  margin-bottom: 12px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.post-actions {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: #555;
+}
+
+.post-like-button,
+.post-share-button,
+.post-menu-button {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  color: #555;
+  transition: color 0.2s;
+}
+
+.post-like-button:active,
+.post-share-button:active,
+.post-menu-button:active {
+  color: #007AFF;
+}
+
+.post-like-button.liked {
+  color: #FF2D55;
+}
+
+.like-icon {
+  font-size: 16px;
+}
+
+.like-count {
+  font-size: 13px;
+  color: #555;
+}
+
+.visibility-label {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.visibility-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.visibility-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.visibility-option input[type="radio"] {
+  cursor: pointer;
+}
+
+.visibility-option span {
+  user-select: none;
+}
+
 /* Create options section */
 .create-options {
   display: flex;
