@@ -234,6 +234,16 @@ app.post('/api/conversations/:conversationId/mark-as-read', async (req, res) => 
     const { conversationId } = req.params;
     const userId = req.user.id;
 
+    // Validate conversation exists and belongs to user
+    const validateResult = await pool.query(
+      'SELECT id FROM conversations WHERE id = $1 AND user_id = $2',
+      [conversationId, userId]
+    );
+
+    if (validateResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Conversation not found or you do not have access' });
+    }
+
     // Clear unread count for this conversation
     await pool.query(
       'UPDATE conversations SET unread_count = 0 WHERE id = $1 AND user_id = $2',
