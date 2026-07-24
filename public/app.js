@@ -200,6 +200,189 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   ];
 
+  // Discover communities data
+  let discoverGroups = [
+    {
+      id: 'discover_group_1',
+      name: 'Tech Enthusiasts',
+      description: 'A community for tech lovers and innovators',
+      avatar: 'TE',
+      memberCount: 256,
+      members: [],
+      isFeatured: true,
+      isNew: false,
+      createdAt: Date.now() - 60*24*60*60*1000
+    },
+    {
+      id: 'discover_group_2',
+      name: 'Design Community',
+      description: 'Collaborate and share design ideas and projects',
+      avatar: 'DC',
+      memberCount: 189,
+      members: [],
+      isFeatured: true,
+      isNew: false,
+      createdAt: Date.now() - 45*24*60*60*1000
+    },
+    {
+      id: 'discover_group_3',
+      name: 'Photography Club',
+      description: 'Share and discuss photography techniques',
+      avatar: 'PC',
+      memberCount: 412,
+      members: [],
+      isFeatured: false,
+      isNew: false,
+      createdAt: Date.now() - 30*24*60*60*1000
+    },
+    {
+      id: 'discover_group_4',
+      name: 'Book Lovers',
+      description: 'Discuss books, authors, and reading experiences',
+      avatar: 'BL',
+      memberCount: 178,
+      members: [],
+      isFeatured: false,
+      isNew: true,
+      createdAt: Date.now() - 3*24*60*60*1000
+    },
+    {
+      id: 'discover_group_5',
+      name: 'Fitness Squad',
+      description: 'Share fitness goals, workouts, and health tips',
+      avatar: 'FS',
+      memberCount: 334,
+      members: [],
+      isFeatured: false,
+      isNew: false,
+      createdAt: Date.now() - 20*24*60*60*1000
+    },
+    {
+      id: 'discover_group_6',
+      name: 'AI & ML Discussion',
+      description: 'Deep dive into artificial intelligence and machine learning',
+      avatar: 'AM',
+      memberCount: 567,
+      members: [],
+      isFeatured: true,
+      isNew: false,
+      createdAt: Date.now() - 15*24*60*60*1000
+    },
+    {
+      id: 'discover_group_7',
+      name: 'Web3 Builders',
+      description: 'Build and discuss decentralized applications',
+      avatar: 'WB',
+      memberCount: 291,
+      members: [],
+      isFeatured: false,
+      isNew: true,
+      createdAt: Date.now() - 5*24*60*60*1000
+    },
+    {
+      id: 'discover_group_8',
+      name: 'Indie Hackers',
+      description: 'Connect with independent developers and entrepreneurs',
+      avatar: 'IH',
+      memberCount: 445,
+      members: [],
+      isFeatured: false,
+      isNew: false,
+      createdAt: Date.now() - 12*24*60*60*1000
+    }
+  ];
+
+  let discoverChannels = [
+    {
+      id: 'discover_channel_1',
+      name: 'Announcements',
+      description: 'Important platform announcements and updates',
+      avatar: 'A',
+      visibility: 'public',
+      memberCount: 523,
+      isFeatured: true,
+      isNew: false,
+      createdAt: Date.now() - 90*24*60*60*1000
+    },
+    {
+      id: 'discover_channel_2',
+      name: 'Updates',
+      description: 'Latest news and feature updates',
+      avatar: 'U',
+      visibility: 'public',
+      memberCount: 412,
+      isFeatured: true,
+      isNew: false,
+      createdAt: Date.now() - 75*24*60*60*1000
+    },
+    {
+      id: 'discover_channel_3',
+      name: '#news',
+      description: 'Community news and trending topics',
+      avatar: 'N',
+      visibility: 'public',
+      memberCount: 1245,
+      isFeatured: false,
+      isNew: false,
+      createdAt: Date.now() - 60*24*60*60*1000
+    },
+    {
+      id: 'discover_channel_4',
+      name: '#tips',
+      description: 'Useful tips, tricks, and best practices',
+      avatar: 'T',
+      visibility: 'public',
+      memberCount: 856,
+      isFeatured: false,
+      isNew: false,
+      createdAt: Date.now() - 50*24*60*60*1000
+    },
+    {
+      id: 'discover_channel_5',
+      name: '#events',
+      description: 'Community events and gatherings',
+      avatar: 'E',
+      visibility: 'public',
+      memberCount: 234,
+      isFeatured: false,
+      isNew: true,
+      createdAt: Date.now() - 7*24*60*60*1000
+    },
+    {
+      id: 'discover_channel_6',
+      name: 'VIP Discussions',
+      description: 'Private discussions for premium members',
+      avatar: 'VD',
+      visibility: 'private',
+      memberCount: 45,
+      isFeatured: false,
+      isNew: false,
+      createdAt: Date.now() - 40*24*60*60*1000
+    },
+    {
+      id: 'discover_channel_7',
+      name: 'Team Updates',
+      description: 'Internal team communications and updates',
+      avatar: 'TU',
+      visibility: 'private',
+      memberCount: 28,
+      isFeatured: false,
+      isNew: true,
+      createdAt: Date.now() - 2*24*60*60*1000
+    },
+    {
+      id: 'discover_channel_8',
+      name: '#projects',
+      description: 'Showcase and collaborate on projects',
+      avatar: 'P',
+      visibility: 'public',
+      memberCount: 678,
+      isFeatured: true,
+      isNew: false,
+      createdAt: Date.now() - 35*24*60*60*1000
+    }
+  ];
+
   // Broadcast channels data
   let channels = [
     {
@@ -312,6 +495,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Active tab state
   let activeMessagesTab = 'all';
+  let activeDiscoverTab = 'all';
   let searchQuery = '';
   let swipeState = {
     element: null,
@@ -814,6 +998,386 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
       console.error('Failed to load user profile:', error);
     }
+  }
+
+  // Filter discover communities by tab
+  function filterDiscoverCommunities(tab) {
+    let filteredGroups = discoverGroups.filter(g => !groups.some(jg => jg.id === g.id));
+    let filteredChans = discoverChannels.filter(c => !channels.some(jc => jc.id === c.id));
+
+    if (tab === 'groups') {
+      return { groups: filteredGroups, channels: [] };
+    } else if (tab === 'channels') {
+      return { groups: [], channels: filteredChans };
+    } else {
+      return { groups: filteredGroups, channels: filteredChans };
+    }
+  }
+
+  // Join a group from discover
+  function joinDiscoverGroup(groupId) {
+    const discoverGroup = discoverGroups.find(g => g.id === groupId);
+    if (!discoverGroup) return;
+
+    const newGroup = {
+      id: groupId,
+      name: discoverGroup.name,
+      description: discoverGroup.description,
+      avatar: discoverGroup.avatar,
+      memberCount: discoverGroup.memberCount + 1,
+      members: [{ id: 'user_self', username: 'You' }, ...discoverGroup.members],
+      createdAt: Date.now(),
+      messages: [
+        {
+          id: 'msg_' + Date.now(),
+          senderId: 'system',
+          senderName: 'System',
+          text: 'You joined the group.',
+          timestamp: Date.now(),
+          isOutgoing: false,
+          isSystemMessage: true
+        }
+      ]
+    };
+
+    groups.push(newGroup);
+
+    const newConversation = {
+      id: 'conv_' + groupId,
+      type: 'group',
+      groupId: groupId,
+      name: discoverGroup.name,
+      avatar: discoverGroup.avatar,
+      lastMessage: 'You joined the group.',
+      timestamp: Date.now(),
+      unreadCount: 0,
+      archived: false,
+      pinned: false
+    };
+
+    conversations.unshift(newConversation);
+    discoverGroups = discoverGroups.filter(g => g.id !== groupId);
+
+    renderDiscoverPage(activeDiscoverTab);
+  }
+
+  // Follow a channel from discover
+  function followDiscoverChannel(channelId) {
+    const discoverChannel = discoverChannels.find(c => c.id === channelId);
+    if (!discoverChannel) return;
+
+    const newChannel = {
+      id: channelId,
+      name: discoverChannel.name,
+      description: discoverChannel.description,
+      avatar: discoverChannel.avatar,
+      visibility: discoverChannel.visibility,
+      createdAt: Date.now(),
+      creatorId: 'user_other',
+      memberCount: discoverChannel.memberCount + 1,
+      currentUserIsMember: true,
+      currentUserIsAdmin: false,
+      currentUserCanSend: true,
+      members: [{ id: 'user_self', username: 'You', role: 'member', avatar: 'Y' }],
+      messages: [
+        {
+          id: 'msg_' + Date.now(),
+          senderId: 'system',
+          senderName: 'System',
+          text: 'You followed this channel.',
+          timestamp: Date.now(),
+          isOutgoing: false,
+          isSystemMessage: true
+        }
+      ]
+    };
+
+    channels.push(newChannel);
+    channelUnreadCounts[channelId] = 0;
+
+    const newConversation = {
+      id: `conv_channel_${channelId}`,
+      type: 'channel',
+      channelId: channelId,
+      name: discoverChannel.name,
+      avatar: discoverChannel.avatar,
+      lastMessage: 'You followed this channel.',
+      timestamp: Date.now(),
+      unreadCount: 0,
+      archived: false,
+      pinned: false
+    };
+
+    conversations.unshift(newConversation);
+    discoverChannels = discoverChannels.filter(c => c.id !== channelId);
+
+    renderDiscoverPage(activeDiscoverTab);
+  }
+
+  // Render discover page
+  function renderDiscoverPage(tab = null) {
+    if (tab) activeDiscoverTab = tab;
+
+    const filtered = filterDiscoverCommunities(activeDiscoverTab);
+    const allCommunities = [...filtered.groups, ...filtered.channels];
+
+    // Featured
+    const featured = allCommunities.filter(c => c.isFeatured);
+    const featuredHtml = featured.length > 0 ? `
+      <div class="featured-carousel">
+        ${featured.map(c => `
+          <div class="featured-card" data-${c.type === 'group' ? 'group' : 'channel'}-id="${c.id}">
+            <div class="featured-avatar">${c.avatar}</div>
+            <div class="featured-info">
+              <div class="featured-name">${c.name}</div>
+              <div class="featured-type">${c.type === 'group' ? 'Group' : 'Channel'}</div>
+              <div class="featured-count">${c.memberCount} ${c.type === 'group' ? 'members' : 'followers'}</div>
+            </div>
+            <button class="featured-button" data-${c.type === 'group' ? 'group' : 'channel'}-id="${c.id}">
+              ${c.type === 'group' ? 'Join' : 'Follow'}
+            </button>
+          </div>
+        `).join('')}
+      </div>
+    ` : '';
+
+    // Trending groups
+    const trendingGroups = filtered.groups.filter(g => !g.isNew).sort((a, b) => b.memberCount - a.memberCount);
+    const trendingGroupsHtml = trendingGroups.length > 0 ? `
+      <div class="trending-section">
+        <h2>Trending Groups</h2>
+        ${trendingGroups.map(g => `
+          <div class="community-card" data-group-id="${g.id}">
+            <div class="community-avatar">${g.avatar}</div>
+            <div class="community-info">
+              <div class="community-name">${g.name}</div>
+              <div class="community-description">${truncateText(g.description, 60)}</div>
+              <div class="community-count">${g.memberCount} members</div>
+            </div>
+            <button class="community-button" data-group-id="${g.id}">Join</button>
+          </div>
+        `).join('')}
+      </div>
+    ` : '';
+
+    // Trending channels
+    const trendingChannels = filtered.channels.filter(c => !c.isNew).sort((a, b) => b.memberCount - a.memberCount);
+    const trendingChannelsHtml = trendingChannels.length > 0 ? `
+      <div class="trending-section">
+        <h2>Trending Channels</h2>
+        ${trendingChannels.map(c => `
+          <div class="community-card" data-channel-id="${c.id}">
+            <div class="community-avatar">${c.avatar}</div>
+            <div class="community-info">
+              <div class="community-name">${c.name}</div>
+              <div class="community-description">${truncateText(c.description, 60)}</div>
+              <div class="community-count">${c.memberCount} followers</div>
+            </div>
+            <button class="community-button" data-channel-id="${c.id}">Follow</button>
+          </div>
+        `).join('')}
+      </div>
+    ` : '';
+
+    // New communities
+    const newGroups = filtered.groups.filter(g => g.isNew).sort((a, b) => b.createdAt - a.createdAt);
+    const newChannels = filtered.channels.filter(c => c.isNew).sort((a, b) => b.createdAt - a.createdAt);
+    const newComs = [...newGroups, ...newChannels];
+    const newComsHtml = newComs.length > 0 ? `
+      <div class="trending-section">
+        <h2>New Communities</h2>
+        ${newComs.map(c => `
+          <div class="community-card" data-${c.type === 'group' ? 'group' : 'channel'}-id="${c.id}">
+            <div class="community-avatar">${c.avatar}</div>
+            <div class="community-info">
+              <div class="community-name">${c.name}</div>
+              <div class="community-description">${truncateText(c.description, 60)}</div>
+              <div class="community-count">${c.memberCount} ${c.type === 'group' ? 'members' : 'followers'}</div>
+            </div>
+            <button class="community-button" data-${c.type === 'group' ? 'group' : 'channel'}-id="${c.id}">
+              ${c.type === 'group' ? 'Join' : 'Follow'}
+            </button>
+          </div>
+        `).join('')}
+      </div>
+    ` : '';
+
+    const emptyHtml = allCommunities.length === 0 ? '<div class="empty-state">No communities available</div>' : '';
+    const contentHtml = allCommunities.length === 0 ? emptyHtml : (featuredHtml + trendingGroupsHtml + trendingChannelsHtml + newComsHtml);
+
+    pageContainer.innerHTML = `
+      <div class="discover-page">
+        <div class="messages-header">
+          <h1>Discover</h1>
+        </div>
+        <div class="discover-tabs">
+          <button class="discover-tab ${activeDiscoverTab === 'all' ? 'active' : ''}" data-tab="all">All</button>
+          <button class="discover-tab ${activeDiscoverTab === 'groups' ? 'active' : ''}" data-tab="groups">Groups</button>
+          <button class="discover-tab ${activeDiscoverTab === 'channels' ? 'active' : ''}" data-tab="channels">Channels</button>
+        </div>
+        <div class="discover-content">
+          ${contentHtml}
+        </div>
+      </div>
+    `;
+
+    // Tab click handlers
+    document.querySelectorAll('.discover-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        renderDiscoverPage(tab.dataset.tab);
+      });
+    });
+
+    // Featured card handlers
+    document.querySelectorAll('.featured-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const groupId = card.dataset.groupId;
+        const channelId = card.dataset.channelId;
+        if (groupId) {
+          window.location.hash = `/discover/group/${groupId}`;
+        } else if (channelId) {
+          window.location.hash = `/discover/channel/${channelId}`;
+        }
+      });
+    });
+
+    // Featured button handlers
+    document.querySelectorAll('.featured-button').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const groupId = btn.dataset.groupId;
+        const channelId = btn.dataset.channelId;
+        if (groupId) {
+          joinDiscoverGroup(groupId);
+        } else if (channelId) {
+          followDiscoverChannel(channelId);
+        }
+      });
+    });
+
+    // Community card handlers
+    document.querySelectorAll('.community-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const groupId = card.dataset.groupId;
+        const channelId = card.dataset.channelId;
+        if (groupId) {
+          window.location.hash = `/discover/group/${groupId}`;
+        } else if (channelId) {
+          window.location.hash = `/discover/channel/${channelId}`;
+        }
+      });
+    });
+
+    // Community button handlers
+    document.querySelectorAll('.community-button').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const groupId = btn.dataset.groupId;
+        const channelId = btn.dataset.channelId;
+        if (groupId) {
+          joinDiscoverGroup(groupId);
+        } else if (channelId) {
+          followDiscoverChannel(channelId);
+        }
+      });
+    });
+
+    // Update active nav tab
+    navTabs.forEach(tab => {
+      tab.classList.remove('active');
+      if (tab.dataset.page === 'discover') {
+        tab.classList.add('active');
+      }
+    });
+  }
+
+  // Render group detail screen
+  function renderGroupDetailScreen(groupId) {
+    let group = groups.find(g => g.id === groupId);
+    if (!group) {
+      group = discoverGroups.find(g => g.id === groupId);
+    }
+    if (!group) {
+      window.location.hash = '/discover';
+      return;
+    }
+
+    const isJoined = groups.some(g => g.id === groupId);
+
+    pageContainer.innerHTML = `
+      <div class="detail-screen">
+        <div class="detail-header">
+          <button class="back-button" aria-label="Back">←</button>
+          <h1>Group Details</h1>
+        </div>
+        <div class="detail-content">
+          <div class="detail-avatar">${group.avatar}</div>
+          <h2>${group.name}</h2>
+          <p class="detail-description">${group.description}</p>
+          <div class="detail-stat">${group.memberCount} members</div>
+          ${!isJoined ? `<button class="detail-button" id="join-button">Join Group</button>` : '<button class="detail-button" disabled>Already Joined</button>'}
+        </div>
+      </div>
+    `;
+
+    document.querySelector('.back-button').addEventListener('click', () => {
+      window.location.hash = '/discover';
+    });
+
+    const joinBtn = document.getElementById('join-button');
+    if (joinBtn) {
+      joinBtn.addEventListener('click', () => {
+        joinDiscoverGroup(groupId);
+        window.location.hash = '/discover';
+      });
+    }
+
+    navTabs.forEach(tab => tab.classList.remove('active'));
+  }
+
+  // Render channel detail screen
+  function renderDiscoverChannelDetailScreen(channelId) {
+    let channel = channels.find(c => c.id === channelId);
+    if (!channel) {
+      channel = discoverChannels.find(c => c.id === channelId);
+    }
+    if (!channel) {
+      window.location.hash = '/discover';
+      return;
+    }
+
+    const isFollowed = channels.some(c => c.id === channelId);
+
+    pageContainer.innerHTML = `
+      <div class="detail-screen">
+        <div class="detail-header">
+          <button class="back-button" aria-label="Back">←</button>
+          <h1>Channel Details</h1>
+        </div>
+        <div class="detail-content">
+          <div class="detail-avatar">${channel.avatar}</div>
+          <h2>${channel.name}</h2>
+          <div class="detail-badge">${channel.visibility === 'private' ? '🔒 Private' : '🌐 Public'}</div>
+          <p class="detail-description">${channel.description}</p>
+          <div class="detail-stat">${channel.memberCount} followers</div>
+          ${!isFollowed ? `<button class="detail-button" id="follow-button">Follow Channel</button>` : '<button class="detail-button" disabled>Already Following</button>'}
+        </div>
+      </div>
+    `;
+
+    document.querySelector('.back-button').addEventListener('click', () => {
+      window.location.hash = '/discover';
+    });
+
+    const followBtn = document.getElementById('follow-button');
+    if (followBtn) {
+      followBtn.addEventListener('click', () => {
+        followDiscoverChannel(channelId);
+        window.location.hash = '/discover';
+      });
+    }
+
+    navTabs.forEach(tab => tab.classList.remove('active'));
   }
 
   // Render messages page with tabs
@@ -4015,6 +4579,8 @@ document.addEventListener('DOMContentLoaded', () => {
       renderNewMessagePage();
     } else if (pageName === 'profile') {
       renderProfilePage();
+    } else if (pageName === 'discover') {
+      renderDiscoverPage();
     } else {
       pageContainer.innerHTML = `
         <div class="page">
@@ -4082,6 +4648,19 @@ document.addEventListener('DOMContentLoaded', () => {
       // Remove active from all nav tabs
       navTabs.forEach(tab => tab.classList.remove('active'));
       renderCreateChannelPage();
+    } else if (path.startsWith('discover/group/')) {
+      const groupId = path.split('/')[2];
+      bottomNav.style.display = 'none';
+      navTabs.forEach(tab => tab.classList.remove('active'));
+      renderGroupDetailScreen(groupId);
+    } else if (path.startsWith('discover/channel/')) {
+      const channelId = path.split('/')[2];
+      bottomNav.style.display = 'none';
+      navTabs.forEach(tab => tab.classList.remove('active'));
+      renderDiscoverChannelDetailScreen(channelId);
+    } else if (path === 'discover' || path.startsWith('discover?')) {
+      bottomNav.style.display = 'flex';
+      renderDiscoverPage();
     } else {
       // Show bottom nav on all other screens
       bottomNav.style.display = 'flex';
