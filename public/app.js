@@ -260,46 +260,271 @@ document.addEventListener('DOMContentLoaded', () => {
     return text;
   }
 
-  // Render messages page with conversation list
+  // State for messages page
+  let messagesPageState = {
+    activeTab: 'all',
+    searchQuery: '',
+    searchActive: false,
+    conversations: [],
+    requests: [],
+    requestCount: 0
+  };
+
+  // Fetch conversations from API
+  async function fetchConversations(tab = 'all') {
+    try {
+      const response = await fetch(`/api/conversations?tab=${tab}`, {
+        headers: { 'x-usernode-token': localStorage.getItem('usernode-token') }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return data.conversations || [];
+      }
+    } catch (err) {
+      console.error('Error fetching conversations:', err);
+    }
+    return [];
+  }
+
+  // Fetch requests from API
+  async function fetchRequests() {
+    try {
+      const response = await fetch('/api/requests', {
+        headers: { 'x-usernode-token': localStorage.getItem('usernode-token') }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return data.requests || [];
+      }
+    } catch (err) {
+      console.error('Error fetching requests:', err);
+    }
+    return [];
+  }
+
+  // Get conversation display name from mock data
+  function getConversationName(conv) {
+    if (conv.type === 'group') {
+      const group = groups.find(g => g.id === conv.group_id || g.id === conv.groupId);
+      return group ? group.name : 'Group';
+    } else if (conv.type === 'direct') {
+      const directConv = conversations.find(c => c.id === conv.id);
+      return directConv ? directConv.username : 'User';
+    }
+    return 'Conversation';
+  }
+
+  // Get conversation avatar from mock data
+  function getConversationAvatar(conv) {
+    if (conv.type === 'group') {
+      const group = groups.find(g => g.id === conv.group_id || g.id === conv.groupId);
+      return group ? group.avatar : 'G';
+    } else if (conv.type === 'direct') {
+      const directConv = conversations.find(c => c.id === conv.id);
+      return directConv ? directConv.avatar : 'U';
+    }
+    return '?';
+  }
+
+  // Render messages page with five tabs
   function renderMessagesPage() {
-    const conversationsList = conversations.map(conv => {
-      const displayName = conv.type === 'group' ? conv.name : conv.username;
-      const routeHash = conv.type === 'group' ? `/group/${conv.groupId}` : `/conversation/${conv.id}`;
-
-      return `
-        <div class="conversation-item" data-conversation-id="${conv.id}" data-route-hash="${routeHash}">
-          <div class="conversation-avatar">${conv.avatar}</div>
-          <div class="conversation-content">
-            <div class="conversation-header">
-              <span class="conversation-username">${displayName}</span>
-              <span class="conversation-timestamp">${formatTimestamp(conv.timestamp)}</span>
-            </div>
-            <p class="conversation-message">${conv.lastMessage}</p>
-          </div>
-          ${conv.unreadCount > 0 ? `<div class="unread-badge">${conv.unreadCount}</div>` : ''}
-        </div>
-      `;
-    }).join('');
-
     pageContainer.innerHTML = `
       <div class="messages-page">
         <div class="messages-header">
           <h1>Messages</h1>
           <span class="search-icon">🔍</span>
         </div>
-        <div class="conversations-list">
-          ${conversationsList}
+        <div class="messages-tabs-sticky">
+          <div class="messages-tabs">
+            <button class="tab-button active" data-tab="all">All</button>
+            <button class="tab-button" data-tab="dm">DM</button>
+            <button class="tab-button" data-tab="groups">Groups</button>
+            <button class="tab-button" data-tab="channels">Channels</button>
+            <button class="tab-button" data-tab="requests">Requests <span class="request-badge" style="display: none;">0</span></button>
+          </div>
+        </div>
+        <div class="search-bar" style="display: none;">
+          <input type="text" class="search-input" placeholder="Search..." />
+        </div>
+        <div class="conversations-list" id="conversations-list">
+          <!-- Conversations will be rendered here -->
         </div>
       </div>
     `;
 
-    // Add click handlers for conversation items
-    document.querySelectorAll('.conversation-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const routeHash = item.dataset.routeHash;
-        window.location.hash = routeHash;
+    // Set up tab buttons
+    document.querySelectorAll('.tab-button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+        document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        messagesPageState.activeTab = tab;
+        messagesPageState.searchQuery = '';
+        const searchInput = document.querySelector('.search-input');
+        if (searchInput) searchInput.value = '';
+        renderConversationsList(tab);
       });
     });
+
+    // Set up search icon
+    document.querySelector('.search-icon').addEventListener('click', () => {
+      const searchBar = document.querySelector('.search-bar');
+      messagesPageState.searchActive = !messagesPageState.searchActive;
+      searchBar.style.display = messagesPageState.searchActive ? 'block' : 'none';
+      if (messagesPageState.searchActive) {
+        document.querySelector('.search-input').focus();
+      }
+    });
+
+    // Set up search input
+    const searchInput = document.querySelector('.search-input');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        messagesPageState.searchQuery = e.target.value;
+        renderConversationsList(messagesPageState.activeTab);
+      });
+    }
+
+    // Load and render conversations for active tab
+    renderConversationsList('all');
+  }
+
+  // Render conversations list for a specific tab
+  async function renderConversationsList(tab) {
+    const listContainer = document.getElementById('conversations-list');
+    if (!listContainer) return;
+
+    // For mock data, filter the local conversations array
+    let filtered = [];
+
+    if (tab === 'requests') {
+      // Show requests instead
+      filtered = conversations.filter((conv, idx) => idx < 2).map(conv => ({
+        ...conv,
+        isRequest: true,
+        from: conv.username,
+        message: conv.lastMessage
+      }));
+    } else {
+      // Filter by conversation type
+      filtered = conversations.filter(conv => {
+        if (tab === 'dm' && conv.type !== 'direct') return false;
+        if (tab === 'groups' && conv.type !== 'group') return false;
+        if (tab === 'channels' && conv.type !== 'channel') return false;
+        return true;
+      });
+    }
+
+    // Apply search filter
+    if (messagesPageState.searchQuery) {
+      const query = messagesPageState.searchQuery.toLowerCase();
+      filtered = filtered.filter(conv => {
+        const name = conv.username || conv.name || '';
+        const msg = conv.lastMessage || '';
+        return name.toLowerCase().includes(query) || msg.toLowerCase().includes(query);
+      });
+    }
+
+    // Render list
+    if (tab === 'requests') {
+      listContainer.innerHTML = filtered.map(req => `
+        <div class="request-item" data-request-id="${req.id}">
+          <div class="conversation-avatar">${req.avatar}</div>
+          <div class="request-content">
+            <div class="request-name">${req.from}</div>
+            <div class="request-message">${req.message}</div>
+            <div class="request-actions">
+              <button class="request-accept" data-request-id="${req.id}">Accept</button>
+              <button class="request-decline" data-request-id="${req.id}">Decline</button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+
+      // Add event listeners for accept/decline
+      document.querySelectorAll('.request-accept').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const requestId = btn.dataset.requestId;
+          acceptRequest(requestId);
+        });
+      });
+
+      document.querySelectorAll('.request-decline').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const requestId = btn.dataset.requestId;
+          declineRequest(requestId);
+        });
+      });
+    } else {
+      listContainer.innerHTML = filtered.map(conv => {
+        const displayName = conv.type === 'group' ? conv.name : conv.username;
+        const routeHash = conv.type === 'group' ? `/group/${conv.groupId}` : `/conversation/${conv.id}`;
+
+        return `
+          <div class="conversation-item" data-conversation-id="${conv.id}" data-route-hash="${routeHash}">
+            <div class="conversation-avatar">${conv.avatar}</div>
+            <div class="conversation-content">
+              <div class="conversation-header">
+                <span class="conversation-username">${displayName}</span>
+                <span class="conversation-timestamp">${formatTimestamp(conv.timestamp)}</span>
+              </div>
+              <p class="conversation-message">${truncateText(conv.lastMessage, 50)}</p>
+            </div>
+            ${conv.unreadCount > 0 ? `<div class="unread-badge">${conv.unreadCount}</div>` : ''}
+          </div>
+        `;
+      }).join('');
+
+      // Add click handlers for conversation items
+      document.querySelectorAll('.conversation-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const routeHash = item.dataset.routeHash;
+          window.location.hash = routeHash;
+        });
+      });
+    }
+  }
+
+  // Accept request (mock implementation)
+  function acceptRequest(requestId) {
+    // Remove the request from UI
+    const requestEl = document.querySelector(`[data-request-id="${requestId}"]`);
+    if (requestEl) {
+      requestEl.remove();
+      // Decrease request count
+      const badge = document.querySelector('.request-badge');
+      if (badge) {
+        let count = parseInt(badge.textContent) || 0;
+        count = Math.max(0, count - 1);
+        if (count > 0) {
+          badge.textContent = count;
+        } else {
+          badge.style.display = 'none';
+        }
+      }
+    }
+  }
+
+  // Decline request (mock implementation)
+  function declineRequest(requestId) {
+    // Remove the request from UI
+    const requestEl = document.querySelector(`[data-request-id="${requestId}"]`);
+    if (requestEl) {
+      requestEl.remove();
+      // Decrease request count
+      const badge = document.querySelector('.request-badge');
+      if (badge) {
+        let count = parseInt(badge.textContent) || 0;
+        count = Math.max(0, count - 1);
+        if (count > 0) {
+          badge.textContent = count;
+        } else {
+          badge.style.display = 'none';
+        }
+      }
+    }
   }
 
   // Render conversation screen
