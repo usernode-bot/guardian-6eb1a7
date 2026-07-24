@@ -1,0 +1,15 @@
+- generic [ref=e298]:
+  - generic [ref=e299]:
+    - button "Back to messages" [ref=e300] [cursor=pointer]: ←
+    - generic [ref=e301] [cursor=pointer]:
+      - generic [ref=e302]: A
+      - generic [ref=e303]:
+        - generic [ref=e304]: AI & Crypto News
+        - generic [ref=e305]: 1 Followers
+    - button "More options" [ref=e306] [cursor=pointer]: ⋮
+  - generic [ref=e307]: No posts yet
+  - generic [ref=e310]:
+    - textbox "What's happening?" [ref=e311]
+    - generic [ref=e312]:
+      - button "Add image" [ref=e313] [cursor=pointer]: 📷
+      - button "Publish" [ref=e314] [cursor=pointer]

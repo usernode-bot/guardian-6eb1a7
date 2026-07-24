@@ -1,0 +1,18 @@
+- generic [ref=e276]:
+  - generic [ref=e277]:
+    - button "Back to new message" [ref=e278] [cursor=pointer]: ←
+    - heading "Create Channel" [level=1] [ref=e279]
+  - generic [ref=e280]: + Add Photo
+  - generic [ref=e283]:
+    - textbox "Channel name" [ref=e285]
+    - textbox "Add a description (optional)" [ref=e287]
+  - generic [ref=e288]:
+    - generic [ref=e289]: Visibility
+    - generic [ref=e290]:
+      - generic [ref=e291] [cursor=pointer]:
+        - radio "○ Public" [checked] [ref=e292]
+        - generic [ref=e293]: ○ Public
+      - generic [ref=e294] [cursor=pointer]:
+        - radio "○ Private" [ref=e295]
+        - generic [ref=e296]: ○ Private
+  - button "Create Channel" [disabled] [ref=e297]
