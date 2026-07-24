@@ -781,12 +781,35 @@ document.addEventListener('DOMContentLoaded', () => {
       window.location.hash = '/messages';
     });
 
-    // Add group header click to open Group Info
+    // Add interactive header controls for group management
     const headerInfo = document.getElementById(`group-header-info-${groupId}`);
     if (headerInfo) {
       headerInfo.style.cursor = 'pointer';
-      headerInfo.addEventListener('click', () => {
-        window.location.hash = `/group/${groupId}/info`;
+      // Tap on group name to edit
+      const headerUsername = headerInfo.querySelector('.header-username');
+      if (headerUsername) {
+        headerUsername.addEventListener('click', (e) => {
+          e.stopPropagation();
+          showEditNameDialog(groupId, group.name);
+        });
+      }
+      // Tap on avatar to change photo
+      const avatar = headerInfo.querySelector('.conversation-avatar-header');
+      if (avatar) {
+        avatar.style.cursor = 'pointer';
+        avatar.addEventListener('click', (e) => {
+          e.stopPropagation();
+          showAvatarPickerDialog(groupId, group);
+        });
+      }
+    }
+
+    // Add group menu button for more options (members, leave, edit description)
+    const menuButton = document.querySelector('.menu-button');
+    if (menuButton) {
+      menuButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showGroupMenuDialog(groupId, group);
       });
     }
 
@@ -803,6 +826,308 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Set up send button and reply state management
     setupComposer(group);
+  }
+
+  // Show group menu with all options (members, edit description, leave)
+  function showGroupMenuDialog(groupId, group) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog group-menu-dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>${group.name}</h2>
+        <button class="close-dialog-button">✕</button>
+      </div>
+      <div class="dialog-content group-menu-content">
+        <button class="menu-option" id="view-members-btn">
+          <span class="option-icon">👥</span>
+          <span class="option-label">Members (${group.memberCount})</span>
+          <span class="option-chevron">›</span>
+        </button>
+        <button class="menu-option" id="edit-description-btn">
+          <span class="option-icon">📝</span>
+          <span class="option-label">Edit Description</span>
+          <span class="option-chevron">›</span>
+        </button>
+        <button class="menu-option" id="add-members-btn">
+          <span class="option-icon">➕</span>
+          <span class="option-label">Add Members</span>
+          <span class="option-chevron">›</span>
+        </button>
+        <button class="menu-option leave-option" id="leave-group-btn">
+          <span class="option-icon">🚪</span>
+          <span class="option-label">Leave Group</span>
+        </button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const closeBtn = dialog.querySelector('.close-dialog-button');
+    closeBtn.addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    document.getElementById('view-members-btn').addEventListener('click', () => {
+      overlay.remove();
+      showMembersSheet(groupId, group);
+    });
+
+    document.getElementById('edit-description-btn').addEventListener('click', () => {
+      overlay.remove();
+      showEditDescriptionDialog(groupId, group.description);
+    });
+
+    document.getElementById('add-members-btn').addEventListener('click', () => {
+      overlay.remove();
+      showAddMembersSheet(groupId, group);
+    });
+
+    document.getElementById('leave-group-btn').addEventListener('click', () => {
+      overlay.remove();
+      showLeaveGroupDialog(groupId, group.name);
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
+    });
+  }
+
+  // Show members list in a sheet/modal
+  function showMembersSheet(groupId, group) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog members-sheet-dialog';
+
+    const membersList = group.members.map(member => `
+      <div class="members-sheet-item" data-member-id="${member.id}">
+        <div class="member-avatar">${member.avatar || member.username.charAt(0).toUpperCase()}</div>
+        <div class="member-info">
+          <div class="member-name">${member.username}</div>
+        </div>
+        ${member.id !== 'user_self' ? `<button class="member-remove-btn" data-member-id="${member.id}">✕</button>` : ''}
+      </div>
+    `).join('');
+
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Members (${group.memberCount})</h2>
+        <button class="close-dialog-button">✕</button>
+      </div>
+      <div class="dialog-content members-list-container">
+        ${membersList}
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const closeBtn = dialog.querySelector('.close-dialog-button');
+    closeBtn.addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    // Long-press or click remove button to remove member
+    document.querySelectorAll('.member-remove-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const memberId = btn.dataset.memberId;
+        const member = group.members.find(m => m.id === memberId);
+        overlay.remove();
+        showRemoveMemberConfirmation(groupId, memberId, member);
+      });
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
+    });
+  }
+
+  // Show add members sheet
+  function showAddMembersSheet(groupId, group) {
+    let selectedMembers = [];
+
+    const availableUsers = suggestedUsers.filter(u => !group.members.find(m => m.id === u.id));
+
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog add-members-sheet-dialog';
+
+    const usersList = availableUsers.map(user => `
+      <div class="suggested-user-item" data-user-id="${user.id}">
+        <div class="user-avatar">${user.avatar}</div>
+        <div class="user-content">
+          <div class="user-username">${user.username}</div>
+          <div class="user-domain">${user.domain}</div>
+        </div>
+        <div class="selection-indicator"></div>
+      </div>
+    `).join('');
+
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Add Members</h2>
+        <button class="close-dialog-button">✕</button>
+      </div>
+      <div class="dialog-content">
+        <input type="text" class="form-input search-members-add-sheet" placeholder="🔍 Search username" id="search-members-add-sheet" />
+        <div class="members-chips-container" id="members-chips-container-sheet"></div>
+        <div class="users-list add-members-sheet-list" id="add-members-sheet-list">
+          ${usersList}
+        </div>
+        <div class="validation-error" id="add-members-error"></div>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="cancel-add-members-sheet">Cancel</button>
+        <button class="button-primary" id="save-add-members-sheet">Add Members</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const closeBtn = dialog.querySelector('.close-dialog-button');
+    closeBtn.addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    const searchInput = document.getElementById('search-members-add-sheet');
+    const membersChipsContainer = document.getElementById('members-chips-container-sheet');
+    const usersListEl = document.getElementById('add-members-sheet-list');
+    const errorEl = document.getElementById('add-members-error');
+
+    function renderChips() {
+      if (selectedMembers.length === 0) {
+        membersChipsContainer.innerHTML = '';
+        return;
+      }
+
+      membersChipsContainer.innerHTML = selectedMembers.map(user => `
+        <div class="member-chip">
+          <div class="chip-avatar">${user.avatar}</div>
+          <span>${user.username}</span>
+          <button class="chip-remove" data-user-id="${user.id}" aria-label="Remove ${user.username}">×</button>
+        </div>
+      `).join('');
+
+      document.querySelectorAll('.chip-remove').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          const userId = btn.dataset.userId;
+          selectedMembers = selectedMembers.filter(u => u.id !== userId);
+          renderChips();
+          filterAndDisplay();
+        });
+      });
+    }
+
+    function toggleUser(userId) {
+      const user = suggestedUsers.find(u => u.id === userId);
+      if (!user || group.members.find(m => m.id === userId)) return;
+
+      if (selectedMembers.find(u => u.id === userId)) {
+        selectedMembers = selectedMembers.filter(u => u.id !== userId);
+      } else {
+        selectedMembers.push(user);
+      }
+
+      renderChips();
+      filterAndDisplay();
+      errorEl.innerHTML = '';
+    }
+
+    function filterAndDisplay() {
+      const query = searchInput.value.toLowerCase();
+      const filtered = availableUsers.filter(u =>
+        u.username.toLowerCase().includes(query) || u.domain.toLowerCase().includes(query)
+      );
+
+      usersListEl.innerHTML = filtered.map(user => `
+        <div class="suggested-user-item ${selectedMembers.find(m => m.id === user.id) ? 'selected' : ''}" data-user-id="${user.id}">
+          <div class="user-avatar">${user.avatar}</div>
+          <div class="user-content">
+            <div class="user-username">${user.username}</div>
+            <div class="user-domain">${user.domain}</div>
+          </div>
+          <div class="selection-indicator">${selectedMembers.find(m => m.id === user.id) ? '✓' : ''}</div>
+        </div>
+      `).join('');
+
+      document.querySelectorAll('.suggested-user-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const userId = item.dataset.userId;
+          toggleUser(userId);
+        });
+      });
+    }
+
+    searchInput.addEventListener('input', filterAndDisplay);
+
+    document.querySelectorAll('.suggested-user-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const userId = item.dataset.userId;
+        toggleUser(userId);
+      });
+    });
+
+    document.getElementById('cancel-add-members-sheet').addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    document.getElementById('save-add-members-sheet').addEventListener('click', async () => {
+      if (selectedMembers.length === 0) {
+        errorEl.textContent = 'Select at least 1 member';
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/groups/${groupId}/members`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-usernode-token': localStorage.getItem('usernode-token')
+          },
+          body: JSON.stringify({ userIds: selectedMembers.map(u => u.id) })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to add members');
+        }
+
+        group.members.push(...selectedMembers);
+        group.memberCount = group.members.length;
+
+        // Update conversation
+        const conversation = conversations.find(c => c.groupId === groupId);
+        if (conversation) {
+          conversation.memberCount = group.memberCount;
+        }
+
+        overlay.remove();
+        renderGroupConversationPage(groupId);
+        showToast(`Added ${selectedMembers.length} member(s)`, { type: 'success' });
+      } catch (error) {
+        errorEl.textContent = 'Failed to add members';
+        console.error(error);
+      }
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
+    });
   }
 
   // Render new message page
@@ -1233,8 +1558,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Show edit name dialog
+  // Show edit name dialog - stays on chat page
   function showEditNameDialog(groupId, currentName) {
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
+
     const overlay = document.createElement('div');
     overlay.className = 'dialog-overlay';
 
@@ -1295,7 +1623,6 @@ document.addEventListener('DOMContentLoaded', () => {
           return;
         }
 
-        const group = groups.find(g => g.id === groupId);
         group.name = newName;
 
         // Update Messages list
@@ -1304,9 +1631,15 @@ document.addEventListener('DOMContentLoaded', () => {
           conversation.name = newName;
         }
 
+        // Update header immediately without navigation
+        const headerUsername = document.querySelector('.header-username');
+        if (headerUsername) {
+          headerUsername.textContent = newName;
+        }
+
         overlay.remove();
-        renderGroupInfoPage(groupId);
         showToast('Group name updated', { type: 'success' });
+        renderMessagesPage(); // Update messages list
       } catch (error) {
         errorEl.textContent = 'Failed to update group name';
         console.error(error);
@@ -1322,8 +1655,11 @@ document.addEventListener('DOMContentLoaded', () => {
     input.focus();
   }
 
-  // Show edit description dialog
+  // Show edit description dialog - stays on chat page
   function showEditDescriptionDialog(groupId, currentDescription) {
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
+
     const overlay = document.createElement('div');
     overlay.className = 'dialog-overlay';
 
@@ -1377,11 +1713,9 @@ document.addEventListener('DOMContentLoaded', () => {
           throw new Error('Failed to update description');
         }
 
-        const group = groups.find(g => g.id === groupId);
         group.description = newDesc;
 
         overlay.remove();
-        renderGroupInfoPage(groupId);
         showToast('Description updated', { type: 'success' });
       } catch (error) {
         document.getElementById('edit-desc-error').textContent = 'Failed to update description';
@@ -1398,8 +1732,8 @@ document.addEventListener('DOMContentLoaded', () => {
     textarea.focus();
   }
 
-  // Show avatar picker dialog
-  function showAvatarPickerDialog(groupId, group) {
+  // Show avatar picker dialog - stays on chat page
+  function showAvatarPickerDialog(groupId, groupData) {
     const overlay = document.createElement('div');
     overlay.className = 'dialog-overlay';
 
@@ -1411,7 +1745,7 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
       <div class="dialog-content">
         <div id="avatar-preview" class="avatar-preview">
-          <div class="avatar-placeholder-large">${group.avatar}</div>
+          <div class="avatar-placeholder-large">${groupData.avatar}</div>
         </div>
         <input type="file" id="avatar-file-picker" accept="image/*" style="display: none;" />
         <button class="button-secondary" id="select-photo-button">Select Photo</button>
@@ -1484,9 +1818,15 @@ document.addEventListener('DOMContentLoaded', () => {
             conversation.avatar = base64;
           }
 
+          // Update header avatar immediately
+          const headerAvatar = document.querySelector('.conversation-avatar-header');
+          if (headerAvatar) {
+            headerAvatar.innerHTML = base64.includes('data:') ? `<img src="${base64}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />` : base64;
+          }
+
           overlay.remove();
-          renderGroupInfoPage(groupId);
           showToast('Photo updated', { type: 'success' });
+          renderMessagesPage(); // Update messages list
         } catch (error) {
           errorEl.textContent = 'Failed to update photo';
           console.error(error);
@@ -1668,7 +2008,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Show remove member confirmation
+  // Show remove member confirmation - stays on chat page
   function showRemoveMemberConfirmation(groupId, memberId, member) {
     const overlay = document.createElement('div');
     overlay.className = 'dialog-overlay';
@@ -1729,9 +2069,15 @@ document.addEventListener('DOMContentLoaded', () => {
           isSystemMessage: true
         });
 
+        // Update header member count
+        const headerMemberCount = document.querySelector('.header-member-count');
+        if (headerMemberCount) {
+          headerMemberCount.textContent = `${group.memberCount} members`;
+        }
+
         overlay.remove();
-        renderGroupInfoPage(groupId);
         showToast(`${member.username} removed`, { type: 'success' });
+        renderGroupConversationPage(groupId); // Re-render to show system message
       } catch (error) {
         console.error(error);
         showToast('Failed to remove member', { type: 'error' });
@@ -1745,7 +2091,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Show leave group confirmation
+  // Show leave group confirmation - navigates back to messages
   function showLeaveGroupDialog(groupId, groupName) {
     const overlay = document.createElement('div');
     overlay.className = 'dialog-overlay';
