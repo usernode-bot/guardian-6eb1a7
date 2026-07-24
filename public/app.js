@@ -2975,46 +2975,63 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    // Like button handlers
-    document.querySelectorAll('.post-like-button').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const postId = btn.dataset.postId;
-        toggleLikePost(postId, channelId);
-        renderChannelView(channelId);
-      });
-    });
+    // Attach event handlers to messages container using event delegation
+    const messagesContainer = document.querySelector('.messages-container');
 
-    // Share button handlers
-    document.querySelectorAll('.post-share-button').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const postId = btn.dataset.postId;
-        const post = channel.posts.find(p => p.id === postId);
-        if (post) {
-          const shareText = `Check out this post from ${channel.name}:\n\n"${post.text}"`;
-          if (navigator.share) {
-            navigator.share({
-              title: channel.name,
-              text: shareText
-            }).catch(err => console.log('Share cancelled or failed'));
-          } else {
-            // Fallback: copy to clipboard
-            navigator.clipboard.writeText(shareText).then(() => {
-              showToast('Post link copied to clipboard', { type: 'success' });
-            }).catch(() => {
-              showToast('Failed to copy link', { type: 'error' });
-            });
+    if (messagesContainer) {
+      // Share button handler (event delegation)
+      messagesContainer.addEventListener('click', (e) => {
+        const shareBtn = e.target.closest('.post-share-button');
+        if (shareBtn) {
+          e.stopPropagation();
+          const postId = shareBtn.dataset.postId;
+          console.log('Share button clicked for post:', postId);
+          const post = channel.posts.find(p => p.id === postId);
+          if (post) {
+            const shareText = `Check out this post from ${channel.name}:\n\n"${post.text}"`;
+            if (navigator.share) {
+              navigator.share({
+                title: channel.name,
+                text: shareText
+              }).catch(err => console.log('Share cancelled or failed'));
+            } else {
+              // Fallback: copy to clipboard
+              navigator.clipboard.writeText(shareText).then(() => {
+                showToast('Post link copied to clipboard', { type: 'success' });
+              }).catch(() => {
+                showToast('Failed to copy link', { type: 'error' });
+              });
+            }
           }
+          return false;
         }
       });
-    });
 
-    // Post menu button handlers
-    document.querySelectorAll('.post-menu-button').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const postId = btn.dataset.postId;
-        showPostMenu(channelId, postId, isOwner);
+      // Post menu button handler (event delegation)
+      messagesContainer.addEventListener('click', (e) => {
+        const menuBtn = e.target.closest('.post-menu-button');
+        if (menuBtn) {
+          e.stopPropagation();
+          const postId = menuBtn.dataset.postId;
+          console.log('Menu button clicked for post:', postId);
+          showPostMenu(channelId, postId, isOwner);
+          return false;
+        }
       });
-    });
+
+      // Like button handler (event delegation)
+      messagesContainer.addEventListener('click', (e) => {
+        const likeBtn = e.target.closest('.post-like-button');
+        if (likeBtn) {
+          e.stopPropagation();
+          const postId = likeBtn.dataset.postId;
+          console.log('Like button clicked for post:', postId);
+          toggleLikePost(postId, channelId);
+          renderChannelView(channelId);
+          return false;
+        }
+      });
+    }
 
     // Composer handlers (owner only)
     if (isOwner) {
