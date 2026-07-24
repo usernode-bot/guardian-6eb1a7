@@ -1,0 +1,33 @@
+- generic [ref=e141]:
+  - generic [ref=e142]:
+    - button "Back to messages" [ref=e143] [cursor=pointer]: ←
+    - generic [ref=e144] [cursor=pointer]:
+      - generic [ref=e145]: MPC
+      - generic [ref=e146]:
+        - generic [ref=e147]: My Private Channel
+        - generic [ref=e148]: 3 members
+    - button "More options" [ref=e149] [cursor=pointer]: ⋮
+  - generic [ref=e150]:
+    - generic [ref=e151]:
+      - generic [ref=e152]: Channel created.
+      - generic [ref=e153]: 5:59 AM
+    - generic [ref=e154]:
+      - generic [ref=e155]: B
+      - generic [ref=e156]:
+        - generic [ref=e157]: Thanks for creating this!
+        - generic [ref=e158]: 5:59 AM
+    - generic [ref=e159]:
+      - generic [ref=e160]: Welcome! This is our collaboration space
+      - generic [ref=e161]: 5:59 AM
+    - generic [ref=e162]:
+      - generic [ref=e163]: C
+      - generic [ref=e164]:
+        - generic [ref=e165]: Great to be here!
+        - generic [ref=e166]: 5:59 AM
+    - generic [ref=e167]:
+      - generic [ref=e168]: Let's discuss the project plan
+      - generic [ref=e169]: 4:59 AM
+  - generic [ref=e170]:
+    - button "Emoji" [ref=e171] [cursor=pointer]: 😊
+    - textbox "Message..." [ref=e172]
+    - button "Send" [ref=e173] [cursor=pointer]: ➤
