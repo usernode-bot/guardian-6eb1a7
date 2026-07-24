@@ -1,0 +1,25 @@
+- generic [ref=e174]:
+  - generic [ref=e175]:
+    - button "Back to messages" [ref=e176] [cursor=pointer]: ←
+    - generic [ref=e177] [cursor=pointer]:
+      - generic [ref=e178]: A
+      - generic [ref=e179]:
+        - generic [ref=e180]: Announcements
+        - generic [ref=e181]: 20 members
+    - button "More options" [ref=e182] [cursor=pointer]: ⋮
+  - generic [ref=e183]:
+    - generic [ref=e184]:
+      - generic [ref=e185]: A
+      - generic [ref=e186]:
+        - generic [ref=e187]: System maintenance scheduled for Sunday
+        - generic [ref=e188]: 5:59 AM
+    - generic [ref=e189]:
+      - generic [ref=e190]: A
+      - generic [ref=e191]:
+        - generic [ref=e192]: New feature rollout completed
+        - generic [ref=e193]: 5:59 AM
+    - generic [ref=e194]:
+      - generic [ref=e195]: A
+      - generic [ref=e196]:
+        - generic [ref=e197]: Q3 planning session starts Monday
+        - generic [ref=e198]: 11:59 PM

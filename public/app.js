@@ -180,6 +180,128 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   ]);
 
+  // Dummy channels data with messages
+  let channels = [
+    {
+      id: 'channel_1',
+      name: 'General',
+      description: 'General discussion and announcements',
+      avatar: 'G',
+      visibility: 'public',
+      createdAt: Date.now() - 30*24*60*60*1000,
+      creatorId: 'user_alice',
+      memberCount: 15,
+      currentUserIsMember: true,
+      currentUserIsAdmin: false,
+      currentUserCanSend: true,
+      members: [
+        { id: 'user_self', username: 'You', role: 'member', avatar: 'Y' },
+        { id: 'user_alice', username: 'Alice', role: 'admin', avatar: 'A' },
+        { id: 'user_bob', username: 'Bob', role: 'member', avatar: 'B' },
+        { id: 'user_charlie', username: 'Charlie', role: 'member', avatar: 'C' }
+      ],
+      messages: [
+        { id: 'msg_c1', senderId: 'user_alice', senderName: 'Alice', text: 'Welcome to the General channel!', timestamp: Date.now() - 7*24*60*60*1000, isOutgoing: false },
+        { id: 'msg_c2', senderId: 'user_bob', senderName: 'Bob', text: 'Thanks for creating this space', timestamp: Date.now() - 6*24*60*60*1000, isOutgoing: false },
+        { id: 'msg_c3', senderId: 'user_self', text: 'Looking forward to collaborating here', timestamp: Date.now() - 5*24*60*60*1000, isOutgoing: true },
+        { id: 'msg_c4', senderId: 'user_charlie', senderName: 'Charlie', text: 'Great initiative!', timestamp: Date.now() - 4*24*60*60*1000, isOutgoing: false },
+        { id: 'msg_c5', senderId: 'user_alice', senderName: 'Alice', text: 'Let\'s use this for team updates', timestamp: Date.now() - 3*24*60*60*1000, isOutgoing: false },
+        { id: 'msg_c6', senderId: 'user_self', text: 'Perfect, I\'ll share the project details tomorrow', timestamp: Date.now() - 2*24*60*60*1000, isOutgoing: true },
+        { id: 'msg_c7', senderId: 'user_bob', senderName: 'Bob', text: 'Can\'t wait to hear more!', timestamp: Date.now() - 1*24*60*60*1000, isOutgoing: false },
+        { id: 'msg_c8', senderId: 'user_alice', senderName: 'Alice', text: 'Meeting scheduled for Friday at 2pm', timestamp: Date.now() - 12*60*60*1000, isOutgoing: false }
+      ]
+    },
+    {
+      id: 'channel_2',
+      name: 'Announcements',
+      description: 'Important announcements and updates',
+      avatar: 'A',
+      visibility: 'public',
+      createdAt: Date.now() - 45*24*60*60*1000,
+      creatorId: 'user_alice',
+      memberCount: 20,
+      currentUserIsMember: true,
+      currentUserIsAdmin: false,
+      currentUserCanSend: false,
+      members: [
+        { id: 'user_self', username: 'You', role: 'member', avatar: 'Y' },
+        { id: 'user_alice', username: 'Alice', role: 'admin', avatar: 'A' }
+      ],
+      messages: [
+        { id: 'msg_a1', senderId: 'user_alice', senderName: 'Alice', text: 'System maintenance scheduled for Sunday', timestamp: Date.now() - 2*24*60*60*1000, isOutgoing: false },
+        { id: 'msg_a2', senderId: 'user_alice', senderName: 'Alice', text: 'New feature rollout completed', timestamp: Date.now() - 1*24*60*60*1000, isOutgoing: false },
+        { id: 'msg_a3', senderId: 'user_alice', senderName: 'Alice', text: 'Q3 planning session starts Monday', timestamp: Date.now() - 6*60*60*1000, isOutgoing: false }
+      ]
+    },
+    {
+      id: 'channel_3',
+      name: 'Team Planning',
+      description: 'Q3 and Q4 planning discussions',
+      avatar: 'TP',
+      visibility: 'private',
+      createdAt: Date.now() - 10*24*60*60*1000,
+      creatorId: 'user_bob',
+      memberCount: 4,
+      currentUserIsMember: true,
+      currentUserIsAdmin: false,
+      currentUserCanSend: true,
+      members: [
+        { id: 'user_self', username: 'You', role: 'member', avatar: 'Y' },
+        { id: 'user_bob', username: 'Bob', role: 'admin', avatar: 'B' },
+        { id: 'user_charlie', username: 'Charlie', role: 'member', avatar: 'C' }
+      ],
+      messages: [
+        { id: 'msg_tp1', senderId: 'user_bob', senderName: 'Bob', text: 'Draft goals for next quarter', timestamp: Date.now() - 8*24*60*60*1000, isOutgoing: false },
+        { id: 'msg_tp2', senderId: 'user_charlie', senderName: 'Charlie', text: 'I think we should focus on performance', timestamp: Date.now() - 7*24*60*60*1000, isOutgoing: false }
+      ]
+    },
+    {
+      id: 'channel_4',
+      name: 'My Private Channel',
+      description: 'A channel I created and manage',
+      avatar: 'MPC',
+      visibility: 'private',
+      createdAt: Date.now() - 5*24*60*60*1000,
+      creatorId: 'user_self',
+      memberCount: 3,
+      currentUserIsMember: true,
+      currentUserIsAdmin: true,
+      currentUserCanSend: true,
+      members: [
+        { id: 'user_self', username: 'You', role: 'admin', avatar: 'Y' },
+        { id: 'user_bob', username: 'Bob', role: 'member', avatar: 'B' },
+        { id: 'user_charlie', username: 'Charlie', role: 'member', avatar: 'C' }
+      ],
+      messages: [
+        { id: 'msg_mpc1', senderId: 'user_self', text: 'Channel created.', timestamp: Date.now() - 5*24*60*60*1000, isOutgoing: true },
+        { id: 'msg_mpc2', senderId: 'user_bob', senderName: 'Bob', text: 'Thanks for creating this!', timestamp: Date.now() - 4*24*60*60*1000, isOutgoing: false },
+        { id: 'msg_mpc3', senderId: 'user_self', text: 'Welcome! This is our collaboration space', timestamp: Date.now() - 3*24*60*60*1000, isOutgoing: true },
+        { id: 'msg_mpc4', senderId: 'user_charlie', senderName: 'Charlie', text: 'Great to be here!', timestamp: Date.now() - 2*24*60*60*1000, isOutgoing: false },
+        { id: 'msg_mpc5', senderId: 'user_self', text: 'Let\'s discuss the project plan', timestamp: Date.now() - 1*60*60*1000, isOutgoing: true }
+      ]
+    }
+  ];
+
+  // Channel unread counts
+  let channelUnreadCounts = {
+    'channel_1': 0,
+    'channel_2': 3,
+    'channel_3': 0,
+    'channel_4': 0
+  };
+
+  // Add channel conversations to the conversations list
+  conversations = conversations.concat(channels.map(ch => ({
+    id: `conv_channel_${ch.id}`,
+    type: 'channel',
+    channelId: ch.id,
+    name: ch.name,
+    avatar: ch.avatar,
+    lastMessage: ch.messages.length > 0 ? ch.messages[ch.messages.length - 1].text : '',
+    timestamp: ch.messages.length > 0 ? ch.messages[ch.messages.length - 1].timestamp : ch.createdAt,
+    unreadCount: channelUnreadCounts[ch.id] || 0
+  })));
+
   // Message requests data
   let requests = [
     {
@@ -215,10 +337,19 @@ document.addEventListener('DOMContentLoaded', () => {
     return 'group_' + Date.now();
   }
 
-  // Helper: generate default avatar from first letter of group name
-  function generateDefaultAvatar(groupName) {
-    if (!groupName || groupName.length === 0) return '';
-    return groupName.charAt(0).toUpperCase();
+  // Helper: generate unique channel ID
+  function generateChannelId() {
+    return 'channel_' + Date.now();
+  }
+
+  // Helper: generate default avatar from first letter of group/channel name
+  function generateDefaultAvatar(name) {
+    if (!name || name.length === 0) return '';
+    const words = name.split(' ');
+    if (words.length > 1) {
+      return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase();
+    }
+    return name.charAt(0).toUpperCase();
   }
 
   // Helper: create a new group and associated conversation
@@ -267,6 +398,61 @@ document.addEventListener('DOMContentLoaded', () => {
     return groupId;
   }
 
+  // Helper: create a new channel and associated conversation
+  function createChannel(channelName, channelDescription, selectedMembers, visibility, avatarData) {
+    const channelId = generateChannelId();
+    const timestamp = Date.now();
+    const avatarValue = avatarData || generateDefaultAvatar(channelName);
+
+    // Only the current user is a member when creating a channel
+    const newChannel = {
+      id: channelId,
+      name: channelName,
+      description: channelDescription,
+      avatar: avatarValue,
+      visibility: visibility,
+      createdAt: timestamp,
+      creatorId: 'user_self',
+      memberCount: 1,
+      currentUserIsMember: true,
+      currentUserIsAdmin: true,
+      currentUserCanSend: true,
+      members: [
+        { id: 'user_self', username: 'You', role: 'admin', avatar: 'Y' }
+      ],
+      messages: [
+        {
+          id: 'msg_' + timestamp,
+          senderId: 'system',
+          senderName: 'System',
+          text: 'Channel created.',
+          timestamp: timestamp,
+          isOutgoing: false,
+          isSystemMessage: true
+        }
+      ]
+    };
+
+    channels.push(newChannel);
+    channelUnreadCounts[channelId] = 0;
+
+    const newConversation = {
+      id: `conv_channel_${channelId}`,
+      type: 'channel',
+      channelId: channelId,
+      name: channelName,
+      avatar: avatarValue,
+      lastMessage: 'Channel created.',
+      timestamp: timestamp,
+      unreadCount: 0
+    };
+
+    conversations.unshift(newConversation);
+
+    console.log('Channel created:', newChannel);
+    return channelId;
+  }
+
   // Format relative timestamp for conversation list
   function formatTimestamp(timestamp) {
     const now = Date.now();
@@ -313,7 +499,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (tab === 'groups') {
       filtered = conversations.filter(c => c.type === 'group' && !c.archived);
     } else if (tab === 'channels') {
-      filtered = [];
+      filtered = conversations.filter(c => c.type === 'channel' && !c.archived);
     } else if (tab === 'requests') {
       filtered = requests;
     }
@@ -364,8 +550,9 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
         `;
       } else {
-        const displayName = item.type === 'group' ? item.name : item.username;
-        const routeHash = item.type === 'group' ? `/group/${item.groupId}` : `/conversation/${item.id}`;
+        const displayName = item.type === 'group' || item.type === 'channel' ? item.name : item.username;
+        const routeHash = item.type === 'group' ? `/group/${item.groupId}` : item.type === 'channel' ? `/channel/${item.channelId}` : `/conversation/${item.id}`;
+        const badgeColor = item.type === 'channel' ? '#FF6B6B' : '#007AFF';
 
         return `
           <div class="swipe-container" data-conversation-id="${item.id}">
@@ -382,7 +569,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 <p class="conversation-message">${item.lastMessage}</p>
               </div>
-              ${item.unreadCount > 0 ? `<div class="unread-badge">${item.unreadCount}</div>` : ''}
+              ${item.unreadCount > 0 ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>` : ''}
             </div>
           </div>
         `;
@@ -1433,10 +1620,17 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="search-container">
           <input type="text" class="search-field" placeholder="🔍 Search wallet, username" />
         </div>
-        <div class="create-group-card">
-          <span class="group-icon">👥</span>
-          <span class="group-label">Create Group</span>
-          <span class="group-chevron">></span>
+        <div class="create-options">
+          <div class="create-group-card">
+            <span class="group-icon">👥</span>
+            <span class="group-label">Create Group</span>
+            <span class="group-chevron">></span>
+          </div>
+          <div class="create-channel-card">
+            <span class="channel-icon">#</span>
+            <span class="channel-label">Create Channel</span>
+            <span class="channel-chevron">></span>
+          </div>
         </div>
         <div class="suggested-users-section">
           <div class="section-header">Suggested Users</div>
@@ -1455,6 +1649,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Add create group card handler
     document.querySelector('.create-group-card').addEventListener('click', () => {
       window.location.hash = '/create-group';
+    });
+
+    // Add create channel card handler
+    document.querySelector('.create-channel-card').addEventListener('click', () => {
+      window.location.hash = '/create-channel';
     });
 
     // Add user item handlers
@@ -2460,6 +2659,382 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 3000);
   }
 
+  // Render channel conversation screen
+  function renderChannelConversationPage(channelId) {
+    const channel = channels.find(ch => ch.id === channelId);
+    if (!channel) {
+      window.location.hash = '/messages';
+      return;
+    }
+
+    const messagesList = channel.messages.map(msg => {
+      let messageHTML = `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming'}" data-message-id="${msg.id}">`;
+
+      if (msg.isOutgoing) {
+        messageHTML += `
+          <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
+          <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
+        </div>`;
+      } else {
+        messageHTML += `
+          <div class="message-avatar">${msg.senderName ? msg.senderName.charAt(0).toUpperCase() : ''}</div>
+          <div class="message-content">
+            <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
+            <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
+          </div>
+        </div>`;
+      }
+
+      return messageHTML;
+    }).join('');
+
+    const composerDisabled = !channel.currentUserCanSend ? 'disabled' : '';
+    const viewOnlyBadge = !channel.currentUserCanSend ? '<div class="view-only-badge">View only</div>' : '';
+    const composerDisplay = channel.currentUserIsAdmin ? '' : 'display: none;';
+
+    pageContainer.innerHTML = `
+      <div class="conversation-page">
+        <div class="conversation-header">
+          <button class="back-button" aria-label="Back to messages">←</button>
+          <div class="conversation-header-info channel-header-info" id="channel-header-info-${channelId}">
+            <div class="conversation-avatar-header">${channel.avatar}</div>
+            <div class="header-text">
+              <div class="header-username">${channel.name}</div>
+              <div class="header-member-count">${channel.memberCount} members</div>
+            </div>
+          </div>
+          <button class="menu-button" aria-label="More options">⋮</button>
+        </div>
+        <div class="messages-container">
+          ${messagesList}
+        </div>
+        <div class="composer-container" style="${composerDisplay}">
+          ${viewOnlyBadge}
+          <div class="reply-preview-bar" style="display: none;">
+            <div class="reply-preview-content">
+              <div class="reply-quote">
+                <div class="reply-sender">Replying to: <span class="reply-sender-name"></span></div>
+                <div class="reply-text"></div>
+              </div>
+              <button class="reply-close-button" aria-label="Cancel reply">✕</button>
+            </div>
+          </div>
+          <button class="emoji-button" aria-label="Emoji">😊</button>
+          <textarea class="composer-input" placeholder="Message..." rows="1" ${composerDisabled}></textarea>
+          <button class="send-button" aria-label="Send" ${composerDisabled}>➤</button>
+        </div>
+      </div>
+    `;
+
+    // Add back button handler
+    document.querySelector('.back-button').addEventListener('click', () => {
+      window.location.hash = '/messages';
+    });
+
+    // Add channel header handlers
+    const headerInfo = document.getElementById(`channel-header-info-${channelId}`);
+    if (headerInfo) {
+      headerInfo.style.cursor = 'pointer';
+      headerInfo.addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.location.hash = `/channel/${channelId}/info`;
+      });
+    }
+
+    // Add menu button for channel options
+    const menuButton = document.querySelector('.menu-button');
+    if (menuButton) {
+      menuButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.location.hash = `/channel/${channelId}/info`;
+      });
+    }
+
+    // Scroll to latest message
+    setTimeout(() => {
+      const messagesContainer = document.querySelector('.messages-container');
+      if (messagesContainer) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
+    }, 0);
+
+    // Set up message long-press interactions
+    setupMessageLongPress(channel);
+
+    // Set up send button and reply state management (only if can send)
+    if (channel.currentUserCanSend) {
+      setupComposer(channel);
+    }
+  }
+
+  // Render channel info modal
+  function renderChannelInfoModal(channelId) {
+    const channel = channels.find(ch => ch.id === channelId);
+    if (!channel) {
+      window.location.hash = '/messages';
+      return;
+    }
+
+    const membersList = channel.members.map(member => `
+      <div class="channel-member-item" data-member-id="${member.id}">
+        <div class="member-avatar">${member.avatar || member.username.charAt(0).toUpperCase()}</div>
+        <div class="member-info">
+          <div class="member-name">${member.username}</div>
+        </div>
+      </div>
+    `).join('');
+
+    pageContainer.innerHTML = `
+      <div class="channel-info-page">
+        <div class="channel-info-header">
+          <button class="back-button" aria-label="Back to channel">←</button>
+          <h1>Channel Info</h1>
+          <div style="width: 32px;"></div>
+        </div>
+
+        <div class="channel-info-content">
+          <div class="channel-avatar-section">
+            <div class="channel-avatar-large" id="channel-avatar-large">${channel.avatar}</div>
+          </div>
+
+          <div class="channel-details-section">
+            <div class="detail-item">
+              <div class="detail-label">Channel Name</div>
+              <div class="detail-value" id="channel-name-value">${channel.name}</div>
+            </div>
+
+            <div class="detail-item">
+              <div class="detail-label">Description</div>
+              <div class="detail-value" id="channel-description-value">${channel.description || 'No description'}</div>
+            </div>
+
+            <div class="detail-item">
+              <div class="detail-label">Visibility</div>
+              <div class="detail-value">${channel.visibility === 'public' ? '🌐 Public' : '🔒 Private'}</div>
+            </div>
+
+            <div class="detail-item">
+              <div class="detail-label">Members</div>
+              <div class="detail-value">${channel.memberCount}</div>
+            </div>
+          </div>
+
+          <div class="members-section">
+            <div class="section-title">Members (${channel.memberCount})</div>
+            <div class="members-list" id="members-list">
+              ${membersList}
+            </div>
+          </div>
+
+          <button class="leave-channel-button" id="leave-channel-button">Leave Channel</button>
+        </div>
+      </div>
+    `;
+
+    // Back button
+    document.querySelector('.back-button').addEventListener('click', () => {
+      window.location.hash = `/channel/${channelId}`;
+    });
+
+    // Leave channel
+    document.getElementById('leave-channel-button').addEventListener('click', () => {
+      showLeaveChannelDialog(channelId, channel.name);
+    });
+  }
+
+  // Show leave channel confirmation dialog
+  function showLeaveChannelDialog(channelId, channelName) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Leave Channel</h2>
+      </div>
+      <div class="dialog-content">
+        <p>Are you sure you want to leave <strong>${channelName}</strong>?</p>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="cancel-leave-channel">Cancel</button>
+        <button class="button-danger" id="confirm-leave-channel">Leave</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    document.getElementById('cancel-leave-channel').addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    document.getElementById('confirm-leave-channel').addEventListener('click', () => {
+      const channel = channels.find(ch => ch.id === channelId);
+      if (channel) {
+        channel.currentUserIsMember = false;
+        channel.members = channel.members.filter(m => m.id !== 'user_self');
+        channel.memberCount--;
+
+        conversations = conversations.filter(c => c.channelId !== channelId);
+
+        overlay.remove();
+        window.location.hash = '/messages';
+        showToast(`Left ${channelName}`, { type: 'success' });
+      }
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
+    });
+  }
+
+  // Render Create Channel Page
+  function renderCreateChannelPage() {
+    const state = {
+      channelName: '',
+      channelDescription: '',
+      visibility: 'public',
+      avatarFile: null,
+      avatarPreview: null,
+      validationError: ''
+    };
+
+    pageContainer.innerHTML = `
+      <div class="create-channel-page">
+        <div class="create-channel-header">
+          <button class="back-button" aria-label="Back to messages">←</button>
+          <h1>Create Channel</h1>
+        </div>
+
+        <div class="channel-avatar-section">
+          <div class="avatar-placeholder" id="avatar-placeholder">
+            <div class="avatar-placeholder-text">+ Add Photo</div>
+          </div>
+          <input type="file" id="avatar-file-input" accept="image/*" style="display: none;" />
+        </div>
+
+        <div class="form-section">
+          <div>
+            <input type="text" class="form-input" placeholder="Channel name" id="channel-name-input" maxlength="50" />
+            <div class="validation-error" id="name-error"></div>
+          </div>
+          <input type="text" class="form-input" placeholder="Add a description (optional)" id="channel-description-input" maxlength="250" />
+        </div>
+
+        <div class="form-section">
+          <div class="visibility-toggle-section">
+            <label>Visibility</label>
+            <div class="toggle-group">
+              <button class="toggle-btn active" data-visibility="public">🌐 Public</button>
+              <button class="toggle-btn" data-visibility="private">🔒 Private</button>
+            </div>
+          </div>
+        </div>
+
+        <button class="create-channel-button" id="create-channel-button">Create Channel</button>
+      </div>
+    `;
+
+    const backButton = document.querySelector('.back-button');
+    const channelNameInput = document.getElementById('channel-name-input');
+    const channelDescriptionInput = document.getElementById('channel-description-input');
+    const avatarPlaceholder = document.getElementById('avatar-placeholder');
+    const avatarFileInput = document.getElementById('avatar-file-input');
+    const createChannelButton = document.getElementById('create-channel-button');
+    const nameError = document.getElementById('name-error');
+
+    function updateAvatarDisplay() {
+      if (state.avatarPreview) {
+        const img = document.createElement('img');
+        img.src = state.avatarPreview;
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.borderRadius = '50%';
+        img.style.objectFit = 'cover';
+        avatarPlaceholder.innerHTML = '';
+        avatarPlaceholder.appendChild(img);
+      } else if (state.channelName.trim()) {
+        const initials = generateDefaultAvatar(state.channelName);
+        avatarPlaceholder.innerHTML = `<div style="font-size: 48px; color: #fff; font-weight: 600;">${initials}</div>`;
+      } else {
+        avatarPlaceholder.innerHTML = '<div class="avatar-placeholder-text">+ Add Photo</div>';
+      }
+    }
+
+    function updateButtonState() {
+      const isNameFilled = state.channelName.trim().length > 0;
+      const isDisabled = !isNameFilled;
+      createChannelButton.disabled = isDisabled;
+    }
+
+    backButton.addEventListener('click', () => {
+      window.location.hash = '/messages';
+    });
+
+    avatarPlaceholder.addEventListener('click', () => {
+      avatarFileInput.click();
+    });
+
+    avatarFileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          state.avatarFile = file;
+          state.avatarPreview = event.target.result;
+          updateAvatarDisplay();
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    channelNameInput.addEventListener('input', (e) => {
+      state.channelName = e.target.value.substring(0, 50);
+      e.target.value = state.channelName;
+      updateAvatarDisplay();
+      updateButtonState();
+      nameError.innerHTML = '';
+    });
+
+    channelDescriptionInput.addEventListener('input', (e) => {
+      state.channelDescription = e.target.value.substring(0, 250);
+      e.target.value = state.channelDescription;
+    });
+
+    // Visibility toggle
+    document.querySelectorAll('.toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        state.visibility = btn.dataset.visibility;
+      });
+    });
+
+    createChannelButton.addEventListener('click', () => {
+      nameError.innerHTML = '';
+
+      if (!state.channelName.trim()) {
+        nameError.innerHTML = 'Channel name is required.';
+        return;
+      }
+
+      const channelId = createChannel(
+        state.channelName,
+        state.channelDescription,
+        [],
+        state.visibility,
+        state.avatarPreview
+      );
+
+      window.location.hash = `/channel/${channelId}`;
+    });
+
+    updateButtonState();
+  }
+
   // Render a placeholder page
   function renderPage(pageName) {
     const page = pages[pageName];
@@ -2520,12 +3095,33 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         renderGroupConversationPage(groupId);
       }
+    } else if (path.startsWith('channel/')) {
+      const parts = path.split('/');
+      const channelId = parts[1];
+      const action = parts[2];
+
+      // Remove active from all nav tabs when on channel screen
+      navTabs.forEach(tab => tab.classList.remove('active'));
+      // Hide bottom nav on channel screen
+      bottomNav.style.display = 'none';
+
+      if (action === 'info') {
+        renderChannelInfoModal(channelId);
+      } else {
+        renderChannelConversationPage(channelId);
+      }
     } else if (path === 'create-group') {
       // Hide bottom nav on create group screen
       bottomNav.style.display = 'none';
       // Remove active from all nav tabs
       navTabs.forEach(tab => tab.classList.remove('active'));
       renderCreateGroupPage();
+    } else if (path === 'create-channel') {
+      // Hide bottom nav on create channel screen
+      bottomNav.style.display = 'none';
+      // Remove active from all nav tabs
+      navTabs.forEach(tab => tab.classList.remove('active'));
+      renderCreateChannelPage();
     } else {
       // Show bottom nav on all other screens
       bottomNav.style.display = 'flex';
