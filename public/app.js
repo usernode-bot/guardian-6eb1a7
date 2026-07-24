@@ -1033,7 +1033,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Render channel detail screen
-  function renderChannelDetailScreen(channelId) {
+  function renderDiscoverChannelDetailScreen(channelId) {
     let channel = channels.find(c => c.id === channelId);
     if (!channel) {
       channel = discoverChannels.find(c => c.id === channelId);
@@ -4352,7 +4352,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const channelId = path.split('/')[2];
       bottomNav.style.display = 'none';
       navTabs.forEach(tab => tab.classList.remove('active'));
-      renderChannelDetailScreen(channelId);
+      renderDiscoverChannelDetailScreen(channelId);
     } else if (path === 'discover' || path.startsWith('discover?')) {
       bottomNav.style.display = 'flex';
       renderDiscoverPage();
