@@ -1,0 +1,57 @@
+- generic [ref=e2]:
+  - generic [ref=e79]:
+    - generic [ref=e80]:
+      - heading "Messages" [level=1] [ref=e81]
+      - generic [ref=e82] [cursor=pointer]: 🔍
+    - generic [ref=e83]:
+      - button "All" [ref=e84] [cursor=pointer]
+      - button "DM" [ref=e85] [cursor=pointer]
+      - button "Groups" [ref=e86] [cursor=pointer]
+      - button "Channels" [ref=e87] [cursor=pointer]
+      - button "Requests 2" [ref=e88] [cursor=pointer]:
+        - text: Requests
+        - generic [ref=e89]: "2"
+    - generic [ref=e90]:
+      - generic [ref=e92]:
+        - generic [ref=e93]: AC
+        - generic [ref=e94]:
+          - generic [ref=e95]:
+            - generic [ref=e96]: Alice Chen
+            - generic [ref=e97]: 2m
+          - paragraph [ref=e98]: That sounds great! Let's meet up soon.
+        - generic [ref=e99]: "2"
+      - generic [ref=e101]:
+        - generic [ref=e102]: BW
+        - generic [ref=e103]:
+          - generic [ref=e104]:
+            - generic [ref=e105]: Bob Wilson
+            - generic [ref=e106]: 1h
+          - paragraph [ref=e107]: Did you see the latest updates?
+      - generic [ref=e109]:
+        - generic [ref=e110]: CD
+        - generic [ref=e111]:
+          - generic [ref=e112]:
+            - generic [ref=e113]: Carol Davis
+            - generic [ref=e114]: Yesterday
+          - paragraph [ref=e115]: Thanks for the help yesterday!
+        - generic [ref=e116]: "1"
+      - generic [ref=e118]:
+        - generic [ref=e119]: DL
+        - generic [ref=e120]:
+          - generic [ref=e121]:
+            - generic [ref=e122]: David Lee
+            - generic [ref=e123]: 2d
+          - paragraph [ref=e124]: Looking forward to the event next week
+  - navigation [ref=e66]:
+    - button "💬 Messages" [ref=e67] [cursor=pointer]:
+      - generic [ref=e68]: 💬
+      - generic [ref=e69]: Messages
+    - button "➕ Create" [ref=e70] [cursor=pointer]:
+      - generic [ref=e71]: ➕
+      - generic [ref=e72]: Create
+    - button "🧭 Discover" [ref=e73] [cursor=pointer]:
+      - generic [ref=e74]: 🧭
+      - generic [ref=e75]: Discover
+    - button "👤 Profile" [ref=e76] [cursor=pointer]:
+      - generic [ref=e77]: 👤
+      - generic [ref=e78]: Profile

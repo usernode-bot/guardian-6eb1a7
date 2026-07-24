@@ -33,6 +33,8 @@ document.addEventListener('DOMContentLoaded', () => {
       timestamp: Date.now() - 2 * 60 * 1000, // 2 minutes ago
       unreadCount: 2,
       onlineStatus: true,
+      archived: false,
+      pinned: false,
       messages: [
         { id: 'msg_1', text: "Hey! How's it going?", timestamp: Date.now() - 5*60*1000, isOutgoing: false },
         { id: 'msg_2', text: "Great! Just finished work", timestamp: Date.now() - 4.5*60*1000, isOutgoing: true },
@@ -51,6 +53,8 @@ document.addEventListener('DOMContentLoaded', () => {
       timestamp: Date.now() - 60 * 60 * 1000, // 1 hour ago
       unreadCount: 0,
       onlineStatus: false,
+      archived: false,
+      pinned: false,
       messages: [
         { id: 'msg_1', text: "Check out the new features", timestamp: Date.now() - 2*60*60*1000, isOutgoing: false },
         { id: 'msg_2', text: "Looking good!", timestamp: Date.now() - 1.5*60*60*1000, isOutgoing: true },
@@ -66,6 +70,8 @@ document.addEventListener('DOMContentLoaded', () => {
       timestamp: Date.now() - 24 * 60 * 60 * 1000, // 1 day ago (yesterday)
       unreadCount: 1,
       onlineStatus: true,
+      archived: false,
+      pinned: false,
       messages: [
         { id: 'msg_1', text: "I need some help with a project", timestamp: Date.now() - 26*60*60*1000, isOutgoing: false },
         { id: 'msg_2', text: "Happy to help! What do you need?", timestamp: Date.now() - 25.5*60*60*1000, isOutgoing: true },
@@ -83,6 +89,8 @@ document.addEventListener('DOMContentLoaded', () => {
       timestamp: Date.now() - 2 * 24 * 60 * 60 * 1000, // 2 days ago
       unreadCount: 0,
       onlineStatus: false,
+      archived: false,
+      pinned: false,
       messages: [
         { id: 'msg_1', text: "See you at the event!", timestamp: Date.now() - 3*24*60*60*1000, isOutgoing: false },
         { id: 'msg_2', text: "Definitely! Can't wait", timestamp: Date.now() - 2.5*24*60*60*1000, isOutgoing: true },
@@ -154,7 +162,9 @@ document.addEventListener('DOMContentLoaded', () => {
       avatar: 'SC',
       lastMessage: 'Let\'s catch up soon!',
       timestamp: Date.now() - 5*60*1000,
-      unreadCount: 0
+      unreadCount: 0,
+      archived: false,
+      pinned: false
     },
     {
       id: 'conv_group_2',
@@ -164,9 +174,41 @@ document.addEventListener('DOMContentLoaded', () => {
       avatar: 'DT',
       lastMessage: 'Thanks! Reviewing now',
       timestamp: Date.now() - 25*60*1000,
-      unreadCount: 0
+      unreadCount: 0,
+      archived: false,
+      pinned: false
     }
   ]);
+
+  // Message requests data
+  let requests = [
+    {
+      id: 'req_1',
+      senderId: 'user_new_1',
+      senderName: 'Taylor Blake',
+      avatar: 'TB',
+      messagePreview: 'Hi! I saw your profile and would love to connect.',
+      timestamp: Date.now() - 30 * 60 * 1000
+    },
+    {
+      id: 'req_2',
+      senderId: 'user_new_2',
+      senderName: 'Jordan River',
+      avatar: 'JR',
+      messagePreview: 'Great to see you here! Let\'s chat sometime.',
+      timestamp: Date.now() - 2 * 60 * 60 * 1000
+    }
+  ];
+
+  // Active tab state
+  let activeMessagesTab = 'all';
+  let searchQuery = '';
+  let swipeState = {
+    element: null,
+    startX: 0,
+    currentX: 0,
+    threshold: 80
+  };
 
   // Helper: generate unique group ID
   function generateGroupId() {
@@ -260,26 +302,103 @@ document.addEventListener('DOMContentLoaded', () => {
     return text;
   }
 
-  // Render messages page with conversation list
-  function renderMessagesPage() {
-    const conversationsList = conversations.map(conv => {
-      const displayName = conv.type === 'group' ? conv.name : conv.username;
-      const routeHash = conv.type === 'group' ? `/group/${conv.groupId}` : `/conversation/${conv.id}`;
+  // Filter conversations by tab and search query
+  function filterConversations(tab, query) {
+    let filtered = [];
 
-      return `
-        <div class="conversation-item" data-conversation-id="${conv.id}" data-route-hash="${routeHash}">
-          <div class="conversation-avatar">${conv.avatar}</div>
-          <div class="conversation-content">
-            <div class="conversation-header">
-              <span class="conversation-username">${displayName}</span>
-              <span class="conversation-timestamp">${formatTimestamp(conv.timestamp)}</span>
+    if (tab === 'all') {
+      filtered = conversations.filter(c => !c.archived);
+    } else if (tab === 'dm') {
+      filtered = conversations.filter(c => c.type === 'direct' && !c.archived);
+    } else if (tab === 'groups') {
+      filtered = conversations.filter(c => c.type === 'group' && !c.archived);
+    } else if (tab === 'channels') {
+      filtered = [];
+    } else if (tab === 'requests') {
+      filtered = requests;
+    }
+
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      filtered = filtered.filter(item => {
+        const searchText = (item.senderName || item.username || item.name || '').toLowerCase() +
+                          ' ' + (item.messagePreview || item.lastMessage || '').toLowerCase();
+        return searchText.includes(q);
+      });
+    }
+
+    return filtered;
+  }
+
+  // Sort conversations (pinned first, then by timestamp)
+  function sortConversations(convs) {
+    return convs.sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      return b.timestamp - a.timestamp;
+    });
+  }
+
+  // Render messages page with tabs
+  function renderMessagesPage(tab = null) {
+    if (tab) activeMessagesTab = tab;
+
+    const filteredConversations = filterConversations(activeMessagesTab, searchQuery);
+    const sortedConversations = activeMessagesTab === 'requests' ? filteredConversations : sortConversations(filteredConversations);
+
+    const conversationsList = sortedConversations.map(item => {
+      if (activeMessagesTab === 'requests') {
+        return `
+          <div class="request-item" data-request-id="${item.id}">
+            <div class="request-header">
+              <div class="request-avatar">${item.avatar}</div>
+              <div class="request-content">
+                <div class="request-name">${item.senderName}</div>
+                <div class="request-message">${truncateText(item.messagePreview, 60)}</div>
+              </div>
             </div>
-            <p class="conversation-message">${conv.lastMessage}</p>
+            <div class="request-actions">
+              <button class="request-accept" data-request-id="${item.id}">Accept</button>
+              <button class="request-decline" data-request-id="${item.id}">Decline</button>
+            </div>
           </div>
-          ${conv.unreadCount > 0 ? `<div class="unread-badge">${conv.unreadCount}</div>` : ''}
-        </div>
-      `;
+        `;
+      } else {
+        const displayName = item.type === 'group' ? item.name : item.username;
+        const routeHash = item.type === 'group' ? `/group/${item.groupId}` : `/conversation/${item.id}`;
+
+        return `
+          <div class="swipe-container" data-conversation-id="${item.id}">
+            <div class="swipe-actions">
+              <button class="swipe-action archive-action" data-action="archive" data-conversation-id="${item.id}">Archive</button>
+              <button class="swipe-action pin-action" data-action="pin" data-conversation-id="${item.id}">${item.pinned ? 'Unpin' : 'Pin'}</button>
+            </div>
+            <div class="conversation-item" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
+              <div class="conversation-avatar">${item.avatar}</div>
+              <div class="conversation-content">
+                <div class="conversation-header">
+                  <span class="conversation-username">${displayName}</span>
+                  <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
+                </div>
+                <p class="conversation-message">${item.lastMessage}</p>
+              </div>
+              ${item.unreadCount > 0 ? `<div class="unread-badge">${item.unreadCount}</div>` : ''}
+            </div>
+          </div>
+        `;
+      }
     }).join('');
+
+    const emptyMessage = {
+      all: 'No messages yet',
+      dm: 'No direct messages',
+      groups: 'No groups',
+      channels: 'No channels',
+      requests: 'No pending requests'
+    }[activeMessagesTab];
+
+    const requestsCount = requests.length;
+    const requestsBadge = requestsCount > 0 ? `<span class="tab-badge">${requestsCount}</span>` : '';
 
     pageContainer.innerHTML = `
       <div class="messages-page">
@@ -287,17 +406,178 @@ document.addEventListener('DOMContentLoaded', () => {
           <h1>Messages</h1>
           <span class="search-icon">🔍</span>
         </div>
-        <div class="conversations-list">
-          ${conversationsList}
+        <div class="messages-search" id="messages-search" style="display: none;">
+          <input type="text" class="search-input" id="messages-search-input" placeholder="🔍 Search..." />
+          <button class="search-close">✕</button>
+        </div>
+        <div class="messages-tabs">
+          <button class="message-tab ${activeMessagesTab === 'all' ? 'active' : ''}" data-tab="all">All</button>
+          <button class="message-tab ${activeMessagesTab === 'dm' ? 'active' : ''}" data-tab="dm">DM</button>
+          <button class="message-tab ${activeMessagesTab === 'groups' ? 'active' : ''}" data-tab="groups">Groups</button>
+          <button class="message-tab ${activeMessagesTab === 'channels' ? 'active' : ''}" data-tab="channels">Channels</button>
+          <button class="message-tab ${activeMessagesTab === 'requests' ? 'active' : ''}" data-tab="requests">Requests ${requestsBadge}</button>
+        </div>
+        <div class="conversations-list" id="conversations-list">
+          ${conversationsList || `<div class="empty-state">${emptyMessage}</div>`}
         </div>
       </div>
     `;
 
-    // Add click handlers for conversation items
+    // Tab click handlers
+    document.querySelectorAll('.message-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        searchQuery = '';
+        renderMessagesPage(tab.dataset.tab);
+      });
+    });
+
+    // Search icon handler
+    document.querySelector('.search-icon').addEventListener('click', () => {
+      const searchContainer = document.getElementById('messages-search');
+      searchContainer.style.display = 'flex';
+      document.getElementById('messages-search-input').focus();
+    });
+
+    // Search input handler
+    const searchInput = document.getElementById('messages-search-input');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        searchQuery = e.target.value;
+        renderMessagesPage();
+      });
+
+      // Search close button
+      document.querySelector('.search-close').addEventListener('click', () => {
+        searchQuery = '';
+        document.getElementById('messages-search').style.display = 'none';
+        renderMessagesPage();
+      });
+    }
+
+    // Conversation click handlers
     document.querySelectorAll('.conversation-item').forEach(item => {
       item.addEventListener('click', () => {
         const routeHash = item.dataset.routeHash;
+        const convId = item.dataset.conversationId;
+        // Clear unread badge
+        const conv = conversations.find(c => c.id === convId);
+        if (conv) conv.unreadCount = 0;
         window.location.hash = routeHash;
+      });
+    });
+
+    // Request accept/decline handlers
+    document.querySelectorAll('.request-accept').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const requestId = btn.dataset.requestId;
+        acceptRequest(requestId);
+      });
+    });
+
+    document.querySelectorAll('.request-decline').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const requestId = btn.dataset.requestId;
+        declineRequest(requestId);
+      });
+    });
+
+    // Swipe action handlers
+    document.querySelectorAll('.swipe-action').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const action = btn.dataset.action;
+        const convId = btn.dataset.conversationId;
+        const conv = conversations.find(c => c.id === convId);
+
+        if (action === 'archive' && conv) {
+          conv.archived = true;
+          renderMessagesPage();
+        } else if (action === 'pin' && conv) {
+          conv.pinned = !conv.pinned;
+          renderMessagesPage();
+        } else if (action === 'delete' && conv) {
+          const idx = conversations.findIndex(c => c.id === convId);
+          if (idx >= 0) conversations.splice(idx, 1);
+          renderMessagesPage();
+        }
+      });
+    });
+
+    // Swipe touch handlers
+    setupSwipeHandlers();
+  }
+
+  // Accept request and create conversation
+  function acceptRequest(requestId) {
+    const request = requests.find(r => r.id === requestId);
+    if (!request) return;
+
+    const newConversation = {
+      id: 'conv_' + request.senderId,
+      type: 'direct',
+      username: request.senderName,
+      avatar: request.avatar,
+      lastMessage: request.messagePreview,
+      timestamp: request.timestamp,
+      unreadCount: 0,
+      archived: false,
+      pinned: false,
+      onlineStatus: false,
+      messages: []
+    };
+
+    conversations.unshift(newConversation);
+    requests = requests.filter(r => r.id !== requestId);
+    renderMessagesPage();
+  }
+
+  // Decline request
+  function declineRequest(requestId) {
+    requests = requests.filter(r => r.id !== requestId);
+    renderMessagesPage();
+  }
+
+  // Setup swipe handlers for conversation items
+  function setupSwipeHandlers() {
+    const containers = document.querySelectorAll('.swipe-container');
+
+    containers.forEach(container => {
+      const item = container.querySelector('.conversation-item');
+      let startX = 0;
+      let currentX = 0;
+      let isDragging = false;
+
+      container.addEventListener('touchstart', (e) => {
+        startX = e.touches[0].clientX;
+        currentX = startX;
+        isDragging = true;
+        swipeState.element = container;
+      });
+
+      container.addEventListener('touchmove', (e) => {
+        if (!isDragging) return;
+        currentX = e.touches[0].clientX;
+        const diff = currentX - startX;
+        const scale = Math.max(-150, Math.min(150, diff));
+        item.style.transform = `translateX(${scale}px)`;
+      });
+
+      container.addEventListener('touchend', (e) => {
+        if (!isDragging) return;
+        isDragging = false;
+        const diff = currentX - startX;
+
+        if (diff < -swipeState.threshold) {
+          item.style.transform = 'translateX(-150px)';
+          container.querySelector('.swipe-actions').style.visibility = 'visible';
+        } else if (diff > swipeState.threshold) {
+          item.style.transform = 'translateX(150px)';
+        } else {
+          item.style.transform = 'translateX(0)';
+          container.querySelector('.swipe-actions').style.visibility = 'hidden';
+        }
       });
     });
   }

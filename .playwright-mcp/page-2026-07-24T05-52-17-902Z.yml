@@ -1,0 +1,81 @@
+- generic [ref=e2]:
+  - generic [ref=e176]:
+    - generic [ref=e177]:
+      - heading "Messages" [level=1] [ref=e178]
+      - generic [ref=e179] [cursor=pointer]: 🔍
+    - generic [ref=e246]:
+      - textbox "🔍 Search..." [active] [ref=e247]
+      - button "✕" [ref=e248] [cursor=pointer]
+    - generic [ref=e180]:
+      - button "All" [ref=e181] [cursor=pointer]
+      - button "DM" [ref=e182] [cursor=pointer]
+      - button "Groups" [ref=e183] [cursor=pointer]
+      - button "Channels" [ref=e184] [cursor=pointer]
+      - button "Requests 1" [ref=e185] [cursor=pointer]:
+        - text: Requests
+        - generic [ref=e186]: "1"
+    - generic [ref=e187]:
+      - generic [ref=e189]:
+        - generic [ref=e190]: AC
+        - generic [ref=e191]:
+          - generic [ref=e192]:
+            - generic [ref=e193]: Alice Chen
+            - generic [ref=e194]: 2m
+          - paragraph [ref=e195]: That sounds great! Let's meet up soon.
+        - generic [ref=e196]: "2"
+      - generic [ref=e198]:
+        - generic [ref=e199]: SC
+        - generic [ref=e200]:
+          - generic [ref=e201]:
+            - generic [ref=e202]: Seeker Club
+            - generic [ref=e203]: 5m
+          - paragraph [ref=e204]: Let's catch up soon!
+      - generic [ref=e206]:
+        - generic [ref=e207]: DT
+        - generic [ref=e208]:
+          - generic [ref=e209]:
+            - generic [ref=e210]: Design Team
+            - generic [ref=e211]: 25m
+          - paragraph [ref=e212]: Thanks! Reviewing now
+      - generic [ref=e214]:
+        - generic [ref=e215]: TB
+        - generic [ref=e216]:
+          - generic [ref=e217]:
+            - generic [ref=e218]: Taylor Blake
+            - generic [ref=e219]: 30m
+          - paragraph [ref=e220]: Hi! I saw your profile and would love to connect.
+      - generic [ref=e222]:
+        - generic [ref=e223]: BW
+        - generic [ref=e224]:
+          - generic [ref=e225]:
+            - generic [ref=e226]: Bob Wilson
+            - generic [ref=e227]: 1h
+          - paragraph [ref=e228]: Did you see the latest updates?
+      - generic [ref=e230]:
+        - generic [ref=e231]: CD
+        - generic [ref=e232]:
+          - generic [ref=e233]:
+            - generic [ref=e234]: Carol Davis
+            - generic [ref=e235]: Yesterday
+          - paragraph [ref=e236]: Thanks for the help yesterday!
+        - generic [ref=e237]: "1"
+      - generic [ref=e239]:
+        - generic [ref=e240]: DL
+        - generic [ref=e241]:
+          - generic [ref=e242]:
+            - generic [ref=e243]: David Lee
+            - generic [ref=e244]: 2d
+          - paragraph [ref=e245]: Looking forward to the event next week
+  - navigation [ref=e66]:
+    - button "💬 Messages" [ref=e67] [cursor=pointer]:
+      - generic [ref=e68]: 💬
+      - generic [ref=e69]: Messages
+    - button "➕ Create" [ref=e70] [cursor=pointer]:
+      - generic [ref=e71]: ➕
+      - generic [ref=e72]: Create
+    - button "🧭 Discover" [ref=e73] [cursor=pointer]:
+      - generic [ref=e74]: 🧭
+      - generic [ref=e75]: Discover
+    - button "👤 Profile" [ref=e76] [cursor=pointer]:
+      - generic [ref=e77]: 👤
+      - generic [ref=e78]: Profile

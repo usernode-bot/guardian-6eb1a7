@@ -1,0 +1,35 @@
+- generic [ref=e2]:
+  - generic [ref=e155]:
+    - generic [ref=e156]:
+      - heading "Messages" [level=1] [ref=e157]
+      - generic [ref=e158] [cursor=pointer]: 🔍
+    - generic [ref=e159]:
+      - button "All" [ref=e160] [cursor=pointer]
+      - button "DM" [ref=e161] [cursor=pointer]
+      - button "Groups" [ref=e162] [cursor=pointer]
+      - button "Channels" [ref=e163] [cursor=pointer]
+      - button "Requests 1" [ref=e164] [cursor=pointer]:
+        - text: Requests
+        - generic [ref=e165]: "1"
+    - generic [ref=e167]:
+      - generic [ref=e168]:
+        - generic [ref=e169]: JR
+        - generic [ref=e170]:
+          - generic [ref=e171]: Jordan River
+          - generic [ref=e172]: Great to see you here! Let's chat sometime.
+      - generic [ref=e173]:
+        - button "Accept" [ref=e174] [cursor=pointer]
+        - button "Decline" [ref=e175] [cursor=pointer]
+  - navigation [ref=e66]:
+    - button "💬 Messages" [ref=e67] [cursor=pointer]:
+      - generic [ref=e68]: 💬
+      - generic [ref=e69]: Messages
+    - button "➕ Create" [ref=e70] [cursor=pointer]:
+      - generic [ref=e71]: ➕
+      - generic [ref=e72]: Create
+    - button "🧭 Discover" [ref=e73] [cursor=pointer]:
+      - generic [ref=e74]: 🧭
+      - generic [ref=e75]: Discover
+    - button "👤 Profile" [ref=e76] [cursor=pointer]:
+      - generic [ref=e77]: 👤
+      - generic [ref=e78]: Profile
