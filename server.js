@@ -363,13 +363,13 @@ async function seedStagingData() {
       INSERT INTO requests (from_user_id, to_user_id, message_preview, status, created_at)
       VALUES ($1, $2, $3, 'pending', NOW() - INTERVAL '3 hours')
       ON CONFLICT DO NOTHING
-    `, [demoUserId, '00000000-0000-0000-0000-000000000031', 'Hi, I''d like to connect with you.']);
+    `, [demoUserId, '00000000-0000-0000-0000-000000000031', "Hi, I'd like to connect with you."]);
 
     await pool.query(`
       INSERT INTO requests (from_user_id, to_user_id, message_preview, status, created_at)
       VALUES ($1, $2, $3, 'pending', NOW() - INTERVAL '1 day')
       ON CONFLICT DO NOTHING
-    `, [demoUserId, '00000000-0000-0000-0000-000000000032', 'Let''s collaborate on something cool!']);
+    `, [demoUserId, '00000000-0000-0000-0000-000000000032', "Let's collaborate on something cool!"]);
 
     console.log('Staging data seeded');
   } catch (err) {

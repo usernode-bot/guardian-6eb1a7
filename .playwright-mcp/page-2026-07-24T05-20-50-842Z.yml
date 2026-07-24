@@ -1,0 +1,39 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - heading "Messages" [level=1] [ref=e6]
+      - generic [ref=e7] [cursor=pointer]: 🔍
+    - generic [ref=e9]:
+      - button "All" [ref=e10] [cursor=pointer]
+      - button "DM" [ref=e11] [cursor=pointer]
+      - button "Groups" [active] [ref=e12] [cursor=pointer]
+      - button "Channels" [ref=e13] [cursor=pointer]
+      - button "Requests" [ref=e14] [cursor=pointer]
+    - generic [ref=e15]:
+      - generic [ref=e73]:
+        - generic [ref=e74]: SC
+        - generic [ref=e75]:
+          - generic [ref=e76]:
+            - generic [ref=e77]: Seeker Club
+            - generic [ref=e78]: 5m
+          - paragraph [ref=e79]: Let's catch up soon!
+      - generic [ref=e80]:
+        - generic [ref=e81]: DT
+        - generic [ref=e82]:
+          - generic [ref=e83]:
+            - generic [ref=e84]: Design Team
+            - generic [ref=e85]: 25m
+          - paragraph [ref=e86]: Thanks! Reviewing now
+  - navigation [ref=e60]:
+    - button "💬 Messages" [ref=e61] [cursor=pointer]:
+      - generic [ref=e62]: 💬
+      - generic [ref=e63]: Messages
+    - button "➕ Create" [ref=e64] [cursor=pointer]:
+      - generic [ref=e65]: ➕
+      - generic [ref=e66]: Create
+    - button "🧭 Discover" [ref=e67] [cursor=pointer]:
+      - generic [ref=e68]: 🧭
+      - generic [ref=e69]: Discover
+    - button "👤 Profile" [ref=e70] [cursor=pointer]:
+      - generic [ref=e71]: 👤
+      - generic [ref=e72]: Profile

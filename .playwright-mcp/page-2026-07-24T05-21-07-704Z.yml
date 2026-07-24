@@ -1,0 +1,70 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - heading "Messages" [level=1] [ref=e6]
+      - generic [ref=e7] [cursor=pointer]: 🔍
+    - generic [ref=e9]:
+      - button "All" [active] [ref=e10] [cursor=pointer]
+      - button "DM" [ref=e11] [cursor=pointer]
+      - button "Groups" [ref=e12] [cursor=pointer]
+      - button "Channels" [ref=e13] [cursor=pointer]
+      - button "Requests" [ref=e14] [cursor=pointer]
+    - textbox "Search..." [ref=e104]
+    - generic [ref=e15]:
+      - generic [ref=e105]:
+        - generic [ref=e106]: AC
+        - generic [ref=e107]:
+          - generic [ref=e108]:
+            - generic [ref=e109]: Alice Chen
+            - generic [ref=e110]: 2m
+          - paragraph [ref=e111]: That sounds great! Let's meet up soon.
+        - generic [ref=e112]: "2"
+      - generic [ref=e113]:
+        - generic [ref=e114]: BW
+        - generic [ref=e115]:
+          - generic [ref=e116]:
+            - generic [ref=e117]: Bob Wilson
+            - generic [ref=e118]: 1h
+          - paragraph [ref=e119]: Did you see the latest updates?
+      - generic [ref=e120]:
+        - generic [ref=e121]: CD
+        - generic [ref=e122]:
+          - generic [ref=e123]:
+            - generic [ref=e124]: Carol Davis
+            - generic [ref=e125]: Yesterday
+          - paragraph [ref=e126]: Thanks for the help yesterday!
+        - generic [ref=e127]: "1"
+      - generic [ref=e128]:
+        - generic [ref=e129]: DL
+        - generic [ref=e130]:
+          - generic [ref=e131]:
+            - generic [ref=e132]: David Lee
+            - generic [ref=e133]: 2d
+          - paragraph [ref=e134]: Looking forward to the event next week
+      - generic [ref=e135]:
+        - generic [ref=e136]: SC
+        - generic [ref=e137]:
+          - generic [ref=e138]:
+            - generic [ref=e139]: Seeker Club
+            - generic [ref=e140]: 5m
+          - paragraph [ref=e141]: Let's catch up soon!
+      - generic [ref=e142]:
+        - generic [ref=e143]: DT
+        - generic [ref=e144]:
+          - generic [ref=e145]:
+            - generic [ref=e146]: Design Team
+            - generic [ref=e147]: 25m
+          - paragraph [ref=e148]: Thanks! Reviewing now
+  - navigation [ref=e60]:
+    - button "💬 Messages" [ref=e61] [cursor=pointer]:
+      - generic [ref=e62]: 💬
+      - generic [ref=e63]: Messages
+    - button "➕ Create" [ref=e64] [cursor=pointer]:
+      - generic [ref=e65]: ➕
+      - generic [ref=e66]: Create
+    - button "🧭 Discover" [ref=e67] [cursor=pointer]:
+      - generic [ref=e68]: 🧭
+      - generic [ref=e69]: Discover
+    - button "👤 Profile" [ref=e70] [cursor=pointer]:
+      - generic [ref=e71]: 👤
+      - generic [ref=e72]: Profile

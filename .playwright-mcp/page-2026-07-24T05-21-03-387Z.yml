@@ -1,0 +1,42 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - heading "Messages" [level=1] [ref=e6]
+      - generic [ref=e7] [cursor=pointer]: 🔍
+    - generic [ref=e9]:
+      - button "All" [ref=e10] [cursor=pointer]
+      - button "DM" [ref=e11] [cursor=pointer]
+      - button "Groups" [ref=e12] [cursor=pointer]
+      - button "Channels" [ref=e13] [cursor=pointer]
+      - button "Requests" [ref=e14] [cursor=pointer]
+    - textbox "Search..." [active] [ref=e104]
+    - generic [ref=e15]:
+      - generic [ref=e87]:
+        - generic [ref=e88]: AC
+        - generic [ref=e89]:
+          - generic [ref=e90]: Alice Chen
+          - generic [ref=e91]: That sounds great! Let's meet up soon.
+          - generic [ref=e92]:
+            - button "Accept" [ref=e93] [cursor=pointer]
+            - button "Decline" [ref=e94] [cursor=pointer]
+      - generic [ref=e95]:
+        - generic [ref=e96]: BW
+        - generic [ref=e97]:
+          - generic [ref=e98]: Bob Wilson
+          - generic [ref=e99]: Did you see the latest updates?
+          - generic [ref=e100]:
+            - button "Accept" [ref=e101] [cursor=pointer]
+            - button "Decline" [ref=e102] [cursor=pointer]
+  - navigation [ref=e60]:
+    - button "💬 Messages" [ref=e61] [cursor=pointer]:
+      - generic [ref=e62]: 💬
+      - generic [ref=e63]: Messages
+    - button "➕ Create" [ref=e64] [cursor=pointer]:
+      - generic [ref=e65]: ➕
+      - generic [ref=e66]: Create
+    - button "🧭 Discover" [ref=e67] [cursor=pointer]:
+      - generic [ref=e68]: 🧭
+      - generic [ref=e69]: Discover
+    - button "👤 Profile" [ref=e70] [cursor=pointer]:
+      - generic [ref=e71]: 👤
+      - generic [ref=e72]: Profile
