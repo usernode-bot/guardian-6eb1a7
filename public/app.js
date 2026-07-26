@@ -22,6 +22,70 @@ document.addEventListener('DOMContentLoaded', () => {
   const bottomNav = document.getElementById('bottom-nav');
   const navTabs = document.querySelectorAll('.nav-tab');
 
+  // Global user profile state
+  let userProfile = {
+    user_id: null,
+    username: null,
+    wallet_address: null,
+    avatar_file_id: null,
+    avatar_url: null,
+    bio: null,
+    updated_at: null
+  };
+
+  // Fetch user profile on app load
+  async function initializeUserProfile() {
+    try {
+      const token = localStorage.getItem('usernode-token');
+      const headers = token ? { 'x-usernode-token': token } : {};
+      const response = await fetch('/api/profile', { headers });
+      if (response.ok) {
+        const data = await response.json();
+        Object.assign(userProfile, data);
+      }
+    } catch (err) {
+      console.error('Error initializing user profile:', err);
+    }
+  }
+
+  // Update user profile and sync across pages
+  function updateUserProfile(updates) {
+    Object.assign(userProfile, updates);
+    syncProfileAcrossPages();
+  }
+
+  // Sync profile changes to currently visible page
+  function syncProfileAcrossPages() {
+    const hash = window.location.hash.slice(1) || 'messages';
+    const path = hash.startsWith('/') ? hash.slice(1) : hash;
+
+    // Re-render messages page if it's visible
+    if (path === 'messages' || path === 'create' || path === 'dm' || path === 'groups' || path === 'channels' || path === 'requests') {
+      const currentTab = document.querySelector('.message-tab.active');
+      if (currentTab) {
+        renderMessagesPage(currentTab.dataset.tab);
+      } else {
+        renderMessagesPage();
+      }
+    }
+
+    // Re-render discover page if it's visible
+    if (path === 'discover' || path.startsWith('discover')) {
+      renderDiscoverPage();
+    }
+
+    // Re-render group/channel if visible
+    if (path.startsWith('group/')) {
+      const groupId = path.split('/')[1];
+      renderGroupConversationPage(groupId);
+    }
+
+    if (path.startsWith('channel/')) {
+      const channelId = path.split('/')[1];
+      renderChannelView(channelId);
+    }
+  }
+
   // Dummy conversations data with messages
   let conversations = [
     {
@@ -4261,6 +4325,212 @@ document.addEventListener('DOMContentLoaded', () => {
     updateButtonState();
   }
 
+  // Render profile page
+  function renderProfilePage() {
+    let editingBio = false;
+
+    pageContainer.innerHTML = `
+      <div class="profile-page">
+        <div class="profile-header">
+          <h1>Profile</h1>
+        </div>
+
+        <div class="profile-content">
+          <div class="avatar-section">
+            <div class="avatar-circle" id="profile-avatar-display">
+              ${userProfile.avatar_url ? `<img src="${userProfile.avatar_url}" alt="Avatar" />` : '<div class="avatar-placeholder">👤</div>'}
+            </div>
+            <button class="avatar-upload-btn" id="avatar-upload-btn">Change Avatar</button>
+            <input type="file" id="profile-avatar-input" accept="image/*" style="display: none;" />
+          </div>
+
+          <div class="identity-section">
+            <div class="identity-field">
+              <label>Username</label>
+              <div class="identity-value">${userProfile.username || 'Not set'}</div>
+            </div>
+            <div class="identity-field">
+              <label>Wallet Address</label>
+              <div class="identity-value-with-copy">
+                <div class="identity-value" id="wallet-display">${userProfile.wallet_address || 'Not linked'}</div>
+                ${userProfile.wallet_address ? '<button class="copy-btn" id="copy-wallet-btn">Copy</button>' : ''}
+              </div>
+            </div>
+          </div>
+
+          <div class="bio-section">
+            <div class="bio-header">
+              <label>Bio</label>
+              <button class="edit-btn" id="edit-bio-btn">${editingBio ? 'Cancel' : 'Edit'}</button>
+            </div>
+
+            <div id="bio-display" style="display: ${editingBio ? 'none' : 'block'};">
+              <p class="bio-text">${userProfile.bio || 'No bio yet. Add one to tell others about yourself!'}</p>
+            </div>
+
+            <div id="bio-editor" style="display: ${editingBio ? 'block' : 'none'};">
+              <textarea
+                id="bio-input"
+                class="bio-textarea"
+                placeholder="Add a bio..."
+                maxlength="500"
+              >${userProfile.bio || ''}</textarea>
+              <div class="bio-counter">
+                <span id="char-count">0</span> / 500
+              </div>
+              <div class="bio-actions">
+                <button class="btn-secondary" id="cancel-bio-btn">Cancel</button>
+                <button class="btn-primary" id="save-bio-btn">Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const avatarDisplay = document.getElementById('profile-avatar-display');
+    const avatarUploadBtn = document.getElementById('avatar-upload-btn');
+    const avatarInput = document.getElementById('profile-avatar-input');
+    const editBioBtn = document.getElementById('edit-bio-btn');
+    const bioDisplay = document.getElementById('bio-display');
+    const bioEditor = document.getElementById('bio-editor');
+    const bioInput = document.getElementById('bio-input');
+    const charCount = document.getElementById('char-count');
+    const saveBioBtn = document.getElementById('save-bio-btn');
+    const cancelBioBtn = document.getElementById('cancel-bio-btn');
+    const copyWalletBtn = document.getElementById('copy-wallet-btn');
+
+    // Avatar upload handler
+    avatarUploadBtn.addEventListener('click', () => {
+      avatarInput.click();
+    });
+
+    avatarInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      try {
+        // Use Usernode bridge to upload file
+        if (typeof usernode !== 'undefined' && usernode.uploadFile) {
+          const uploadedFile = await usernode.uploadFile(file, { visibility: 'public' });
+
+          // Update profile with avatar
+          const token = localStorage.getItem('usernode-token');
+          const headers = {
+            'Content-Type': 'application/json',
+            ...(token && { 'x-usernode-token': token })
+          };
+
+          const response = await fetch('/api/profile', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              avatar_file_id: uploadedFile.id,
+              avatar_url: uploadedFile.url
+            })
+          });
+
+          if (response.ok) {
+            const updatedProfile = await response.json();
+            updateUserProfile(updatedProfile);
+            renderProfilePage();
+          }
+        } else {
+          console.log('Usernode bridge not available. In production, avatar would be uploaded here.');
+          alert('File upload available in the production environment with Usernode platform.');
+        }
+      } catch (err) {
+        console.error('Error uploading avatar:', err);
+        alert('Failed to upload avatar. Please try again.');
+      }
+    });
+
+    // Bio editing handlers
+    editBioBtn.addEventListener('click', () => {
+      editingBio = !editingBio;
+      bioDisplay.style.display = editingBio ? 'none' : 'block';
+      bioEditor.style.display = editingBio ? 'block' : 'none';
+      editBioBtn.textContent = editingBio ? 'Cancel' : 'Edit';
+
+      if (editingBio) {
+        bioInput.focus();
+        updateCharCount();
+      }
+    });
+
+    cancelBioBtn.addEventListener('click', () => {
+      editingBio = false;
+      bioDisplay.style.display = 'block';
+      bioEditor.style.display = 'none';
+      editBioBtn.textContent = 'Edit';
+    });
+
+    function updateCharCount() {
+      charCount.textContent = bioInput.value.length;
+    }
+
+    bioInput.addEventListener('input', updateCharCount);
+
+    saveBioBtn.addEventListener('click', async () => {
+      const bio = bioInput.value.trim();
+
+      if (bio.length > 500) {
+        alert('Bio must be 500 characters or less');
+        return;
+      }
+
+      try {
+        const token = localStorage.getItem('usernode-token');
+        const headers = {
+          'Content-Type': 'application/json',
+          ...(token && { 'x-usernode-token': token })
+        };
+
+        const response = await fetch('/api/profile', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ bio })
+        });
+
+        if (response.ok) {
+          const updatedProfile = await response.json();
+          updateUserProfile(updatedProfile);
+          editingBio = false;
+          bioDisplay.style.display = 'block';
+          bioEditor.style.display = 'none';
+          editBioBtn.textContent = 'Edit';
+        }
+      } catch (err) {
+        console.error('Error saving bio:', err);
+        alert('Failed to save bio. Please try again.');
+      }
+    });
+
+    // Copy wallet address handler
+    if (copyWalletBtn) {
+      copyWalletBtn.addEventListener('click', () => {
+        const walletText = userProfile.wallet_address;
+        navigator.clipboard.writeText(walletText).then(() => {
+          const originalText = copyWalletBtn.textContent;
+          copyWalletBtn.textContent = 'Copied!';
+          setTimeout(() => {
+            copyWalletBtn.textContent = originalText;
+          }, 2000);
+        }).catch(err => {
+          console.error('Failed to copy:', err);
+        });
+      });
+    }
+
+    // Update active nav tab
+    navTabs.forEach(tab => {
+      tab.classList.remove('active');
+      if (tab.dataset.page === 'profile') {
+        tab.classList.add('active');
+      }
+    });
+  }
+
   // Render a placeholder page
   function renderPage(pageName) {
     const page = pages[pageName];
@@ -4276,6 +4546,8 @@ document.addEventListener('DOMContentLoaded', () => {
       renderNewMessagePage();
     } else if (pageName === 'discover') {
       renderDiscoverPage();
+    } else if (pageName === 'profile') {
+      renderProfilePage();
     } else {
       pageContainer.innerHTML = `
         <div class="page">
@@ -4374,6 +4646,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Listen for hash changes
   window.addEventListener('hashchange', handleNavigation);
 
-  // Initial render
-  handleNavigation();
+  // Initialize user profile and initial render
+  initializeUserProfile().then(() => {
+    handleNavigation();
+  });
 });

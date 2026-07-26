@@ -191,6 +191,26 @@
       "name": "Channel detail screen loads",
       "path": "/#/discover/channel/discover_channel_1",
       "expectText": "Announcements"
+    },
+    {
+      "name": "Profile page displays",
+      "path": "/#/profile",
+      "expectText": "Profile"
+    },
+    {
+      "name": "Profile avatar section renders",
+      "path": "/#/profile",
+      "expectSelector": ".avatar-section"
+    },
+    {
+      "name": "Profile identity fields display",
+      "path": "/#/profile",
+      "expectSelector": ".identity-section"
+    },
+    {
+      "name": "Profile bio section renders",
+      "path": "/#/profile",
+      "expectSelector": ".bio-section"
     }
   ]
 }
