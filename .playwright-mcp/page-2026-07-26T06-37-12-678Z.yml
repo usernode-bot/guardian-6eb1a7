@@ -1,0 +1,36 @@
+- generic [ref=e2]:
+  - generic [ref=e95]:
+    - generic [ref=e96]:
+      - heading "Messages" [level=1] [ref=e97]
+      - generic [ref=e98] [cursor=pointer]: 🔍
+    - generic [ref=e99]:
+      - textbox "🔍 Search..." [active] [ref=e100]: solana
+      - button "✕" [ref=e101] [cursor=pointer]
+    - generic [ref=e102]:
+      - button "All" [ref=e103] [cursor=pointer]
+      - button "DM" [ref=e104] [cursor=pointer]
+      - button "Groups" [ref=e105] [cursor=pointer]
+      - button "Channels" [ref=e106] [cursor=pointer]
+      - button "Requests 2" [ref=e107] [cursor=pointer]:
+        - text: Requests
+        - generic [ref=e108]: "2"
+    - generic [ref=e177]:
+      - generic [ref=e178]: SI
+      - generic [ref=e179]:
+        - generic [ref=e180]:
+          - generic [ref=e181]: Solana Indonesia
+          - generic [ref=e182]: 2m
+        - paragraph [ref=e183]: Mainnet Beta is Live 🚀 Exciting times ahead as we launch the next phase of development!
+  - navigation [ref=e82]:
+    - button "💬 Messages" [ref=e83] [cursor=pointer]:
+      - generic [ref=e84]: 💬
+      - generic [ref=e85]: Messages
+    - button "➕ Create" [ref=e86] [cursor=pointer]:
+      - generic [ref=e87]: ➕
+      - generic [ref=e88]: Create
+    - button "🧭 Discover" [ref=e89] [cursor=pointer]:
+      - generic [ref=e90]: 🧭
+      - generic [ref=e91]: Discover
+    - button "👤 Profile" [ref=e92] [cursor=pointer]:
+      - generic [ref=e93]: 👤
+      - generic [ref=e94]: Profile

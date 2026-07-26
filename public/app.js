@@ -707,6 +707,136 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Update only the conversations list (used during search to avoid full page re-render)
+  function updateConversationsList() {
+    const filteredConversations = filterConversations(activeMessagesTab, searchQuery);
+    const sortedConversations = activeMessagesTab === 'requests' ? filteredConversations : sortConversations(filteredConversations);
+
+    const conversationsList = sortedConversations.map(item => {
+      if (activeMessagesTab === 'requests') {
+        return `
+          <div class="request-item" data-request-id="${item.id}">
+            <div class="request-header">
+              <div class="request-avatar">${item.avatar}</div>
+              <div class="request-content">
+                <div class="request-name">${item.senderName}</div>
+                <div class="request-message">${truncateText(item.messagePreview, 60)}</div>
+              </div>
+            </div>
+            <div class="request-actions">
+              <button class="request-accept" data-request-id="${item.id}">Accept</button>
+              <button class="request-decline" data-request-id="${item.id}">Decline</button>
+            </div>
+          </div>
+        `;
+      } else {
+        let displayName, routeHash;
+        if (item.type === 'group') {
+          displayName = item.name;
+          routeHash = `/group/${item.groupId}`;
+        } else if (item.type === 'channel') {
+          displayName = item.name;
+          routeHash = `/channel/${item.channelId}`;
+        } else {
+          displayName = item.username;
+          routeHash = `/conversation/${item.id}`;
+        }
+        const badgeColor = item.type === 'channel' ? '#FF6B6B' : '#007AFF';
+
+        return `
+          <div class="swipe-container" data-conversation-id="${item.id}">
+            <div class="swipe-actions">
+              <button class="swipe-action archive-action" data-action="archive" data-conversation-id="${item.id}">Archive</button>
+              <button class="swipe-action pin-action" data-action="pin" data-conversation-id="${item.id}">${item.pinned ? 'Unpin' : 'Pin'}</button>
+            </div>
+            <div class="conversation-item" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
+              <div class="conversation-avatar">${item.avatar}</div>
+              <div class="conversation-content">
+                <div class="conversation-header">
+                  <span class="conversation-username">${displayName}</span>
+                  <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
+                </div>
+                <p class="conversation-message">${item.lastMessage}</p>
+              </div>
+              ${item.unreadCount > 0 ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>` : ''}
+            </div>
+          </div>
+        `;
+      }
+    }).join('');
+
+    const emptyMessage = {
+      all: 'No conversations yet',
+      dm: 'No direct messages',
+      groups: 'No groups',
+      channels: 'No channels',
+      requests: 'No pending requests'
+    }[activeMessagesTab];
+
+    const listEl = document.getElementById('conversations-list');
+    if (listEl) {
+      listEl.innerHTML = conversationsList || `<div class="empty-state"><div class="empty-icon">💬</div><div class="empty-message">${emptyMessage}</div></div>`;
+      attachConversationListeners();
+    }
+  }
+
+  // Attach event listeners to conversation list items
+  function attachConversationListeners() {
+    // Conversation click handlers
+    document.querySelectorAll('.conversation-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const routeHash = item.dataset.routeHash;
+        const convId = item.dataset.conversationId;
+        const conv = conversations.find(c => c.id === convId);
+        if (conv) conv.unreadCount = 0;
+        window.location.hash = routeHash;
+      });
+    });
+
+    // Request accept/decline handlers
+    document.querySelectorAll('.request-accept').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const requestId = btn.dataset.requestId;
+        acceptRequest(requestId);
+      });
+    });
+
+    document.querySelectorAll('.request-decline').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const requestId = btn.dataset.requestId;
+        declineRequest(requestId);
+      });
+    });
+
+    // Swipe action handlers with backend persistence
+    document.querySelectorAll('.swipe-action').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const action = btn.dataset.action;
+        const convId = btn.dataset.conversationId;
+        const conv = conversations.find(c => c.id === convId);
+
+        if (!conv) return;
+
+        try {
+          if (action === 'archive') {
+            await fetch(`/api/conversations/${conv.id}/archive`, { method: 'PUT' });
+            conv.archived = true;
+            renderMessagesPage();
+          } else if (action === 'pin') {
+            await fetch(`/api/conversations/${conv.id}/pin`, { method: 'PUT' });
+            conv.pinned = !conv.pinned;
+            renderMessagesPage();
+          }
+        } catch (err) {
+          console.error('Swipe action failed:', err);
+        }
+      });
+    });
+  }
+
   // Update conversation last message and timestamp
   function updateConversationLastMessage(conversationId, lastMessage, newTimestamp) {
     const conv = conversations.find(c => c.id === conversationId);
@@ -1217,12 +1347,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // Clear previous timeout
         if (searchTimeout) clearTimeout(searchTimeout);
 
-        // Debounce: re-render only after 300ms of no typing
+        // Debounce: update only the conversations list after 300ms of no typing
         searchTimeout = setTimeout(() => {
-          renderMessagesPage();
-          setTimeout(() => {
-            document.getElementById('messages-search-input').focus();
-          }, 0);
+          updateConversationsList();
         }, 300);
       });
 
@@ -1234,60 +1361,8 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    // Conversation click handlers
-    document.querySelectorAll('.conversation-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const routeHash = item.dataset.routeHash;
-        const convId = item.dataset.conversationId;
-        // Clear unread badge
-        const conv = conversations.find(c => c.id === convId);
-        if (conv) conv.unreadCount = 0;
-        window.location.hash = routeHash;
-      });
-    });
-
-    // Request accept/decline handlers
-    document.querySelectorAll('.request-accept').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const requestId = btn.dataset.requestId;
-        acceptRequest(requestId);
-      });
-    });
-
-    document.querySelectorAll('.request-decline').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const requestId = btn.dataset.requestId;
-        declineRequest(requestId);
-      });
-    });
-
-    // Swipe action handlers with backend persistence
-    document.querySelectorAll('.swipe-action').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const action = btn.dataset.action;
-        const convId = btn.dataset.conversationId;
-        const conv = conversations.find(c => c.id === convId);
-
-        if (!conv) return;
-
-        try {
-          if (action === 'archive') {
-            await fetch(`/api/conversations/${conv.id}/archive`, { method: 'PUT' });
-            conv.archived = true;
-            renderMessagesPage();
-          } else if (action === 'pin') {
-            await fetch(`/api/conversations/${conv.id}/pin`, { method: 'PUT' });
-            conv.pinned = !conv.pinned;
-            renderMessagesPage();
-          }
-        } catch (err) {
-          console.error(`Failed to ${action} conversation:`, err);
-        }
-      });
-    });
+    // Attach event listeners to conversation list items
+    attachConversationListeners();
 
     // Setup long-press context menu for conversations
     setupConversationLongPress();
