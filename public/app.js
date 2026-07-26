@@ -1192,6 +1192,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.message-tab').forEach(tab => {
       tab.addEventListener('click', () => {
         searchQuery = '';
+        const searchContainer = document.getElementById('messages-search');
+        if (searchContainer) {
+          searchContainer.style.display = 'none';
+        }
         renderMessagesPage(tab.dataset.tab);
       });
     });
