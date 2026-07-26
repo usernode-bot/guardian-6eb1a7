@@ -1173,7 +1173,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <span class="search-icon">🔍</span>
         </div>
         <div class="messages-search" id="messages-search" style="display: ${showMessagesSearch ? 'flex' : 'none'};">
-          <input type="text" class="search-input" id="messages-search-input" placeholder="🔍 Search..." />
+          <input type="text" class="search-input" id="messages-search-input" placeholder="🔍 Search..." value="${searchQuery}" />
           <button class="search-close">✕</button>
         </div>
         <div class="messages-tabs">
@@ -1213,6 +1213,9 @@ document.addEventListener('DOMContentLoaded', () => {
       searchInput.addEventListener('input', (e) => {
         searchQuery = e.target.value;
         renderMessagesPage();
+        setTimeout(() => {
+          document.getElementById('messages-search-input').focus();
+        }, 0);
       });
 
       // Search close button
