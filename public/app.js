@@ -497,6 +497,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let activeMessagesTab = 'all';
   let activeDiscoverTab = 'all';
   let searchQuery = '';
+  let showMessagesSearch = false;
   let swipeState = {
     element: null,
     startX: 0,
@@ -1171,7 +1172,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <h1>Messages</h1>
           <span class="search-icon">🔍</span>
         </div>
-        <div class="messages-search" id="messages-search" style="display: none;">
+        <div class="messages-search" id="messages-search" style="display: ${showMessagesSearch ? 'flex' : 'none'};">
           <input type="text" class="search-input" id="messages-search-input" placeholder="🔍 Search..." />
           <button class="search-close">✕</button>
         </div>
@@ -1192,19 +1193,18 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.message-tab').forEach(tab => {
       tab.addEventListener('click', () => {
         searchQuery = '';
-        const searchContainer = document.getElementById('messages-search');
-        if (searchContainer) {
-          searchContainer.style.display = 'none';
-        }
+        showMessagesSearch = false;
         renderMessagesPage(tab.dataset.tab);
       });
     });
 
     // Search icon handler
     document.querySelector('.search-icon').addEventListener('click', () => {
-      const searchContainer = document.getElementById('messages-search');
-      searchContainer.style.display = 'flex';
-      document.getElementById('messages-search-input').focus();
+      showMessagesSearch = true;
+      renderMessagesPage();
+      setTimeout(() => {
+        document.getElementById('messages-search-input').focus();
+      }, 0);
     });
 
     // Search input handler
@@ -1218,7 +1218,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Search close button
       document.querySelector('.search-close').addEventListener('click', () => {
         searchQuery = '';
-        document.getElementById('messages-search').style.display = 'none';
+        showMessagesSearch = false;
         renderMessagesPage();
       });
     }

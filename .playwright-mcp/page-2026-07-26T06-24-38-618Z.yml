@@ -1,0 +1,85 @@
+- generic [ref=e2]:
+  - generic [ref=e200]:
+    - generic [ref=e201]:
+      - heading "Messages" [level=1] [ref=e202]
+      - generic [ref=e203] [cursor=pointer]: 🔍
+    - generic [ref=e204]:
+      - button "All" [ref=e205] [cursor=pointer]
+      - button "DM" [ref=e206] [cursor=pointer]
+      - button "Groups" [ref=e207] [cursor=pointer]
+      - button "Channels" [ref=e208] [cursor=pointer]
+      - button "Requests 2" [ref=e209] [cursor=pointer]:
+        - text: Requests
+        - generic [ref=e210]: "2"
+    - generic [ref=e211]:
+      - generic [ref=e213]:
+        - generic [ref=e214]: SI
+        - generic [ref=e215]:
+          - generic [ref=e216]:
+            - generic [ref=e217]: Solana Indonesia
+            - generic [ref=e218]: 2m
+          - paragraph [ref=e219]: Mainnet Beta is Live 🚀 Exciting times ahead as we launch the next phase of development!
+      - generic [ref=e221]:
+        - generic [ref=e222]: AC
+        - generic [ref=e223]:
+          - generic [ref=e224]:
+            - generic [ref=e225]: Alice Chen
+            - generic [ref=e226]: 2m
+          - paragraph [ref=e227]: That sounds great! Let's meet up soon.
+        - generic [ref=e228]: "2"
+      - generic [ref=e230]:
+        - generic [ref=e231]: SC
+        - generic [ref=e232]:
+          - generic [ref=e233]:
+            - generic [ref=e234]: Seeker Club
+            - generic [ref=e235]: 5m
+          - paragraph [ref=e236]: Let's catch up soon!
+      - generic [ref=e238]:
+        - generic [ref=e239]: DT
+        - generic [ref=e240]:
+          - generic [ref=e241]:
+            - generic [ref=e242]: Design Team
+            - generic [ref=e243]: 25m
+          - paragraph [ref=e244]: Thanks! Reviewing now
+      - generic [ref=e246]:
+        - generic [ref=e247]: WB
+        - generic [ref=e248]:
+          - generic [ref=e249]:
+            - generic [ref=e250]: Web3 Builders
+            - generic [ref=e251]: 1h
+          - paragraph [ref=e252]: Welcome to Web3 Builders! 👨‍💻 This is a space to share projects, learn together, and build the future of web3.
+      - generic [ref=e254]:
+        - generic [ref=e255]: BW
+        - generic [ref=e256]:
+          - generic [ref=e257]:
+            - generic [ref=e258]: Bob Wilson
+            - generic [ref=e259]: 1h
+          - paragraph [ref=e260]: Did you see the latest updates?
+      - generic [ref=e262]:
+        - generic [ref=e263]: CD
+        - generic [ref=e264]:
+          - generic [ref=e265]:
+            - generic [ref=e266]: Carol Davis
+            - generic [ref=e267]: Yesterday
+          - paragraph [ref=e268]: Thanks for the help yesterday!
+        - generic [ref=e269]: "1"
+      - generic [ref=e271]:
+        - generic [ref=e272]: DL
+        - generic [ref=e273]:
+          - generic [ref=e274]:
+            - generic [ref=e275]: David Lee
+            - generic [ref=e276]: 2d
+          - paragraph [ref=e277]: Looking forward to the event next week
+  - navigation [ref=e82]:
+    - button "💬 Messages" [ref=e83] [cursor=pointer]:
+      - generic [ref=e84]: 💬
+      - generic [ref=e85]: Messages
+    - button "➕ Create" [ref=e86] [cursor=pointer]:
+      - generic [ref=e87]: ➕
+      - generic [ref=e88]: Create
+    - button "🧭 Discover" [ref=e89] [cursor=pointer]:
+      - generic [ref=e90]: 🧭
+      - generic [ref=e91]: Discover
+    - button "👤 Profile" [ref=e92] [cursor=pointer]:
+      - generic [ref=e93]: 👤
+      - generic [ref=e94]: Profile
