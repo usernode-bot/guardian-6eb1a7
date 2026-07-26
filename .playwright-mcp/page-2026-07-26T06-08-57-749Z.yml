@@ -1,0 +1,43 @@
+- generic [ref=e2]:
+  - generic [ref=e62]:
+    - heading "Profile" [level=1] [ref=e64]
+    - generic [ref=e65]:
+      - generic [ref=e66]:
+        - generic [ref=e67]: JD
+        - button "Change Photo" [ref=e68] [cursor=pointer]
+        - generic [ref=e69]: johndoe
+        - generic [ref=e70]: Building on Usernode
+      - generic [ref=e71]:
+        - generic [ref=e72]:
+          - generic [ref=e73]: Usernode Address
+          - generic [ref=e74]: 0x91FA...D2C8
+        - button "📋" [ref=e75] [cursor=pointer]
+      - generic [ref=e76] [cursor=pointer]:
+        - generic [ref=e77]: 🖼️
+        - generic [ref=e78]: Change Avatar
+        - generic [ref=e79]: ›
+      - generic [ref=e80] [cursor=pointer]:
+        - generic [ref=e81]: ✏️
+        - generic [ref=e82]: Edit Bio
+        - generic [ref=e83]: ›
+      - generic [ref=e84] [cursor=pointer]:
+        - generic [ref=e85]: 📋
+        - generic [ref=e86]: Copy Address
+        - generic [ref=e87]: ›
+      - generic [ref=e88] [cursor=pointer]:
+        - generic [ref=e89]: ℹ️
+        - generic [ref=e90]: About
+        - generic [ref=e91]: ›
+  - navigation [ref=e34]:
+    - button "💬 Messages" [ref=e35] [cursor=pointer]:
+      - generic [ref=e36]: 💬
+      - generic [ref=e37]: Messages
+    - button "➕ Create" [ref=e38] [cursor=pointer]:
+      - generic [ref=e39]: ➕
+      - generic [ref=e40]: Create
+    - button "🧭 Discover" [ref=e41] [cursor=pointer]:
+      - generic [ref=e42]: 🧭
+      - generic [ref=e43]: Discover
+    - button "👤 Profile" [ref=e44] [cursor=pointer]:
+      - generic [ref=e45]: 👤
+      - generic [ref=e46]: Profile
