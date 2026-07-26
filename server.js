@@ -162,6 +162,30 @@ app.post('/api/groups/:groupId/leave', (req, res) => {
   });
 });
 
+// In-memory conversation storage (demo/frontend state)
+let conversations = {};
+
+// Conversation Management API Endpoints
+
+// PUT /api/conversations/:id/pin - Toggle pin on a conversation
+app.put('/api/conversations/:id/pin', (req, res) => {
+  const { id } = req.params;
+  const { pinned } = req.body;
+
+  // Initialize or update conversation pin state
+  if (!conversations[id]) {
+    conversations[id] = { pinned: !!pinned };
+  } else {
+    conversations[id].pinned = !!pinned;
+  }
+
+  res.json({
+    id: id,
+    pinned: conversations[id].pinned,
+    message: 'Conversation pin status updated'
+  });
+});
+
 // Initialize database schema
 async function initDatabase() {
   try {

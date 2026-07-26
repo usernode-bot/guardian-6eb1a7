@@ -692,9 +692,12 @@ document.addEventListener('DOMContentLoaded', () => {
     return filtered;
   }
 
-  // Sort conversations by timestamp
+  // Sort conversations (pinned first, then by timestamp)
   function sortConversations(convs) {
-    return convs.sort((a, b) => b.timestamp - a.timestamp);
+    return convs.sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      return b.timestamp - a.timestamp;
+    });
   }
 
   // Update only the conversations list (used during search to avoid full page re-render)
@@ -1355,8 +1358,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const conversationItems = document.querySelectorAll('.conversation-item');
     const LONG_PRESS_DURATION = 350;
     const MENU_ITEMS = [
-      { icon: '📌', label: 'Pin', action: 'pin' },
-      { icon: '🗂️', label: 'Archive', action: 'archive' }
+      { icon: '📌', label: 'Pin', action: 'pin' }
     ];
 
     let menuState = {
@@ -1455,12 +1457,16 @@ document.addEventListener('DOMContentLoaded', () => {
           btn.classList.add('tapped');
 
           try {
-            if (action === 'archive') {
-              await fetch(`/api/conversations/${convId}/archive`, { method: 'PUT' });
-              conv.archived = true;
-            } else if (action === 'pin') {
-              await fetch(`/api/conversations/${convId}/pin`, { method: 'PUT' });
-              conv.pinned = !conv.pinned;
+            if (action === 'pin') {
+              const newPinnedState = !conv.pinned;
+              const res = await fetch(`/api/conversations/${convId}/pin`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pinned: newPinnedState })
+              });
+              if (res.ok) {
+                conv.pinned = newPinnedState;
+              }
             }
           } catch (err) {
             console.error(`Failed to ${action} conversation:`, err);
