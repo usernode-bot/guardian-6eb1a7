@@ -4261,6 +4261,156 @@ document.addEventListener('DOMContentLoaded', () => {
     updateButtonState();
   }
 
+  // Profile Screen Functions
+  function renderProfilePage() {
+    const username = 'johndoe';
+    const bio = 'Building on Usernode';
+    const walletAddress = '0x91FA987D4DC5A4E2DDB0F3E8C7B6A5D2C8';
+
+    const shortAddress = walletAddress.substring(0, 6) + '...' + walletAddress.substring(walletAddress.length - 4);
+
+    pageContainer.innerHTML = `
+      <div class="profile-page">
+        <div class="messages-header">
+          <h1>Profile</h1>
+        </div>
+
+        <div class="profile-content">
+          <!-- Profile Header -->
+          <div class="profile-header-section">
+            <div class="profile-avatar-large">JD</div>
+            <button class="profile-change-photo-btn" id="change-photo-btn">Change Photo</button>
+            <div class="profile-username">${username}</div>
+            <div class="profile-bio">${bio}</div>
+          </div>
+
+          <!-- Wallet Card -->
+          <div class="profile-wallet-card">
+            <div class="wallet-info">
+              <div class="wallet-label">Usernode Address</div>
+              <div class="wallet-address">${shortAddress}</div>
+            </div>
+            <button class="wallet-copy-btn" id="wallet-copy-btn">📋</button>
+          </div>
+
+          <!-- Menu Items -->
+          <div class="profile-menu-item" id="menu-change-avatar">
+            <span class="menu-icon">🖼️</span>
+            <span class="menu-label">Change Avatar</span>
+            <span class="menu-chevron">›</span>
+          </div>
+
+          <div class="profile-menu-item" id="menu-edit-bio">
+            <span class="menu-icon">✏️</span>
+            <span class="menu-label">Edit Bio</span>
+            <span class="menu-chevron">›</span>
+          </div>
+
+          <div class="profile-menu-item" id="menu-copy-address">
+            <span class="menu-icon">📋</span>
+            <span class="menu-label">Copy Address</span>
+            <span class="menu-chevron">›</span>
+          </div>
+
+          <div class="profile-menu-item" id="menu-about">
+            <span class="menu-icon">ℹ️</span>
+            <span class="menu-label">About</span>
+            <span class="menu-chevron">›</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Event handlers
+    document.getElementById('change-photo-btn').addEventListener('click', () => {
+      window.location.hash = '/profile/change-photo';
+    });
+
+    document.getElementById('menu-change-avatar').addEventListener('click', () => {
+      window.location.hash = '/profile/change-photo';
+    });
+
+    document.getElementById('menu-edit-bio').addEventListener('click', () => {
+      window.location.hash = '/profile/edit-bio';
+    });
+
+    document.getElementById('menu-copy-address').addEventListener('click', () => {
+      // Placeholder - no copy action yet
+      console.log('Copy address placeholder');
+    });
+
+    document.getElementById('wallet-copy-btn').addEventListener('click', () => {
+      // Placeholder - no copy action yet
+      console.log('Copy address placeholder');
+    });
+
+    document.getElementById('menu-about').addEventListener('click', () => {
+      window.location.hash = '/profile/about';
+    });
+  }
+
+  function renderProfileChangePhotoPage() {
+    pageContainer.innerHTML = `
+      <div class="profile-detail-page">
+        <div class="profile-detail-header">
+          <button class="back-button" id="back-btn">←</button>
+          <h1>Change Photo</h1>
+          <div style="width: 32px;"></div>
+        </div>
+        <div class="profile-detail-content">
+          <!-- Placeholder empty screen -->
+        </div>
+      </div>
+    `;
+
+    document.getElementById('back-btn').addEventListener('click', () => {
+      window.location.hash = '/profile';
+    });
+  }
+
+  function renderProfileEditBioPage() {
+    pageContainer.innerHTML = `
+      <div class="profile-detail-page">
+        <div class="profile-detail-header">
+          <button class="back-button" id="back-btn">←</button>
+          <h1>Edit Bio</h1>
+          <div style="width: 32px;"></div>
+        </div>
+        <div class="profile-detail-content">
+          <!-- Placeholder empty screen -->
+        </div>
+      </div>
+    `;
+
+    document.getElementById('back-btn').addEventListener('click', () => {
+      window.location.hash = '/profile';
+    });
+  }
+
+  function renderProfileAboutPage() {
+    pageContainer.innerHTML = `
+      <div class="profile-detail-page">
+        <div class="profile-detail-header">
+          <button class="back-button" id="back-btn">←</button>
+          <h1>About</h1>
+          <div style="width: 32px;"></div>
+        </div>
+        <div class="profile-detail-content">
+          <div class="about-item">
+            <div class="about-label">App Version</div>
+            <div class="about-value">1.0.0</div>
+          </div>
+          <div class="about-divider"></div>
+          <div class="about-text">Built for Usernode</div>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('back-btn').addEventListener('click', () => {
+      window.location.hash = '/profile';
+    });
+  }
+
   // Render a placeholder page
   function renderPage(pageName) {
     const page = pages[pageName];
@@ -4276,6 +4426,8 @@ document.addEventListener('DOMContentLoaded', () => {
       renderNewMessagePage();
     } else if (pageName === 'discover') {
       renderDiscoverPage();
+    } else if (pageName === 'profile') {
+      renderProfilePage();
     } else {
       pageContainer.innerHTML = `
         <div class="page">
@@ -4356,6 +4508,20 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (path === 'discover' || path.startsWith('discover?')) {
       bottomNav.style.display = 'flex';
       renderDiscoverPage();
+    } else if (path.startsWith('profile/')) {
+      const action = path.split('/')[1];
+      navTabs.forEach(tab => tab.classList.remove('active'));
+      bottomNav.style.display = 'none';
+
+      if (action === 'change-photo') {
+        renderProfileChangePhotoPage();
+      } else if (action === 'edit-bio') {
+        renderProfileEditBioPage();
+      } else if (action === 'about') {
+        renderProfileAboutPage();
+      } else {
+        renderProfilePage();
+      }
     } else {
       // Show bottom nav on all other screens
       bottomNav.style.display = 'flex';
