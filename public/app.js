@@ -4261,6 +4261,176 @@ document.addEventListener('DOMContentLoaded', () => {
     updateButtonState();
   }
 
+  // Profile Screen Functions
+  let profileState = {
+    username: 'johndoe',
+    bio: 'Building on Usernode',
+    avatarUrl: null,
+    avatarImageId: null,
+    walletAddress: '0x91FA987D4DC5A4E2DDB0F3E8C7B6A5D2C8'
+  };
+
+  function getInitialsFromUsername(username) {
+    const parts = username.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return username.substring(0, 2).toUpperCase();
+  }
+
+  async function fetchUserData() {
+    try {
+      const token = localStorage.getItem('usernode-token');
+      const response = await fetch('/api/state', {
+        headers: token ? { 'x-usernode-token': token } : {}
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.user) {
+          profileState.username = data.user.username || 'johndoe';
+          if (data.user.usernode_pubkey) {
+            profileState.walletAddress = data.user.usernode_pubkey;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch user data:', err);
+    }
+  }
+
+  function renderProfilePage() {
+    const username = profileState.username;
+    const bio = profileState.bio;
+    const walletAddress = profileState.walletAddress;
+
+    const shortAddress = walletAddress.substring(0, 6) + '...' + walletAddress.substring(walletAddress.length - 4);
+    const initials = getInitialsFromUsername(username);
+
+    let avatarContent = initials;
+    if (profileState.avatarUrl) {
+      avatarContent = `<img src="${profileState.avatarUrl}" alt="Profile avatar" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`;
+    }
+
+    pageContainer.innerHTML = `
+      <div class="profile-page">
+        <div class="messages-header">
+          <h1>Profile</h1>
+        </div>
+
+        <div class="profile-content">
+          <!-- Profile Header -->
+          <div class="profile-header-section">
+            <div class="profile-avatar-large" id="profile-avatar-large">${avatarContent}</div>
+            <div class="profile-username">${username}</div>
+            <div class="profile-bio">${bio}</div>
+          </div>
+
+          <!-- Edit Bio Menu Item -->
+          <div class="profile-menu-item" id="edit-bio-menu-item">
+            <span class="menu-icon">✏️</span>
+            <span class="menu-label">Edit Bio</span>
+            <span class="menu-chevron">›</span>
+          </div>
+
+          <!-- Wallet Card -->
+          <div class="profile-wallet-card">
+            <div class="wallet-info">
+              <div class="wallet-label">Usernode Address</div>
+              <div class="wallet-address">${shortAddress}</div>
+            </div>
+            <button class="wallet-copy-btn" id="wallet-copy-btn">📋</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Make avatar clickable for upload
+    const avatarEl = document.getElementById('profile-avatar-large');
+    avatarEl.addEventListener('click', () => {
+      if (window.usernode && window.usernode.uploadFile) {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = async (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            try {
+              const stored = await window.usernode.uploadFile(file, { visibility: 'public' });
+              profileState.avatarUrl = stored.url;
+              profileState.avatarImageId = stored.id;
+              renderProfilePage();
+            } catch (err) {
+              console.error('Avatar upload failed:', err);
+            }
+          }
+        };
+        input.click();
+      } else {
+        console.log('Avatar upload bridge not available');
+      }
+    });
+
+    // Edit Bio menu item
+    document.getElementById('edit-bio-menu-item').addEventListener('click', () => {
+      window.location.hash = '/profile/edit-bio';
+    });
+
+    // Wallet copy button
+    document.getElementById('wallet-copy-btn').addEventListener('click', () => {
+      console.log('Copy address placeholder');
+    });
+  }
+
+  function renderProfileEditBioPage() {
+    const currentBio = profileState.bio;
+
+    pageContainer.innerHTML = `
+      <div class="profile-edit-bio-page">
+        <div class="edit-bio-header">
+          <button class="back-button" id="edit-bio-back-btn" aria-label="Back to profile">←</button>
+          <h1>Edit Bio</h1>
+          <div style="width: 32px;"></div>
+        </div>
+
+        <div class="edit-bio-content">
+          <textarea id="bio-textarea" class="bio-textarea" maxlength="500" placeholder="Write your bio...">${currentBio}</textarea>
+          <div class="char-count"><span id="bio-char-count">${currentBio.length}</span>/500</div>
+        </div>
+
+        <div class="edit-bio-footer">
+          <button class="button-secondary" id="edit-bio-cancel-btn">Cancel</button>
+          <button class="button-primary" id="edit-bio-save-btn">Save</button>
+        </div>
+      </div>
+    `;
+
+    // Back button
+    document.getElementById('edit-bio-back-btn').addEventListener('click', () => {
+      window.location.hash = '/profile';
+    });
+
+    // Character count update
+    const textarea = document.getElementById('bio-textarea');
+    const charCount = document.getElementById('bio-char-count');
+    textarea.addEventListener('input', () => {
+      charCount.textContent = textarea.value.length;
+    });
+
+    // Cancel button
+    document.getElementById('edit-bio-cancel-btn').addEventListener('click', () => {
+      window.location.hash = '/profile';
+    });
+
+    // Save button
+    document.getElementById('edit-bio-save-btn').addEventListener('click', () => {
+      profileState.bio = textarea.value;
+      window.location.hash = '/profile';
+    });
+
+    // Auto-focus textarea
+    textarea.focus();
+  }
+
   // Render a placeholder page
   function renderPage(pageName) {
     const page = pages[pageName];
@@ -4276,6 +4446,8 @@ document.addEventListener('DOMContentLoaded', () => {
       renderNewMessagePage();
     } else if (pageName === 'discover') {
       renderDiscoverPage();
+    } else if (pageName === 'profile') {
+      fetchUserData().then(() => renderProfilePage());
     } else {
       pageContainer.innerHTML = `
         <div class="page">
@@ -4343,6 +4515,12 @@ document.addEventListener('DOMContentLoaded', () => {
       // Remove active from all nav tabs
       navTabs.forEach(tab => tab.classList.remove('active'));
       renderCreateChannelPage();
+    } else if (path === 'profile/edit-bio') {
+      // Hide bottom nav on edit bio screen
+      bottomNav.style.display = 'none';
+      // Remove active from all nav tabs
+      navTabs.forEach(tab => tab.classList.remove('active'));
+      renderProfileEditBioPage();
     } else if (path.startsWith('discover/group/')) {
       const groupId = path.split('/')[2];
       bottomNav.style.display = 'none';
