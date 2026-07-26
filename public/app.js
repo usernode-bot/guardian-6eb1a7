@@ -820,18 +820,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!conv) return;
 
+        const originalState = { archived: conv.archived, pinned: conv.pinned };
+
         try {
           if (action === 'archive') {
-            await fetch(`/api/conversations/${conv.id}/archive`, { method: 'PUT' });
             conv.archived = true;
-            renderMessagesPage();
+            const res = await fetch(`/api/conversations/${conv.id}/archive`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ archived: true })
+            });
+            if (!res.ok) throw new Error('Archive failed');
+            updateConversationsList();
           } else if (action === 'pin') {
-            await fetch(`/api/conversations/${conv.id}/pin`, { method: 'PUT' });
             conv.pinned = !conv.pinned;
-            renderMessagesPage();
+            const res = await fetch(`/api/conversations/${conv.id}/pin`, { method: 'PUT' });
+            if (!res.ok) throw new Error('Pin failed');
+            updateConversationsList();
           }
         } catch (err) {
           console.error('Swipe action failed:', err);
+          conv.archived = originalState.archived;
+          conv.pinned = originalState.pinned;
+          updateConversationsList();
         }
       });
     });
@@ -1608,8 +1619,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (diff < -swipeState.threshold) {
           item.style.transform = 'translateX(-150px)';
           container.querySelector('.swipe-actions').style.visibility = 'visible';
-        } else if (diff > swipeState.threshold) {
-          item.style.transform = 'translateX(150px)';
         } else {
           item.style.transform = 'translateX(0)';
           container.querySelector('.swipe-actions').style.visibility = 'hidden';

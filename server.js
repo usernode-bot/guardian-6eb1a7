@@ -166,13 +166,16 @@ app.post('/api/groups/:groupId/leave', (req, res) => {
 // PUT /api/conversations/:id/archive - Archive a conversation
 app.put('/api/conversations/:id/archive', (req, res) => {
   const { id } = req.params;
-  const { archived } = req.body || {};
 
-  // TODO: Validate user owns this conversation
-  // TODO: Update database
+  const conversation = conversations.find(c => c.id === id);
+  if (!conversation) {
+    return res.status(404).json({ error: 'Conversation not found' });
+  }
+
+  conversation.archived = true;
   res.json({
     id: id,
-    archived: archived !== false,
+    archived: true,
     message: 'Conversation archived successfully'
   });
 });
@@ -181,11 +184,15 @@ app.put('/api/conversations/:id/archive', (req, res) => {
 app.put('/api/conversations/:id/pin', (req, res) => {
   const { id } = req.params;
 
-  // TODO: Validate user owns this conversation
-  // TODO: Update database to toggle pinned status
+  const conversation = conversations.find(c => c.id === id);
+  if (!conversation) {
+    return res.status(404).json({ error: 'Conversation not found' });
+  }
+
+  conversation.pinned = !conversation.pinned;
   res.json({
     id: id,
-    pinned: true,
+    pinned: conversation.pinned,
     message: 'Conversation pin status updated'
   });
 });
