@@ -498,6 +498,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let activeDiscoverTab = 'all';
   let searchQuery = '';
   let showMessagesSearch = false;
+  let searchTimeout = null;
   let swipeState = {
     element: null,
     startX: 0,
@@ -1212,10 +1213,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
         searchQuery = e.target.value;
-        renderMessagesPage();
-        setTimeout(() => {
-          document.getElementById('messages-search-input').focus();
-        }, 0);
+
+        // Clear previous timeout
+        if (searchTimeout) clearTimeout(searchTimeout);
+
+        // Debounce: re-render only after 300ms of no typing
+        searchTimeout = setTimeout(() => {
+          renderMessagesPage();
+          setTimeout(() => {
+            document.getElementById('messages-search-input').focus();
+          }, 0);
+        }, 300);
       });
 
       // Search close button
