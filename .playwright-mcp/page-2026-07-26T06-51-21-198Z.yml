@@ -1,0 +1,30 @@
+- generic [ref=e87]:
+  - generic [ref=e88]:
+    - button "Back to messages" [ref=e89] [cursor=pointer]: ←
+    - generic [ref=e90]:
+      - generic [ref=e91]: AC
+      - generic [ref=e92]: Alice Chen
+    - button "More options" [ref=e94] [cursor=pointer]: ⋮
+  - generic [ref=e95]:
+    - generic [ref=e96]:
+      - generic [ref=e97]: Hey! How's it going?
+      - generic [ref=e98]: 6:45 AM
+    - generic [ref=e99]:
+      - generic [ref=e100]: Great! Just finished work
+      - generic [ref=e101]: 6:46 AM
+    - generic [ref=e102]:
+      - generic [ref=e103]: Nice! Want to grab dinner?
+      - generic [ref=e104]: 6:46 AM
+    - generic [ref=e105]:
+      - generic [ref=e106]: Sure! When?
+      - generic [ref=e107]: 6:47 AM
+    - generic [ref=e108]:
+      - generic [ref=e109]: How about 7pm?
+      - generic [ref=e110]: 6:47 AM
+    - generic [ref=e111]:
+      - generic [ref=e112]: That sounds great! Let's meet up soon.
+      - generic [ref=e113]: 6:48 AM
+  - generic [ref=e114]:
+    - button "Emoji" [ref=e115] [cursor=pointer]: 😊
+    - textbox "Message..." [ref=e116]
+    - button "Send" [ref=e117] [cursor=pointer]: ➤

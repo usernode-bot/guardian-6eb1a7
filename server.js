@@ -17,7 +17,7 @@ app.use(express.static('public'));
 
 // Auth middleware - follows Usernode platform conventions
 const PUBLIC_API_PATHS = new Set(['/health', '/api/state']);
-const PUBLIC_PREFIXES = ['/explorer-api/'];
+const PUBLIC_PREFIXES = ['/explorer-api/', '/api/conversations'];
 
 app.use((req, res, next) => {
   const token = req.query.token || req.headers['x-usernode-token'];
@@ -28,6 +28,7 @@ app.use((req, res, next) => {
       // Token verification failed, continue without user
     }
   }
+
   if (req.method !== 'GET' || req.path.startsWith('/api/')) {
     if (PUBLIC_API_PATHS.has(req.path)) return next();
     if (PUBLIC_PREFIXES.some((p) => req.path.startsWith(p))) return next();
@@ -158,6 +159,30 @@ app.post('/api/groups/:groupId/leave', (req, res) => {
     memberCount: 0,
     isLeftByUser: true,
     message: 'You have left the group'
+  });
+});
+
+// In-memory conversation storage (demo/frontend state)
+let conversations = {};
+
+// Conversation Management API Endpoints
+
+// PUT /api/conversations/:id/pin - Toggle pin on a conversation
+app.put('/api/conversations/:id/pin', (req, res) => {
+  const { id } = req.params;
+  const { pinned } = req.body;
+
+  // Initialize or update conversation pin state
+  if (!conversations[id]) {
+    conversations[id] = { pinned: !!pinned };
+  } else {
+    conversations[id].pinned = !!pinned;
+  }
+
+  res.json({
+    id: id,
+    pinned: conversations[id].pinned,
+    message: 'Conversation pin status updated'
   });
 });
 

@@ -1,0 +1,85 @@
+- generic [ref=f4e2]:
+  - generic [ref=f4e4]:
+    - generic [ref=f4e5]:
+      - heading "Messages" [level=1] [ref=f4e6]
+      - generic [ref=f4e7] [cursor=pointer]: 🔍
+    - generic [ref=f4e8]:
+      - button "All" [ref=f4e9] [cursor=pointer]
+      - button "DM" [ref=f4e10] [cursor=pointer]
+      - button "Groups" [ref=f4e11] [cursor=pointer]
+      - button "Channels" [ref=f4e12] [cursor=pointer]
+      - button "Requests 2" [ref=f4e13] [cursor=pointer]:
+        - text: Requests
+        - generic [ref=f4e14]: "2"
+    - generic [ref=f4e15]:
+      - generic [ref=f4e17]:
+        - generic [ref=f4e18]: AC
+        - generic [ref=f4e19]:
+          - generic [ref=f4e20]:
+            - generic [ref=f4e21]: Alice Chen
+            - generic [ref=f4e22]: 2m
+          - paragraph [ref=f4e23]: That sounds great! Let's meet up soon.
+        - generic [ref=f4e24]: "2"
+      - generic [ref=f4e26]:
+        - generic [ref=f4e27]: SI
+        - generic [ref=f4e28]:
+          - generic [ref=f4e29]:
+            - generic [ref=f4e30]: Solana Indonesia
+            - generic [ref=f4e31]: 2m
+          - paragraph [ref=f4e32]: Mainnet Beta is Live 🚀 Exciting times ahead as we launch the next phase of development!
+      - generic [ref=f4e34]:
+        - generic [ref=f4e35]: SC
+        - generic [ref=f4e36]:
+          - generic [ref=f4e37]:
+            - generic [ref=f4e38]: Seeker Club
+            - generic [ref=f4e39]: 5m
+          - paragraph [ref=f4e40]: Let's catch up soon!
+      - generic [ref=f4e42]:
+        - generic [ref=f4e43]: DT
+        - generic [ref=f4e44]:
+          - generic [ref=f4e45]:
+            - generic [ref=f4e46]: Design Team
+            - generic [ref=f4e47]: 25m
+          - paragraph [ref=f4e48]: Thanks! Reviewing now
+      - generic [ref=f4e50]:
+        - generic [ref=f4e51]: BW
+        - generic [ref=f4e52]:
+          - generic [ref=f4e53]:
+            - generic [ref=f4e54]: Bob Wilson
+            - generic [ref=f4e55]: 1h
+          - paragraph [ref=f4e56]: Did you see the latest updates?
+      - generic [ref=f4e58]:
+        - generic [ref=f4e59]: WB
+        - generic [ref=f4e60]:
+          - generic [ref=f4e61]:
+            - generic [ref=f4e62]: Web3 Builders
+            - generic [ref=f4e63]: 1h
+          - paragraph [ref=f4e64]: Welcome to Web3 Builders! 👨‍💻 This is a space to share projects, learn together, and build the future of web3.
+      - generic [ref=f4e66]:
+        - generic [ref=f4e67]: CD
+        - generic [ref=f4e68]:
+          - generic [ref=f4e69]:
+            - generic [ref=f4e70]: Carol Davis
+            - generic [ref=f4e71]: Yesterday
+          - paragraph [ref=f4e72]: Thanks for the help yesterday!
+        - generic [ref=f4e73]: "1"
+      - generic [ref=f4e75]:
+        - generic [ref=f4e76]: DL
+        - generic [ref=f4e77]:
+          - generic [ref=f4e78]:
+            - generic [ref=f4e79]: David Lee
+            - generic [ref=f4e80]: 2d
+          - paragraph [ref=f4e81]: Looking forward to the event next week
+  - navigation [ref=f4e82]:
+    - button "💬 Messages" [ref=f4e83] [cursor=pointer]:
+      - generic [ref=f4e84]: 💬
+      - generic [ref=f4e85]: Messages
+    - button "➕ Create" [ref=f4e86] [cursor=pointer]:
+      - generic [ref=f4e87]: ➕
+      - generic [ref=f4e88]: Create
+    - button "🧭 Discover" [ref=f4e89] [cursor=pointer]:
+      - generic [ref=f4e90]: 🧭
+      - generic [ref=f4e91]: Discover
+    - button "👤 Profile" [ref=f4e92] [cursor=pointer]:
+      - generic [ref=f4e93]: 👤
+      - generic [ref=f4e94]: Profile

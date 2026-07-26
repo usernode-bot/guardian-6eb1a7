@@ -497,12 +497,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let activeMessagesTab = 'all';
   let activeDiscoverTab = 'all';
   let searchQuery = '';
-  let swipeState = {
-    element: null,
-    startX: 0,
-    currentX: 0,
-    threshold: 80
-  };
+  let showMessagesSearch = false;
+  let searchTimeout = null;
 
   // Helper: generate unique group ID
   function generateGroupId() {
@@ -665,16 +661,24 @@ document.addEventListener('DOMContentLoaded', () => {
     let filtered = [];
 
     if (tab === 'all') {
-      filtered = conversations.filter(c => !c.archived);
+      filtered = conversations;
     } else if (tab === 'dm') {
-      filtered = conversations.filter(c => c.type === 'direct' && !c.archived);
+      filtered = conversations.filter(c => c.type === 'direct');
     } else if (tab === 'groups') {
-      filtered = conversations.filter(c => c.type === 'group' && !c.archived);
+      filtered = conversations.filter(c => c.type === 'group');
     } else if (tab === 'channels') {
-      filtered = conversations.filter(c => c.type === 'channel' && !c.archived);
+      filtered = conversations.filter(c => c.type === 'channel');
     } else if (tab === 'requests') {
       filtered = requests;
     }
+
+    // Deduplication: keep only the first occurrence of each conversation ID
+    const seen = new Set();
+    filtered = filtered.filter(c => {
+      if (seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
 
     if (query.trim()) {
       const q = query.toLowerCase();
@@ -691,10 +695,116 @@ document.addEventListener('DOMContentLoaded', () => {
   // Sort conversations (pinned first, then by timestamp)
   function sortConversations(convs) {
     return convs.sort((a, b) => {
-      if (a.pinned && !b.pinned) return -1;
-      if (!a.pinned && b.pinned) return 1;
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
       return b.timestamp - a.timestamp;
     });
+  }
+
+  // Update only the conversations list (used during search to avoid full page re-render)
+  function updateConversationsList() {
+    const filteredConversations = filterConversations(activeMessagesTab, searchQuery);
+    const sortedConversations = activeMessagesTab === 'requests' ? filteredConversations : sortConversations(filteredConversations);
+
+    const conversationsList = sortedConversations.map(item => {
+      if (activeMessagesTab === 'requests') {
+        return `
+          <div class="request-item" data-request-id="${item.id}">
+            <div class="request-header">
+              <div class="request-avatar">${item.avatar}</div>
+              <div class="request-content">
+                <div class="request-name">${item.senderName}</div>
+                <div class="request-message">${truncateText(item.messagePreview, 60)}</div>
+              </div>
+            </div>
+            <div class="request-actions">
+              <button class="request-accept" data-request-id="${item.id}">Accept</button>
+              <button class="request-decline" data-request-id="${item.id}">Decline</button>
+            </div>
+          </div>
+        `;
+      } else {
+        let displayName, routeHash;
+        if (item.type === 'group') {
+          displayName = item.name;
+          routeHash = `/group/${item.groupId}`;
+        } else if (item.type === 'channel') {
+          displayName = item.name;
+          routeHash = `/channel/${item.channelId}`;
+        } else {
+          displayName = item.username;
+          routeHash = `/conversation/${item.id}`;
+        }
+        const badgeColor = item.type === 'channel' ? '#FF6B6B' : '#007AFF';
+
+        return `
+          <div class="conversation-item" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
+            <div class="conversation-avatar">${item.avatar}</div>
+            <div class="conversation-content">
+              <div class="conversation-header">
+                <span class="conversation-username">${displayName}</span>
+                <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
+              </div>
+              <p class="conversation-message">${item.lastMessage}</p>
+            </div>
+            ${item.unreadCount > 0 ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>` : ''}
+          </div>
+        `;
+      }
+    }).join('');
+
+    const emptyMessage = {
+      all: 'No conversations yet',
+      dm: 'No direct messages',
+      groups: 'No groups',
+      channels: 'No channels',
+      requests: 'No pending requests'
+    }[activeMessagesTab];
+
+    const listEl = document.getElementById('conversations-list');
+    if (listEl) {
+      listEl.innerHTML = conversationsList || `<div class="empty-state"><div class="empty-icon">💬</div><div class="empty-message">${emptyMessage}</div></div>`;
+      attachConversationListeners();
+    }
+  }
+
+  // Attach event listeners to conversation list items
+  function attachConversationListeners() {
+    // Conversation click handlers
+    document.querySelectorAll('.conversation-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const routeHash = item.dataset.routeHash;
+        const convId = item.dataset.conversationId;
+        const conv = conversations.find(c => c.id === convId);
+        if (conv) conv.unreadCount = 0;
+        window.location.hash = routeHash;
+      });
+    });
+
+    // Request accept/decline handlers
+    document.querySelectorAll('.request-accept').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const requestId = btn.dataset.requestId;
+        acceptRequest(requestId);
+      });
+    });
+
+    document.querySelectorAll('.request-decline').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const requestId = btn.dataset.requestId;
+        declineRequest(requestId);
+      });
+    });
+  }
+
+  // Update conversation last message and timestamp
+  function updateConversationLastMessage(conversationId, lastMessage, newTimestamp) {
+    const conv = conversations.find(c => c.id === conversationId);
+    if (conv) {
+      conv.lastMessage = lastMessage;
+      conv.timestamp = newTimestamp || Date.now();
+    }
   }
 
   // Filter discover communities by tab
@@ -1116,29 +1226,23 @@ document.addEventListener('DOMContentLoaded', () => {
         const badgeColor = item.type === 'channel' ? '#FF6B6B' : '#007AFF';
 
         return `
-          <div class="swipe-container" data-conversation-id="${item.id}">
-            <div class="swipe-actions">
-              <button class="swipe-action archive-action" data-action="archive" data-conversation-id="${item.id}">Archive</button>
-              <button class="swipe-action pin-action" data-action="pin" data-conversation-id="${item.id}">${item.pinned ? 'Unpin' : 'Pin'}</button>
-            </div>
-            <div class="conversation-item" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
-              <div class="conversation-avatar">${item.avatar}</div>
-              <div class="conversation-content">
-                <div class="conversation-header">
-                  <span class="conversation-username">${displayName}</span>
-                  <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
-                </div>
-                <p class="conversation-message">${item.lastMessage}</p>
+          <div class="conversation-item" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
+            <div class="conversation-avatar">${item.avatar}</div>
+            <div class="conversation-content">
+              <div class="conversation-header">
+                <span class="conversation-username">${displayName}</span>
+                <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
               </div>
-              ${item.unreadCount > 0 ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>` : ''}
+              <p class="conversation-message">${item.lastMessage}</p>
             </div>
+            ${item.unreadCount > 0 ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>` : ''}
           </div>
         `;
       }
     }).join('');
 
     const emptyMessage = {
-      all: 'No messages yet',
+      all: 'No conversations yet',
       dm: 'No direct messages',
       groups: 'No groups',
       channels: 'No channels',
@@ -1154,8 +1258,8 @@ document.addEventListener('DOMContentLoaded', () => {
           <h1>Messages</h1>
           <span class="search-icon">🔍</span>
         </div>
-        <div class="messages-search" id="messages-search" style="display: none;">
-          <input type="text" class="search-input" id="messages-search-input" placeholder="🔍 Search..." />
+        <div class="messages-search" id="messages-search" style="display: ${showMessagesSearch ? 'flex' : 'none'};">
+          <input type="text" class="search-input" id="messages-search-input" placeholder="🔍 Search..." value="${searchQuery}" />
           <button class="search-close">✕</button>
         </div>
         <div class="messages-tabs">
@@ -1166,7 +1270,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <button class="message-tab ${activeMessagesTab === 'requests' ? 'active' : ''}" data-tab="requests">Requests ${requestsBadge}</button>
         </div>
         <div class="conversations-list" id="conversations-list">
-          ${conversationsList || `<div class="empty-state">${emptyMessage}</div>`}
+          ${conversationsList || `<div class="empty-state"><div class="empty-icon">💬</div><div class="empty-message">${emptyMessage}</div></div>`}
         </div>
       </div>
     `;
@@ -1175,15 +1279,18 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.message-tab').forEach(tab => {
       tab.addEventListener('click', () => {
         searchQuery = '';
+        showMessagesSearch = false;
         renderMessagesPage(tab.dataset.tab);
       });
     });
 
     // Search icon handler
     document.querySelector('.search-icon').addEventListener('click', () => {
-      const searchContainer = document.getElementById('messages-search');
-      searchContainer.style.display = 'flex';
-      document.getElementById('messages-search-input').focus();
+      showMessagesSearch = true;
+      renderMessagesPage();
+      setTimeout(() => {
+        document.getElementById('messages-search-input').focus();
+      }, 0);
     });
 
     // Search input handler
@@ -1191,70 +1298,29 @@ document.addEventListener('DOMContentLoaded', () => {
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
         searchQuery = e.target.value;
-        renderMessagesPage();
+
+        // Clear previous timeout
+        if (searchTimeout) clearTimeout(searchTimeout);
+
+        // Debounce: update only the conversations list after 300ms of no typing
+        searchTimeout = setTimeout(() => {
+          updateConversationsList();
+        }, 300);
       });
 
       // Search close button
       document.querySelector('.search-close').addEventListener('click', () => {
         searchQuery = '';
-        document.getElementById('messages-search').style.display = 'none';
+        showMessagesSearch = false;
         renderMessagesPage();
       });
     }
 
-    // Conversation click handlers
-    document.querySelectorAll('.conversation-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const routeHash = item.dataset.routeHash;
-        const convId = item.dataset.conversationId;
-        // Clear unread badge
-        const conv = conversations.find(c => c.id === convId);
-        if (conv) conv.unreadCount = 0;
-        window.location.hash = routeHash;
-      });
-    });
+    // Attach event listeners to conversation list items
+    attachConversationListeners();
 
-    // Request accept/decline handlers
-    document.querySelectorAll('.request-accept').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const requestId = btn.dataset.requestId;
-        acceptRequest(requestId);
-      });
-    });
-
-    document.querySelectorAll('.request-decline').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const requestId = btn.dataset.requestId;
-        declineRequest(requestId);
-      });
-    });
-
-    // Swipe action handlers
-    document.querySelectorAll('.swipe-action').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const action = btn.dataset.action;
-        const convId = btn.dataset.conversationId;
-        const conv = conversations.find(c => c.id === convId);
-
-        if (action === 'archive' && conv) {
-          conv.archived = true;
-          renderMessagesPage();
-        } else if (action === 'pin' && conv) {
-          conv.pinned = !conv.pinned;
-          renderMessagesPage();
-        } else if (action === 'delete' && conv) {
-          const idx = conversations.findIndex(c => c.id === convId);
-          if (idx >= 0) conversations.splice(idx, 1);
-          renderMessagesPage();
-        }
-      });
-    });
-
-    // Swipe touch handlers
-    setupSwipeHandlers();
+    // Setup long-press context menu for conversations
+    setupConversationLongPress();
   }
 
   // Accept request and create conversation
@@ -1287,44 +1353,178 @@ document.addEventListener('DOMContentLoaded', () => {
     renderMessagesPage();
   }
 
-  // Setup swipe handlers for conversation items
-  function setupSwipeHandlers() {
-    const containers = document.querySelectorAll('.swipe-container');
+  // Setup long-press context menu for conversation items
+  function setupConversationLongPress() {
+    const conversationItems = document.querySelectorAll('.conversation-item');
+    const LONG_PRESS_DURATION = 350;
+    const MENU_ITEMS = [
+      { icon: '📌', label: 'Pin', action: 'pin' }
+    ];
 
-    containers.forEach(container => {
-      const item = container.querySelector('.conversation-item');
-      let startX = 0;
-      let currentX = 0;
-      let isDragging = false;
+    let menuState = {
+      selectedConvId: null,
+      isMenuOpen: false,
+      longPressTimer: null,
+      lastEventWasTouch: false
+    };
 
-      container.addEventListener('touchstart', (e) => {
-        startX = e.touches[0].clientX;
-        currentX = startX;
-        isDragging = true;
-        swipeState.element = container;
+    function dismissMenu() {
+      if (!menuState.isMenuOpen) return;
+
+      const overlay = document.querySelector('.conversation-menu-overlay');
+      const contextMenu = document.querySelector('.conversation-context-menu');
+
+      if (overlay) overlay.classList.add('closing');
+      if (contextMenu) contextMenu.classList.add('closing');
+
+      setTimeout(() => {
+        overlay?.remove();
+        contextMenu?.remove();
+        menuState.selectedConvId = null;
+        menuState.isMenuOpen = false;
+      }, 150);
+    }
+
+    function showMenu(convId, element) {
+      if (menuState.isMenuOpen) dismissMenu();
+
+      const conv = conversations.find(c => c.id === convId);
+      if (!conv) return;
+
+      menuState.selectedConvId = convId;
+      menuState.isMenuOpen = true;
+
+      const messagesPage = document.querySelector('.messages-page');
+      if (!messagesPage) return;
+
+      // Create overlay
+      const overlay = document.createElement('div');
+      overlay.className = 'conversation-menu-overlay';
+      overlay.addEventListener('click', dismissMenu);
+      messagesPage.appendChild(overlay);
+
+      // Create context menu
+      const contextMenu = document.createElement('div');
+      contextMenu.className = 'conversation-context-menu';
+      const menuButtons = MENU_ITEMS.map(item => {
+        const isPinned = conv.pinned && item.action === 'pin';
+        const label = isPinned ? 'Unpin' : item.label;
+        return `
+          <button class="menu-item" aria-label="${label}" data-action="${item.action}">
+            <span class="menu-icon">${item.icon}</span>
+            <span class="menu-label">${label}</span>
+          </button>
+        `;
+      }).join('');
+      contextMenu.innerHTML = menuButtons;
+      messagesPage.appendChild(contextMenu);
+
+      // Position menu
+      const elementRect = element.getBoundingClientRect();
+      const contextMenuRect = contextMenu.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const viewportWidth = window.innerWidth;
+
+      const spaceAbove = elementRect.top;
+      const spaceBelow = viewportHeight - elementRect.bottom;
+      const menuHeight = contextMenuRect.height;
+
+      let menuTop;
+      if (spaceAbove > menuHeight + 10) {
+        menuTop = elementRect.top - menuHeight - 10;
+      } else {
+        menuTop = elementRect.bottom + 10;
+      }
+
+      if (menuTop < 10) menuTop = 10;
+      else if (menuTop + menuHeight > viewportHeight - 10) menuTop = viewportHeight - menuHeight - 10;
+
+      const elementCenterX = elementRect.left + elementRect.width / 2;
+      let menuLeft = elementCenterX - contextMenuRect.width / 2;
+
+      if (menuLeft < 10) menuLeft = 10;
+      else if (menuLeft + contextMenuRect.width > viewportWidth - 10) menuLeft = viewportWidth - contextMenuRect.width - 10;
+
+      contextMenu.style.position = 'fixed';
+      contextMenu.style.top = Math.max(10, menuTop) + 'px';
+      contextMenu.style.left = Math.max(10, menuLeft) + 'px';
+
+      // Add event listeners to menu items
+      contextMenu.querySelectorAll('.menu-item').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const action = btn.dataset.action;
+          btn.classList.add('tapped');
+
+          try {
+            if (action === 'pin') {
+              const newPinnedState = !conv.pinned;
+              const res = await fetch(`/api/conversations/${convId}/pin`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pinned: newPinnedState })
+              });
+              if (res.ok) {
+                conv.pinned = newPinnedState;
+              }
+            }
+          } catch (err) {
+            console.error(`Failed to ${action} conversation:`, err);
+          }
+
+          setTimeout(() => dismissMenu(), 150);
+          renderMessagesPage();
+        });
+      });
+    }
+
+    conversationItems.forEach(item => {
+      const convId = item.dataset.conversationId;
+
+      // Mouse events
+      item.addEventListener('mousedown', (e) => {
+        if (menuState.lastEventWasTouch) return;
+        menuState.longPressTimer = setTimeout(() => {
+          showMenu(convId, item);
+        }, LONG_PRESS_DURATION);
       });
 
-      container.addEventListener('touchmove', (e) => {
-        if (!isDragging) return;
-        currentX = e.touches[0].clientX;
-        const diff = currentX - startX;
-        const scale = Math.max(-150, Math.min(150, diff));
-        item.style.transform = `translateX(${scale}px)`;
+      item.addEventListener('mouseup', () => {
+        if (menuState.longPressTimer) {
+          clearTimeout(menuState.longPressTimer);
+          menuState.longPressTimer = null;
+        }
       });
 
-      container.addEventListener('touchend', (e) => {
-        if (!isDragging) return;
-        isDragging = false;
-        const diff = currentX - startX;
+      item.addEventListener('mouseleave', () => {
+        if (menuState.longPressTimer) {
+          clearTimeout(menuState.longPressTimer);
+          menuState.longPressTimer = null;
+        }
+      });
 
-        if (diff < -swipeState.threshold) {
-          item.style.transform = 'translateX(-150px)';
-          container.querySelector('.swipe-actions').style.visibility = 'visible';
-        } else if (diff > swipeState.threshold) {
-          item.style.transform = 'translateX(150px)';
-        } else {
-          item.style.transform = 'translateX(0)';
-          container.querySelector('.swipe-actions').style.visibility = 'hidden';
+      // Touch events
+      item.addEventListener('touchstart', (e) => {
+        menuState.lastEventWasTouch = true;
+        menuState.longPressTimer = setTimeout(() => {
+          showMenu(convId, item);
+        }, LONG_PRESS_DURATION);
+      });
+
+      item.addEventListener('touchend', () => {
+        if (menuState.longPressTimer) {
+          clearTimeout(menuState.longPressTimer);
+          menuState.longPressTimer = null;
+        }
+        setTimeout(() => {
+          menuState.lastEventWasTouch = false;
+        }, 100);
+      });
+
+      item.addEventListener('touchmove', () => {
+        if (menuState.longPressTimer) {
+          clearTimeout(menuState.longPressTimer);
+          menuState.longPressTimer = null;
         }
       });
     });
@@ -1712,6 +1912,9 @@ document.addEventListener('DOMContentLoaded', () => {
       composerInput.value = '';
       composerInput.style.height = '40px';
       clearReplyState();
+
+      // Update conversation last message and timestamp for All tab sorting
+      updateConversationLastMessage(conversation.id, text.substring(0, 100), newMessage.timestamp);
 
       // Re-render conversation to show new message
       renderConversationPage(conversation.id);
