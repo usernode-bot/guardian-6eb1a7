@@ -161,6 +161,35 @@ app.post('/api/groups/:groupId/leave', (req, res) => {
   });
 });
 
+// Conversation Management API Endpoints
+
+// PUT /api/conversations/:id/archive - Archive a conversation
+app.put('/api/conversations/:id/archive', (req, res) => {
+  const { id } = req.params;
+  const { archived } = req.body || {};
+
+  // TODO: Validate user owns this conversation
+  // TODO: Update database
+  res.json({
+    id: id,
+    archived: archived !== false,
+    message: 'Conversation archived successfully'
+  });
+});
+
+// PUT /api/conversations/:id/pin - Toggle pin on a conversation
+app.put('/api/conversations/:id/pin', (req, res) => {
+  const { id } = req.params;
+
+  // TODO: Validate user owns this conversation
+  // TODO: Update database to toggle pinned status
+  res.json({
+    id: id,
+    pinned: true,
+    message: 'Conversation pin status updated'
+  });
+});
+
 // Initialize database schema
 async function initDatabase() {
   try {

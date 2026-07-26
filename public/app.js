@@ -676,6 +676,14 @@ document.addEventListener('DOMContentLoaded', () => {
       filtered = requests;
     }
 
+    // Deduplication: keep only the first occurrence of each conversation ID
+    const seen = new Set();
+    filtered = filtered.filter(c => {
+      if (seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
+
     if (query.trim()) {
       const q = query.toLowerCase();
       filtered = filtered.filter(item => {
@@ -695,6 +703,15 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!a.pinned && b.pinned) return 1;
       return b.timestamp - a.timestamp;
     });
+  }
+
+  // Update conversation last message and timestamp
+  function updateConversationLastMessage(conversationId, lastMessage, newTimestamp) {
+    const conv = conversations.find(c => c.id === conversationId);
+    if (conv) {
+      conv.lastMessage = lastMessage;
+      conv.timestamp = newTimestamp || Date.now();
+    }
   }
 
   // Filter discover communities by tab
@@ -1138,7 +1155,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }).join('');
 
     const emptyMessage = {
-      all: 'No messages yet',
+      all: 'No conversations yet',
       dm: 'No direct messages',
       groups: 'No groups',
       channels: 'No channels',
@@ -1166,7 +1183,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <button class="message-tab ${activeMessagesTab === 'requests' ? 'active' : ''}" data-tab="requests">Requests ${requestsBadge}</button>
         </div>
         <div class="conversations-list" id="conversations-list">
-          ${conversationsList || `<div class="empty-state">${emptyMessage}</div>`}
+          ${conversationsList || `<div class="empty-state"><div class="empty-icon">💬</div><div class="empty-message">${emptyMessage}</div></div>`}
         </div>
       </div>
     `;
@@ -1231,27 +1248,34 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
 
-    // Swipe action handlers
+    // Swipe action handlers with backend persistence
     document.querySelectorAll('.swipe-action').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const action = btn.dataset.action;
         const convId = btn.dataset.conversationId;
         const conv = conversations.find(c => c.id === convId);
 
-        if (action === 'archive' && conv) {
-          conv.archived = true;
-          renderMessagesPage();
-        } else if (action === 'pin' && conv) {
-          conv.pinned = !conv.pinned;
-          renderMessagesPage();
-        } else if (action === 'delete' && conv) {
-          const idx = conversations.findIndex(c => c.id === convId);
-          if (idx >= 0) conversations.splice(idx, 1);
-          renderMessagesPage();
+        if (!conv) return;
+
+        try {
+          if (action === 'archive') {
+            await fetch(`/api/conversations/${conv.id}/archive`, { method: 'PUT' });
+            conv.archived = true;
+            renderMessagesPage();
+          } else if (action === 'pin') {
+            await fetch(`/api/conversations/${conv.id}/pin`, { method: 'PUT' });
+            conv.pinned = !conv.pinned;
+            renderMessagesPage();
+          }
+        } catch (err) {
+          console.error(`Failed to ${action} conversation:`, err);
         }
       });
     });
+
+    // Setup long-press context menu for conversations
+    setupConversationLongPress();
 
     // Swipe touch handlers
     setupSwipeHandlers();
@@ -1285,6 +1309,180 @@ document.addEventListener('DOMContentLoaded', () => {
   function declineRequest(requestId) {
     requests = requests.filter(r => r.id !== requestId);
     renderMessagesPage();
+  }
+
+  // Setup long-press context menu for conversation items
+  function setupConversationLongPress() {
+    const conversationItems = document.querySelectorAll('.conversation-item');
+    const LONG_PRESS_DURATION = 350;
+    const MENU_ITEMS = [
+      { icon: '📌', label: 'Pin', action: 'pin' },
+      { icon: '🗂️', label: 'Archive', action: 'archive' }
+    ];
+
+    let menuState = {
+      selectedConvId: null,
+      isMenuOpen: false,
+      longPressTimer: null,
+      lastEventWasTouch: false
+    };
+
+    function dismissMenu() {
+      if (!menuState.isMenuOpen) return;
+
+      const overlay = document.querySelector('.conversation-menu-overlay');
+      const contextMenu = document.querySelector('.conversation-context-menu');
+
+      if (overlay) overlay.classList.add('closing');
+      if (contextMenu) contextMenu.classList.add('closing');
+
+      setTimeout(() => {
+        overlay?.remove();
+        contextMenu?.remove();
+        menuState.selectedConvId = null;
+        menuState.isMenuOpen = false;
+      }, 150);
+    }
+
+    function showMenu(convId, element) {
+      if (menuState.isMenuOpen) dismissMenu();
+
+      const conv = conversations.find(c => c.id === convId);
+      if (!conv) return;
+
+      menuState.selectedConvId = convId;
+      menuState.isMenuOpen = true;
+
+      const messagesPage = document.querySelector('.messages-page');
+      if (!messagesPage) return;
+
+      // Create overlay
+      const overlay = document.createElement('div');
+      overlay.className = 'conversation-menu-overlay';
+      overlay.addEventListener('click', dismissMenu);
+      messagesPage.appendChild(overlay);
+
+      // Create context menu
+      const contextMenu = document.createElement('div');
+      contextMenu.className = 'conversation-context-menu';
+      const menuButtons = MENU_ITEMS.map(item => {
+        const isPinned = conv.pinned && item.action === 'pin';
+        const label = isPinned ? 'Unpin' : item.label;
+        return `
+          <button class="menu-item" aria-label="${label}" data-action="${item.action}">
+            <span class="menu-icon">${item.icon}</span>
+            <span class="menu-label">${label}</span>
+          </button>
+        `;
+      }).join('');
+      contextMenu.innerHTML = menuButtons;
+      messagesPage.appendChild(contextMenu);
+
+      // Position menu
+      const elementRect = element.getBoundingClientRect();
+      const contextMenuRect = contextMenu.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const viewportWidth = window.innerWidth;
+
+      const spaceAbove = elementRect.top;
+      const spaceBelow = viewportHeight - elementRect.bottom;
+      const menuHeight = contextMenuRect.height;
+
+      let menuTop;
+      if (spaceAbove > menuHeight + 10) {
+        menuTop = elementRect.top - menuHeight - 10;
+      } else {
+        menuTop = elementRect.bottom + 10;
+      }
+
+      if (menuTop < 10) menuTop = 10;
+      else if (menuTop + menuHeight > viewportHeight - 10) menuTop = viewportHeight - menuHeight - 10;
+
+      const elementCenterX = elementRect.left + elementRect.width / 2;
+      let menuLeft = elementCenterX - contextMenuRect.width / 2;
+
+      if (menuLeft < 10) menuLeft = 10;
+      else if (menuLeft + contextMenuRect.width > viewportWidth - 10) menuLeft = viewportWidth - contextMenuRect.width - 10;
+
+      contextMenu.style.position = 'fixed';
+      contextMenu.style.top = Math.max(10, menuTop) + 'px';
+      contextMenu.style.left = Math.max(10, menuLeft) + 'px';
+
+      // Add event listeners to menu items
+      contextMenu.querySelectorAll('.menu-item').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const action = btn.dataset.action;
+          btn.classList.add('tapped');
+
+          try {
+            if (action === 'archive') {
+              await fetch(`/api/conversations/${convId}/archive`, { method: 'PUT' });
+              conv.archived = true;
+            } else if (action === 'pin') {
+              await fetch(`/api/conversations/${convId}/pin`, { method: 'PUT' });
+              conv.pinned = !conv.pinned;
+            }
+          } catch (err) {
+            console.error(`Failed to ${action} conversation:`, err);
+          }
+
+          setTimeout(() => dismissMenu(), 150);
+          renderMessagesPage();
+        });
+      });
+    }
+
+    conversationItems.forEach(item => {
+      const convId = item.dataset.conversationId;
+
+      // Mouse events
+      item.addEventListener('mousedown', (e) => {
+        if (menuState.lastEventWasTouch) return;
+        menuState.longPressTimer = setTimeout(() => {
+          showMenu(convId, item);
+        }, LONG_PRESS_DURATION);
+      });
+
+      item.addEventListener('mouseup', () => {
+        if (menuState.longPressTimer) {
+          clearTimeout(menuState.longPressTimer);
+          menuState.longPressTimer = null;
+        }
+      });
+
+      item.addEventListener('mouseleave', () => {
+        if (menuState.longPressTimer) {
+          clearTimeout(menuState.longPressTimer);
+          menuState.longPressTimer = null;
+        }
+      });
+
+      // Touch events
+      item.addEventListener('touchstart', (e) => {
+        menuState.lastEventWasTouch = true;
+        menuState.longPressTimer = setTimeout(() => {
+          showMenu(convId, item);
+        }, LONG_PRESS_DURATION);
+      });
+
+      item.addEventListener('touchend', () => {
+        if (menuState.longPressTimer) {
+          clearTimeout(menuState.longPressTimer);
+          menuState.longPressTimer = null;
+        }
+        setTimeout(() => {
+          menuState.lastEventWasTouch = false;
+        }, 100);
+      });
+
+      item.addEventListener('touchmove', () => {
+        if (menuState.longPressTimer) {
+          clearTimeout(menuState.longPressTimer);
+          menuState.longPressTimer = null;
+        }
+      });
+    });
   }
 
   // Setup swipe handlers for conversation items
@@ -1712,6 +1910,9 @@ document.addEventListener('DOMContentLoaded', () => {
       composerInput.value = '';
       composerInput.style.height = '40px';
       clearReplyState();
+
+      // Update conversation last message and timestamp for All tab sorting
+      updateConversationLastMessage(conversation.id, text.substring(0, 100), newMessage.timestamp);
 
       // Re-render conversation to show new message
       renderConversationPage(conversation.id);
