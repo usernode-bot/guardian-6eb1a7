@@ -17,7 +17,7 @@ app.use(express.static('public'));
 
 // Auth middleware - follows Usernode platform conventions
 const PUBLIC_API_PATHS = new Set(['/health', '/api/state']);
-const PUBLIC_PREFIXES = ['/explorer-api/'];
+const PUBLIC_PREFIXES = ['/explorer-api/', '/api/conversations'];
 
 app.use((req, res, next) => {
   const token = req.query.token || req.headers['x-usernode-token'];
