@@ -41,7 +41,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const response = await fetch('/api/profile', { headers });
       if (response.ok) {
         const data = await response.json();
+        console.log('[initializeUserProfile] Response data:', data);
         Object.assign(userProfile, data);
+        console.log('[initializeUserProfile] Updated userProfile:', userProfile);
+      } else {
+        console.error('[initializeUserProfile] Response not ok:', response.status);
       }
     } catch (err) {
       console.error('Error initializing user profile:', err);
@@ -4433,7 +4437,10 @@ document.addEventListener('DOMContentLoaded', () => {
           if (response.ok) {
             const updatedProfile = await response.json();
             updateUserProfile(updatedProfile);
-            renderProfilePage();
+          } else {
+            const error = await response.json();
+            console.error('Profile update error:', error);
+            alert('Failed to save avatar. Please try again.');
           }
         } else {
           console.log('Usernode bridge not available. In production, avatar would be uploaded here.');
@@ -4495,10 +4502,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (response.ok) {
           const updatedProfile = await response.json();
           updateUserProfile(updatedProfile);
-          editingBio = false;
-          bioDisplay.style.display = 'block';
-          bioEditor.style.display = 'none';
-          editBioBtn.textContent = 'Edit';
+        } else {
+          const error = await response.json();
+          console.error('Profile update error:', error);
+          alert('Failed to save bio. Please try again.');
         }
       } catch (err) {
         console.error('Error saving bio:', err);

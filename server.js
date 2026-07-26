@@ -59,6 +59,15 @@ app.get('/api/profile', async (req, res) => {
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
+    // Log JWT claims for diagnostic purposes
+    console.log('[GET /api/profile] JWT user object:', {
+      id: req.user.id,
+      username: req.user.username,
+      usernode_pubkey: req.user.usernode_pubkey,
+      locale: req.user.locale,
+      allKeys: Object.keys(req.user)
+    });
+
     const result = await pool.query(
       'SELECT * FROM user_profiles WHERE user_id = $1',
       [req.user.id]
