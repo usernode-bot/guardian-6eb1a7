@@ -28,6 +28,12 @@ app.use((req, res, next) => {
       // Token verification failed, continue without user
     }
   }
+
+  // Allow conversation action endpoints (archive/pin) without auth for demo
+  if ((req.path.match(/^\/api\/conversations\/[^/]+\/(archive|pin)$/) && req.method === 'PUT')) {
+    return next();
+  }
+
   if (req.method !== 'GET' || req.path.startsWith('/api/')) {
     if (PUBLIC_API_PATHS.has(req.path)) return next();
     if (PUBLIC_PREFIXES.some((p) => req.path.startsWith(p))) return next();
