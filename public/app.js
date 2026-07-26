@@ -499,12 +499,6 @@ document.addEventListener('DOMContentLoaded', () => {
   let searchQuery = '';
   let showMessagesSearch = false;
   let searchTimeout = null;
-  let swipeState = {
-    element: null,
-    startX: 0,
-    currentX: 0,
-    threshold: 80
-  };
 
   // Helper: generate unique group ID
   function generateGroupId() {
@@ -667,13 +661,13 @@ document.addEventListener('DOMContentLoaded', () => {
     let filtered = [];
 
     if (tab === 'all') {
-      filtered = conversations.filter(c => !c.archived);
+      filtered = conversations;
     } else if (tab === 'dm') {
-      filtered = conversations.filter(c => c.type === 'direct' && !c.archived);
+      filtered = conversations.filter(c => c.type === 'direct');
     } else if (tab === 'groups') {
-      filtered = conversations.filter(c => c.type === 'group' && !c.archived);
+      filtered = conversations.filter(c => c.type === 'group');
     } else if (tab === 'channels') {
-      filtered = conversations.filter(c => c.type === 'channel' && !c.archived);
+      filtered = conversations.filter(c => c.type === 'channel');
     } else if (tab === 'requests') {
       filtered = requests;
     }
@@ -698,13 +692,9 @@ document.addEventListener('DOMContentLoaded', () => {
     return filtered;
   }
 
-  // Sort conversations (pinned first, then by timestamp)
+  // Sort conversations by timestamp
   function sortConversations(convs) {
-    return convs.sort((a, b) => {
-      if (a.pinned && !b.pinned) return -1;
-      if (!a.pinned && b.pinned) return 1;
-      return b.timestamp - a.timestamp;
-    });
+    return convs.sort((a, b) => b.timestamp - a.timestamp);
   }
 
   // Update only the conversations list (used during search to avoid full page re-render)
@@ -744,22 +734,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const badgeColor = item.type === 'channel' ? '#FF6B6B' : '#007AFF';
 
         return `
-          <div class="swipe-container" data-conversation-id="${item.id}">
-            <div class="swipe-actions">
-              <button class="swipe-action archive-action" data-action="archive" data-conversation-id="${item.id}">Archive</button>
-              <button class="swipe-action pin-action" data-action="pin" data-conversation-id="${item.id}">${item.pinned ? 'Unpin' : 'Pin'}</button>
-            </div>
-            <div class="conversation-item" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
-              <div class="conversation-avatar">${item.avatar}</div>
-              <div class="conversation-content">
-                <div class="conversation-header">
-                  <span class="conversation-username">${displayName}</span>
-                  <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
-                </div>
-                <p class="conversation-message">${item.lastMessage}</p>
+          <div class="conversation-item" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
+            <div class="conversation-avatar">${item.avatar}</div>
+            <div class="conversation-content">
+              <div class="conversation-header">
+                <span class="conversation-username">${displayName}</span>
+                <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
               </div>
-              ${item.unreadCount > 0 ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>` : ''}
+              <p class="conversation-message">${item.lastMessage}</p>
             </div>
+            ${item.unreadCount > 0 ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>` : ''}
           </div>
         `;
       }
@@ -807,43 +791,6 @@ document.addEventListener('DOMContentLoaded', () => {
         e.stopPropagation();
         const requestId = btn.dataset.requestId;
         declineRequest(requestId);
-      });
-    });
-
-    // Swipe action handlers with backend persistence
-    document.querySelectorAll('.swipe-action').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const action = btn.dataset.action;
-        const convId = btn.dataset.conversationId;
-        const conv = conversations.find(c => c.id === convId);
-
-        if (!conv) return;
-
-        const originalState = { archived: conv.archived, pinned: conv.pinned };
-
-        try {
-          if (action === 'archive') {
-            conv.archived = true;
-            const res = await fetch(`/api/conversations/${conv.id}/archive`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ archived: true })
-            });
-            if (!res.ok) throw new Error('Archive failed');
-            updateConversationsList();
-          } else if (action === 'pin') {
-            conv.pinned = !conv.pinned;
-            const res = await fetch(`/api/conversations/${conv.id}/pin`, { method: 'PUT' });
-            if (!res.ok) throw new Error('Pin failed');
-            updateConversationsList();
-          }
-        } catch (err) {
-          console.error('Swipe action failed:', err);
-          conv.archived = originalState.archived;
-          conv.pinned = originalState.pinned;
-          updateConversationsList();
-        }
       });
     });
   }
@@ -1276,22 +1223,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const badgeColor = item.type === 'channel' ? '#FF6B6B' : '#007AFF';
 
         return `
-          <div class="swipe-container" data-conversation-id="${item.id}">
-            <div class="swipe-actions">
-              <button class="swipe-action archive-action" data-action="archive" data-conversation-id="${item.id}">Archive</button>
-              <button class="swipe-action pin-action" data-action="pin" data-conversation-id="${item.id}">${item.pinned ? 'Unpin' : 'Pin'}</button>
-            </div>
-            <div class="conversation-item" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
-              <div class="conversation-avatar">${item.avatar}</div>
-              <div class="conversation-content">
-                <div class="conversation-header">
-                  <span class="conversation-username">${displayName}</span>
-                  <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
-                </div>
-                <p class="conversation-message">${item.lastMessage}</p>
+          <div class="conversation-item" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
+            <div class="conversation-avatar">${item.avatar}</div>
+            <div class="conversation-content">
+              <div class="conversation-header">
+                <span class="conversation-username">${displayName}</span>
+                <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
               </div>
-              ${item.unreadCount > 0 ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>` : ''}
+              <p class="conversation-message">${item.lastMessage}</p>
             </div>
+            ${item.unreadCount > 0 ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>` : ''}
           </div>
         `;
       }
@@ -1377,9 +1318,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Setup long-press context menu for conversations
     setupConversationLongPress();
-
-    // Swipe touch handlers
-    setupSwipeHandlers();
   }
 
   // Accept request and create conversation
@@ -1581,47 +1519,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (menuState.longPressTimer) {
           clearTimeout(menuState.longPressTimer);
           menuState.longPressTimer = null;
-        }
-      });
-    });
-  }
-
-  // Setup swipe handlers for conversation items
-  function setupSwipeHandlers() {
-    const containers = document.querySelectorAll('.swipe-container');
-
-    containers.forEach(container => {
-      const item = container.querySelector('.conversation-item');
-      let startX = 0;
-      let currentX = 0;
-      let isDragging = false;
-
-      container.addEventListener('touchstart', (e) => {
-        startX = e.touches[0].clientX;
-        currentX = startX;
-        isDragging = true;
-        swipeState.element = container;
-      });
-
-      container.addEventListener('touchmove', (e) => {
-        if (!isDragging) return;
-        currentX = e.touches[0].clientX;
-        const diff = currentX - startX;
-        const scale = Math.max(-150, Math.min(150, diff));
-        item.style.transform = `translateX(${scale}px)`;
-      });
-
-      container.addEventListener('touchend', (e) => {
-        if (!isDragging) return;
-        isDragging = false;
-        const diff = currentX - startX;
-
-        if (diff < -swipeState.threshold) {
-          item.style.transform = 'translateX(-150px)';
-          container.querySelector('.swipe-actions').style.visibility = 'visible';
-        } else {
-          item.style.transform = 'translateX(0)';
-          container.querySelector('.swipe-actions').style.visibility = 'hidden';
         }
       });
     });

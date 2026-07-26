@@ -29,11 +29,6 @@ app.use((req, res, next) => {
     }
   }
 
-  // Allow conversation action endpoints (archive/pin) without auth for demo
-  if ((req.path.match(/^\/api\/conversations\/[^/]+\/(archive|pin)$/) && req.method === 'PUT')) {
-    return next();
-  }
-
   if (req.method !== 'GET' || req.path.startsWith('/api/')) {
     if (PUBLIC_API_PATHS.has(req.path)) return next();
     if (PUBLIC_PREFIXES.some((p) => req.path.startsWith(p))) return next();
@@ -164,42 +159,6 @@ app.post('/api/groups/:groupId/leave', (req, res) => {
     memberCount: 0,
     isLeftByUser: true,
     message: 'You have left the group'
-  });
-});
-
-// Conversation Management API Endpoints
-
-// PUT /api/conversations/:id/archive - Archive a conversation
-app.put('/api/conversations/:id/archive', (req, res) => {
-  const { id } = req.params;
-
-  const conversation = conversations.find(c => c.id === id);
-  if (!conversation) {
-    return res.status(404).json({ error: 'Conversation not found' });
-  }
-
-  conversation.archived = true;
-  res.json({
-    id: id,
-    archived: true,
-    message: 'Conversation archived successfully'
-  });
-});
-
-// PUT /api/conversations/:id/pin - Toggle pin on a conversation
-app.put('/api/conversations/:id/pin', (req, res) => {
-  const { id } = req.params;
-
-  const conversation = conversations.find(c => c.id === id);
-  if (!conversation) {
-    return res.status(404).json({ error: 'Conversation not found' });
-  }
-
-  conversation.pinned = !conversation.pinned;
-  res.json({
-    id: id,
-    pinned: conversation.pinned,
-    message: 'Conversation pin status updated'
   });
 });
 
