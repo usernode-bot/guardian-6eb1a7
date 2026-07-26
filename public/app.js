@@ -33,6 +33,9 @@ document.addEventListener('DOMContentLoaded', () => {
     updated_at: null
   };
 
+  // Global bio editing state (survives renderProfilePage re-renders)
+  let editingBio = false;
+
   // Fetch user profile on app load
   async function initializeUserProfile() {
     try {
@@ -87,6 +90,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (path.startsWith('channel/')) {
       const channelId = path.split('/')[1];
       renderChannelView(channelId);
+    }
+
+    // Re-render profile page if it's visible
+    if (path === 'profile') {
+      renderProfilePage();
     }
   }
 
@@ -4331,8 +4339,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Render profile page
   function renderProfilePage() {
-    let editingBio = false;
-
     pageContainer.innerHTML = `
       <div class="profile-page">
         <div class="profile-header">
