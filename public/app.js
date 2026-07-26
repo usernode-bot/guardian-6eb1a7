@@ -4266,17 +4266,47 @@ document.addEventListener('DOMContentLoaded', () => {
     username: 'johndoe',
     bio: 'Building on Usernode',
     avatarUrl: null,
-    avatarImageId: null
+    avatarImageId: null,
+    walletAddress: '0x91FA987D4DC5A4E2DDB0F3E8C7B6A5D2C8'
   };
+
+  function getInitialsFromUsername(username) {
+    const parts = username.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return username.substring(0, 2).toUpperCase();
+  }
+
+  async function fetchUserData() {
+    try {
+      const token = localStorage.getItem('usernode-token');
+      const response = await fetch('/api/state', {
+        headers: token ? { 'x-usernode-token': token } : {}
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.user) {
+          profileState.username = data.user.username || 'johndoe';
+          if (data.user.usernode_pubkey) {
+            profileState.walletAddress = data.user.usernode_pubkey;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch user data:', err);
+    }
+  }
 
   function renderProfilePage() {
     const username = profileState.username;
     const bio = profileState.bio;
-    const walletAddress = '0x91FA987D4DC5A4E2DDB0F3E8C7B6A5D2C8';
+    const walletAddress = profileState.walletAddress;
 
     const shortAddress = walletAddress.substring(0, 6) + '...' + walletAddress.substring(walletAddress.length - 4);
+    const initials = getInitialsFromUsername(username);
 
-    let avatarContent = 'JD';
+    let avatarContent = initials;
     if (profileState.avatarUrl) {
       avatarContent = `<img src="${profileState.avatarUrl}" alt="Profile avatar" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`;
     }
@@ -4417,7 +4447,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (pageName === 'discover') {
       renderDiscoverPage();
     } else if (pageName === 'profile') {
-      renderProfilePage();
+      fetchUserData().then(() => renderProfilePage());
     } else {
       pageContainer.innerHTML = `
         <div class="page">
