@@ -1953,7 +1953,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const messagesList = group.messages.map(msg => {
-      let messageHTML = `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming'}" data-message-id="${msg.id}">`;
+      let messageHTML = `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming has-avatar'}" data-message-id="${msg.id}">`;
 
       if (msg.isOutgoing) {
         messageHTML += `
@@ -4097,7 +4097,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const messagesList = channel.messages.map(msg => {
-      let messageHTML = `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming'}" data-message-id="${msg.id}">`;
+      let messageHTML = `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming has-avatar'}" data-message-id="${msg.id}">`;
 
       if (msg.isOutgoing) {
         messageHTML += `

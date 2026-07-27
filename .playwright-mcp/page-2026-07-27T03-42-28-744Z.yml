@@ -1,0 +1,44 @@
+- generic [ref=e47]:
+  - generic [ref=e48]:
+    - button "Back to messages" [ref=e49] [cursor=pointer]: ←
+    - generic [ref=e50] [cursor=pointer]:
+      - generic [ref=e51]: SC
+      - generic [ref=e52]:
+        - generic [ref=e53]: Seeker Club
+        - generic [ref=e54]: 128 members
+    - button "More options" [ref=e55] [cursor=pointer]: ⋮
+  - generic [ref=e56]:
+    - generic [ref=e57]:
+      - generic [ref=e58]: A
+      - generic [ref=e59]:
+        - generic [ref=e60]: Alice
+        - generic [ref=e61]: Hey everyone!
+        - generic [ref=e62]: 3:27 AM
+    - generic [ref=e63]:
+      - generic [ref=e64]: B
+      - generic [ref=e65]:
+        - generic [ref=e66]: Bob
+        - generic [ref=e67]: Welcome to the group!
+        - generic [ref=e68]: 3:28 AM
+    - generic [ref=e69]:
+      - generic [ref=e70]: Thanks for adding me!
+      - generic [ref=e71]: 3:29 AM
+    - generic [ref=e72]:
+      - generic [ref=e73]: C
+      - generic [ref=e74]:
+        - generic [ref=e75]: Charlie
+        - generic [ref=e76]: Great to have you here!
+        - generic [ref=e77]: 3:30 AM
+    - generic [ref=e78]:
+      - generic [ref=e79]: A
+      - generic [ref=e80]:
+        - generic [ref=e81]: Alice
+        - generic [ref=e82]: Let's catch up soon!
+        - generic [ref=e83]: 3:31 AM
+    - generic [ref=e84]:
+      - generic [ref=e85]: Absolutely! Looking forward to it.
+      - generic [ref=e86]: 3:32 AM
+  - generic [ref=e87]:
+    - button "Emoji" [ref=e88] [cursor=pointer]: 😊
+    - textbox "Message..." [ref=e89]
+    - button "Send" [ref=e90] [cursor=pointer]: ➤
