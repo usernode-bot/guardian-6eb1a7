@@ -196,6 +196,11 @@
       "name": "Channel detail screen loads",
       "path": "/#/discover/channel/discover_channel_1",
       "expectText": "Announcements"
+    },
+    {
+      "name": "Profile page shows the tappable avatar",
+      "path": "/#/profile",
+      "expectSelector": "#profile-avatar-large"
     }
   ]
 }

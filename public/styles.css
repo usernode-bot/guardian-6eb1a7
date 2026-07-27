@@ -2908,3 +2908,106 @@ html, body {
 .edit-bio-footer .button-primary {
   flex: 1;
 }
+
+/* ------------------------------------------------------------------ *
+ * Shared avatar rendering
+ *
+ * Every avatar is a fixed-size round container holding either initials or
+ * an <img class="avatar-img">. The image fills and crops to the circle, so
+ * a container only needs overflow: hidden to clip it.
+ * ------------------------------------------------------------------ */
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
+}
+
+.conversation-avatar,
+.conversation-avatar-header,
+.message-avatar,
+.user-avatar,
+.chip-avatar,
+.member-avatar,
+.request-avatar,
+.featured-avatar,
+.community-avatar,
+.detail-avatar,
+.group-avatar-large,
+.channel-avatar-large,
+.profile-avatar-large,
+.avatar-placeholder,
+.avatar-placeholder-large {
+  overflow: hidden;
+}
+
+/* Shared "Change Photo" dialog */
+
+.avatar-dialog-preview {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  margin: 0 auto 16px auto;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.avatar-dialog-preview .avatar-placeholder-large {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  font-size: 40px;
+}
+
+.avatar-dialog .dialog-content .button-secondary {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.avatar-dialog .avatar-remove-button {
+  color: #ff3b30;
+}
+
+.avatar-dialog .validation-error {
+  display: none;
+  margin-top: 4px;
+  text-align: center;
+}
+
+/* Busy state: dim the preview, spin, and lock every control */
+
+.avatar-dialog-spinner {
+  display: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 32px;
+  height: 32px;
+  margin: -16px 0 0 -16px;
+  border: 3px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: avatarSpin 800ms linear infinite;
+}
+
+.avatar-dialog-busy .avatar-dialog-preview .avatar-img,
+.avatar-dialog-busy .avatar-dialog-preview .avatar-placeholder-large {
+  opacity: 0.45;
+}
+
+.avatar-dialog-busy .avatar-dialog-spinner {
+  display: block;
+}
+
+.avatar-dialog-busy button {
+  opacity: 0.5;
+  cursor: default;
+}
+
+@keyframes avatarSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}

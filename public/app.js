@@ -515,6 +515,428 @@ document.addEventListener('DOMContentLoaded', () => {
     return name.charAt(0).toUpperCase();
   }
 
+  /* ------------------------------------------------------------------ *
+   * Shared avatar module
+   *
+   * One flow for every photo in the app: validate -> centre-crop and
+   * downscale to 512x512 -> upload through the platform bridge -> hand the
+   * caller back { url, fileId } to persist. Only profile photos are wired up
+   * to it today; groups and channels keep their existing flow until they are
+   * migrated, so nothing here may assume a particular entity type.
+   * ------------------------------------------------------------------ */
+
+  const AVATAR_MIME = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+  const AVATAR_MAX_INPUT_BYTES = 25 * 1024 * 1024;
+  const AVATAR_MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+  const AVATAR_SIZE_PX = 512;
+  const AVATAR_JPEG_QUALITY = 0.85;
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // Carries a platform storage error code so the dialog can show a real message.
+  class AvatarError extends Error {
+    constructor(code, message) {
+      super(message || code);
+      this.name = 'AvatarError';
+      this.code = code;
+    }
+  }
+
+  function avatarErrorMessage(code) {
+    switch (code) {
+      case 'invalid_image':
+        return "That file isn't a supported image. Choose a JPG, PNG, GIF or WebP.";
+      case 'file_too_large':
+        return 'That photo is too large. Try a smaller image.';
+      case 'app_quota_exceeded':
+      case 'user_quota_exceeded':
+      case 'staging_quota_exceeded':
+        return 'Photo storage is full. Try again later.';
+      case 'storage_unavailable':
+        return "Photo upload isn't available here. Open Guardian inside Usernode to change your photo.";
+      default:
+        return "Couldn't upload the photo. Please try again.";
+    }
+  }
+
+  function validateAvatarFile(file) {
+    if (!file) throw new AvatarError('invalid_image');
+    if (AVATAR_MIME.indexOf(file.type) === -1) throw new AvatarError('invalid_image');
+    if (file.size > AVATAR_MAX_INPUT_BYTES) throw new AvatarError('file_too_large');
+  }
+
+  function decodeImage(file) {
+    if (typeof createImageBitmap === 'function') {
+      return createImageBitmap(file).catch(() => decodeImageViaElement(file));
+    }
+    return decodeImageViaElement(file);
+  }
+
+  function decodeImageViaElement(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(img);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new AvatarError('invalid_image'));
+      };
+      img.src = url;
+    });
+  }
+
+  function canvasToBlob(canvas, quality) {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => (blob ? resolve(blob) : reject(new AvatarError('invalid_image'))),
+        'image/jpeg',
+        quality
+      );
+    });
+  }
+
+  // Centre-crops to a square and resizes to 512x512. GIFs pass straight
+  // through so animation survives; a canvas re-encode would flatten them.
+  async function downscaleAvatar(file) {
+    if (file.type === 'image/gif') {
+      if (file.size > AVATAR_MAX_UPLOAD_BYTES) throw new AvatarError('file_too_large');
+      return file;
+    }
+
+    let source;
+    try {
+      source = await decodeImage(file);
+    } catch (err) {
+      throw err instanceof AvatarError ? err : new AvatarError('invalid_image');
+    }
+
+    const srcW = source.width;
+    const srcH = source.height;
+    if (!srcW || !srcH) throw new AvatarError('invalid_image');
+
+    const side = Math.min(srcW, srcH);
+    const sx = Math.round((srcW - side) / 2);
+    const sy = Math.round((srcH - side) / 2);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = AVATAR_SIZE_PX;
+    canvas.height = AVATAR_SIZE_PX;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(source, sx, sy, side, side, 0, 0, AVATAR_SIZE_PX, AVATAR_SIZE_PX);
+    if (source.close) source.close();
+
+    let blob = await canvasToBlob(canvas, AVATAR_JPEG_QUALITY);
+    if (blob.size > AVATAR_MAX_UPLOAD_BYTES) {
+      blob = await canvasToBlob(canvas, 0.6);
+    }
+    if (blob.size > AVATAR_MAX_UPLOAD_BYTES) throw new AvatarError('file_too_large');
+
+    return new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
+  }
+
+  // The bridge returns a structured code for storage failures, but rejects with
+  // a plain Error when there is no platform shell to talk to — recognise that
+  // so a standalone/dev page gets the "not available here" message rather than
+  // a generic retry prompt.
+  function uploadErrorCode(err) {
+    const code = err && (err.code || err.error);
+    if (code) return code;
+    const message = ((err && err.message) || '').toLowerCase();
+    if (message.includes('platform shell') || message.includes('standalone')) {
+      return 'storage_unavailable';
+    }
+    return 'upload_failed';
+  }
+
+  // validate -> downscale -> platform upload. Resolves { url, fileId }.
+  async function uploadAvatar(file) {
+    validateAvatarFile(file);
+    const processed = await downscaleAvatar(file);
+
+    if (!window.usernode || typeof window.usernode.uploadFile !== 'function') {
+      throw new AvatarError('storage_unavailable');
+    }
+
+    let stored;
+    try {
+      stored = await window.usernode.uploadFile(processed, { visibility: 'public' });
+    } catch (err) {
+      throw new AvatarError(uploadErrorCode(err), err && err.message);
+    }
+    if (!stored || !stored.url) throw new AvatarError('upload_failed');
+    return { url: stored.url, fileId: stored.id || null };
+  }
+
+  // Best-effort cleanup of a replaced photo. The bridge only lets a user
+  // delete their own uploads, so failures here are expected and ignored.
+  function deleteAvatarFile(fileId) {
+    if (!fileId) return;
+    if (!window.usernode || typeof window.usernode.deleteFile !== 'function') return;
+    try {
+      Promise.resolve(window.usernode.deleteFile(fileId)).catch(() => {});
+    } catch (err) {
+      /* ignore */
+    }
+  }
+
+  // The one avatar renderer. `entity` may be an object carrying avatarUrl /
+  // avatar, or a bare string (legacy call sites) — a string that looks like a
+  // URL is rendered as an image so a stray data URI degrades to a picture
+  // rather than to a wall of text.
+  function renderAvatarHtml(entity, className, opts) {
+    const options = opts || {};
+    let url = null;
+    let initials = '';
+
+    if (entity && typeof entity === 'object') {
+      url = entity.avatarUrl || null;
+      initials = entity.avatar || '';
+    } else if (typeof entity === 'string') {
+      if (/^(https?:|data:|\/)/i.test(entity)) url = entity;
+      else initials = entity;
+    }
+    if (options.initials) initials = options.initials;
+
+    const attrs = options.id ? ` id="${escapeHtml(options.id)}"` : '';
+    const extra = options.attrs ? ' ' + options.attrs : '';
+    const cls = escapeHtml(className || 'conversation-avatar');
+
+    if (url) {
+      const alt = escapeHtml(options.alt || '');
+      return `<div class="${cls}"${attrs}${extra}><img class="avatar-img" src="${escapeHtml(url)}" alt="${alt}"></div>`;
+    }
+    return `<div class="${cls}"${attrs}${extra}>${escapeHtml(initials)}</div>`;
+  }
+
+  /**
+   * The single "Change Photo" sheet, shared by every photo entry point.
+   *
+   * Owns file selection, the preview, the upload itself and all error
+   * reporting. `onCommit({ url, fileId })` persists the result — or is called
+   * with `null` when the user removes the photo — and is the only app-specific
+   * part. It may be async; the dialog stays busy until it settles.
+   */
+  function openAvatarDialog(config) {
+    const settings = config || {};
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog avatar-dialog';
+    const startInitials = settings.initials || '';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>${escapeHtml(settings.title || 'Change Photo')}</h2>
+      </div>
+      <div class="dialog-content">
+        <div class="avatar-dialog-preview" id="avatar-dialog-preview">
+          ${renderAvatarHtml(
+            { avatarUrl: settings.currentUrl || null, avatar: startInitials },
+            'avatar-placeholder-large'
+          )}
+          <div class="avatar-dialog-spinner" aria-hidden="true"></div>
+        </div>
+        <input type="file" id="avatar-file-picker" accept="${AVATAR_MIME.join(',')}" style="display: none;">
+        <button class="button-secondary" id="avatar-choose-button" type="button">Choose Photo</button>
+        ${settings.allowRemove ? '<button class="button-secondary avatar-remove-button" id="avatar-remove-button" type="button">Remove Photo</button>' : ''}
+        <div class="validation-error" id="avatar-dialog-error"></div>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="avatar-cancel-button" type="button">Cancel</button>
+        <button class="button-primary" id="avatar-save-button" type="button" disabled>Save</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    const previewEl = dialog.querySelector('#avatar-dialog-preview');
+    const filePicker = dialog.querySelector('#avatar-file-picker');
+    const chooseBtn = dialog.querySelector('#avatar-choose-button');
+    const removeBtn = dialog.querySelector('#avatar-remove-button');
+    const cancelBtn = dialog.querySelector('#avatar-cancel-button');
+    const saveBtn = dialog.querySelector('#avatar-save-button');
+    const errorEl = dialog.querySelector('#avatar-dialog-error');
+
+    let selectedFile = null;
+    let pendingRemoval = false;
+    let previewObjectUrl = null;
+    let busy = false;
+
+    function setError(message) {
+      errorEl.textContent = message || '';
+      errorEl.style.display = message ? 'block' : 'none';
+    }
+    setError('');
+
+    function paintPreview(url, initials) {
+      previewEl.innerHTML =
+        renderAvatarHtml({ avatarUrl: url || null, avatar: initials }, 'avatar-placeholder-large') +
+        '<div class="avatar-dialog-spinner" aria-hidden="true"></div>';
+    }
+
+    function releasePreviewUrl() {
+      if (previewObjectUrl) {
+        URL.revokeObjectURL(previewObjectUrl);
+        previewObjectUrl = null;
+      }
+    }
+
+    function close() {
+      releasePreviewUrl();
+      overlay.remove();
+      document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('hashchange', close);
+    }
+
+    function onKeyDown(e) {
+      if (e.key === 'Escape' && !busy) close();
+    }
+    document.addEventListener('keydown', onKeyDown);
+
+    // The dialog lives on <body> so a re-render can't tear it out mid-upload —
+    // which also means it has to dismiss itself when the route changes.
+    window.addEventListener('hashchange', close);
+
+    function setBusy(value) {
+      busy = value;
+      dialog.classList.toggle('avatar-dialog-busy', value);
+      dialog.setAttribute('aria-busy', value ? 'true' : 'false');
+      chooseBtn.disabled = value;
+      cancelBtn.disabled = value;
+      if (removeBtn) removeBtn.disabled = value;
+      saveBtn.disabled = value || (!selectedFile && !pendingRemoval);
+    }
+
+    chooseBtn.addEventListener('click', () => {
+      if (busy) return;
+      filePicker.click();
+    });
+
+    filePicker.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      try {
+        validateAvatarFile(file);
+      } catch (err) {
+        setError(avatarErrorMessage(err.code));
+        filePicker.value = '';
+        return;
+      }
+      setError('');
+      selectedFile = file;
+      pendingRemoval = false;
+      releasePreviewUrl();
+      previewObjectUrl = URL.createObjectURL(file);
+      paintPreview(previewObjectUrl, startInitials);
+      saveBtn.disabled = false;
+    });
+
+    if (removeBtn) {
+      removeBtn.addEventListener('click', () => {
+        if (busy) return;
+        setError('');
+        selectedFile = null;
+        pendingRemoval = true;
+        releasePreviewUrl();
+        filePicker.value = '';
+        paintPreview(null, startInitials);
+        saveBtn.disabled = false;
+      });
+    }
+
+    cancelBtn.addEventListener('click', () => {
+      if (busy) return;
+      close();
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay && !busy) close();
+    });
+
+    saveBtn.addEventListener('click', async () => {
+      if (busy) return;
+      if (!selectedFile && !pendingRemoval) return;
+
+      setError('');
+      setBusy(true);
+      try {
+        const result = pendingRemoval ? null : await uploadAvatar(selectedFile);
+        if (settings.onCommit) await settings.onCommit(result);
+        close();
+      } catch (err) {
+        const code = err instanceof AvatarError ? err.code : null;
+        if (!code) console.error('Avatar save failed:', err);
+        setError(code ? avatarErrorMessage(code) : "Couldn't save the photo. Please try again.");
+        setBusy(false);
+      }
+    });
+
+    return { close };
+  }
+
+  // Persist an avatar mapping server-side. `payload` is null to clear it.
+  async function persistAvatar(endpoint, payload) {
+    const token = localStorage.getItem('usernode-token');
+    const response = await fetch(endpoint, {
+      method: 'PUT',
+      headers: Object.assign(
+        { 'content-type': 'application/json' },
+        token ? { 'x-usernode-token': token } : {}
+      ),
+      body: JSON.stringify({
+        avatarUrl: payload ? payload.url : null,
+        avatarFileId: payload ? payload.fileId : null
+      })
+    });
+    if (!response.ok) throw new Error('Failed to save avatar (' + response.status + ')');
+    return response.json();
+  }
+
+  // Boot hydration: pull stored avatars so photos survive a reload.
+  // Non-fatal — on failure the app just falls back to initials.
+  async function hydrateAvatars() {
+    const token = localStorage.getItem('usernode-token');
+    // The endpoint is auth-gated; without a token there is nothing to hydrate
+    // and the request would only produce a 401 in the console.
+    if (!token) return;
+    try {
+      const response = await fetch('/api/avatars', {
+        headers: { 'x-usernode-token': token }
+      });
+      if (!response.ok) return;
+      const data = await response.json();
+      const profiles = (data && data.profile) || {};
+      const mine = profileState.profileId ? profiles[profileState.profileId] : null;
+      if (mine) {
+        profileState.avatarUrl = mine.avatarUrl;
+        profileState.avatarFileId = mine.avatarFileId;
+      }
+    } catch (err) {
+      console.log('Avatars unavailable, using initials');
+    }
+  }
+
+  // Boot hydration, run once: identify the signed-in user, then load their
+  // stored photo so it is already in place on the first profile render.
+  let profileHydration = null;
+  function ensureProfileHydrated() {
+    if (!profileHydration) {
+      profileHydration = fetchUserData().then(hydrateAvatars).catch(() => {});
+    }
+    return profileHydration;
+  }
+
   // Helper: create a new group and associated conversation
   function createGroup(groupName, groupDescription, selectedMembers, avatarData) {
     const groupId = generateGroupId();
@@ -4297,10 +4719,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Profile Screen Functions
   let profileState = {
+    profileId: null,
     username: 'johndoe',
     bio: 'Building on Usernode',
     avatarUrl: null,
-    avatarImageId: null,
+    avatarFileId: null,
     walletAddress: '0x91FA987D4DC5A4E2DDB0F3E8C7B6A5D2C8'
   };
 
@@ -4321,6 +4744,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (response.ok) {
         const data = await response.json();
         if (data.user) {
+          profileState.profileId = data.user.id != null ? String(data.user.id) : null;
           profileState.username = data.user.username || 'johndoe';
           if (data.user.usernode_pubkey) {
             profileState.walletAddress = data.user.usernode_pubkey;
@@ -4340,10 +4764,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const shortAddress = walletAddress.substring(0, 6) + '...' + walletAddress.substring(walletAddress.length - 4);
     const initials = getInitialsFromUsername(username);
 
-    let avatarContent = initials;
-    if (profileState.avatarUrl) {
-      avatarContent = `<img src="${profileState.avatarUrl}" alt="Profile avatar" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`;
-    }
+    const avatarHtml = renderAvatarHtml(
+      { avatarUrl: profileState.avatarUrl, avatar: initials },
+      'profile-avatar-large',
+      { id: 'profile-avatar-large', alt: 'Profile avatar', attrs: 'role="button" tabindex="0" title="Change photo"' }
+    );
 
     pageContainer.innerHTML = `
       <div class="profile-page">
@@ -4354,7 +4779,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="profile-content">
           <!-- Profile Header -->
           <div class="profile-header-section">
-            <div class="profile-avatar-large" id="profile-avatar-large">${avatarContent}</div>
+            ${avatarHtml}
             <div class="profile-username">${username}</div>
             <div class="profile-bio">${bio}</div>
           </div>
@@ -4378,29 +4803,13 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
     `;
 
-    // Make avatar clickable for upload
+    // Tapping the avatar opens the shared photo dialog
     const avatarEl = document.getElementById('profile-avatar-large');
-    avatarEl.addEventListener('click', () => {
-      if (window.usernode && window.usernode.uploadFile) {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = 'image/*';
-        input.onchange = async (e) => {
-          const file = e.target.files[0];
-          if (file) {
-            try {
-              const stored = await window.usernode.uploadFile(file, { visibility: 'public' });
-              profileState.avatarUrl = stored.url;
-              profileState.avatarImageId = stored.id;
-              renderProfilePage();
-            } catch (err) {
-              console.error('Avatar upload failed:', err);
-            }
-          }
-        };
-        input.click();
-      } else {
-        console.log('Avatar upload bridge not available');
+    avatarEl.addEventListener('click', changeProfilePhoto);
+    avatarEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        changeProfilePhoto();
       }
     });
 
@@ -4412,6 +4821,28 @@ document.addEventListener('DOMContentLoaded', () => {
     // Wallet copy button
     document.getElementById('wallet-copy-btn').addEventListener('click', () => {
       console.log('Copy address placeholder');
+    });
+  }
+
+  // Profile entry point into the shared avatar flow.
+  function changeProfilePhoto() {
+    const previousFileId = profileState.avatarFileId;
+
+    openAvatarDialog({
+      title: 'Change Profile Photo',
+      initials: getInitialsFromUsername(profileState.username),
+      currentUrl: profileState.avatarUrl,
+      allowRemove: !!profileState.avatarUrl,
+      onCommit: async (result) => {
+        await persistAvatar('/api/profile/avatar', result);
+        profileState.avatarUrl = result ? result.url : null;
+        profileState.avatarFileId = result ? result.fileId : null;
+        if (previousFileId && previousFileId !== profileState.avatarFileId) {
+          deleteAvatarFile(previousFileId);
+        }
+        renderProfilePage();
+        showToast(result ? 'Photo updated' : 'Photo removed', { type: 'success' });
+      }
     });
   }
 
@@ -4481,7 +4912,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (pageName === 'discover') {
       renderDiscoverPage();
     } else if (pageName === 'profile') {
-      fetchUserData().then(() => renderProfilePage());
+      ensureProfileHydrated().then(() => renderProfilePage());
     } else {
       pageContainer.innerHTML = `
         <div class="page">
@@ -4585,6 +5016,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Listen for hash changes
   window.addEventListener('hashchange', handleNavigation);
+
+  // Load the signed-in user and their stored avatar before the first paint
+  ensureProfileHydrated();
 
   // Initial render
   handleNavigation();
