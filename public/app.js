@@ -1527,7 +1527,6 @@ document.addEventListener('DOMContentLoaded', () => {
               <button class="reply-close-button" aria-label="Cancel reply">✕</button>
             </div>
           </div>
-          <button class="emoji-button" aria-label="Emoji">😊</button>
           <textarea class="composer-input" placeholder="Message..." rows="1"></textarea>
           <button class="send-button" aria-label="Send">➤</button>
         </div>
@@ -1940,7 +1939,6 @@ document.addEventListener('DOMContentLoaded', () => {
               <button class="reply-close-button" aria-label="Cancel reply">✕</button>
             </div>
           </div>
-          <button class="emoji-button" aria-label="Emoji">😊</button>
           <textarea class="composer-input" placeholder="Message..." rows="1"></textarea>
           <button class="send-button" aria-label="Send">➤</button>
         </div>
