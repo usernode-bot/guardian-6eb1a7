@@ -4137,7 +4137,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const state = {
       channelName: '',
       channelDescription: '',
-      visibility: 'public',
       avatarFile: null,
       avatarPreview: null,
       validationError: ''
@@ -4163,16 +4162,6 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="validation-error" id="name-error"></div>
           </div>
           <input type="text" class="form-input" placeholder="Add a description (optional)" id="channel-description-input" maxlength="250" />
-        </div>
-
-        <div class="form-section">
-          <div class="visibility-toggle-section">
-            <label>Visibility</label>
-            <div class="toggle-group">
-              <button class="toggle-btn active" data-visibility="public">🌐 Public</button>
-              <button class="toggle-btn" data-visibility="private">🔒 Private</button>
-            </div>
-          </div>
         </div>
 
         <button class="create-channel-button" id="create-channel-button">Create Channel</button>
@@ -4245,15 +4234,6 @@ document.addEventListener('DOMContentLoaded', () => {
       e.target.value = state.channelDescription;
     });
 
-    // Visibility toggle
-    document.querySelectorAll('.toggle-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        state.visibility = btn.dataset.visibility;
-      });
-    });
-
     createChannelButton.addEventListener('click', () => {
       nameError.innerHTML = '';
 
@@ -4265,7 +4245,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const channelId = createChannel(
         state.channelName,
         state.channelDescription,
-        state.visibility,
+        'public',
         state.avatarPreview
       );
 
