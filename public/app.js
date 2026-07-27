@@ -1815,7 +1815,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const originalValue = composerInput.value;
     composerInput.addEventListener('input', () => {
       if (composerInput.value.trim() === '') {
-        composerInput.style.height = '40px';
+        composerInput.style.height = '48px';
       }
     });
 
@@ -1849,7 +1849,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Add message to conversation
       conversation.messages.push(newMessage);
       composerInput.value = '';
-      composerInput.style.height = '40px';
+      composerInput.style.height = '48px';
       clearReplyState();
 
       // Update conversation last message and timestamp for All tab sorting
