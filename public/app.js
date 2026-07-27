@@ -1560,7 +1560,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const MENU_ITEMS = [
       { icon: '↩️', label: 'Reply', action: 'reply' },
       { icon: '📋', label: 'Copy', action: 'copy' },
-      { icon: '📤', label: 'Forward', action: 'forward' },
       { icon: '🗑️', label: 'Delete', action: 'delete' }
     ];
 
@@ -1619,10 +1618,14 @@ document.addEventListener('DOMContentLoaded', () => {
       overlay.addEventListener('click', dismissMenu);
       conversationPage.appendChild(overlay);
 
-      // Create context menu
+      // Create context menu (Delete only shown for the current user's own messages)
+      const menuTargetMessage = conversation.messages.find(m => m.id === messageId);
+      const canDeleteMenuTarget = !!menuTargetMessage && menuTargetMessage.isOutgoing === true;
+      const visibleMenuItems = MENU_ITEMS.filter(item => item.action !== 'delete' || canDeleteMenuTarget);
+
       const contextMenu = document.createElement('div');
       contextMenu.className = 'context-menu';
-      const menuButtons = MENU_ITEMS.map(item => `
+      const menuButtons = visibleMenuItems.map(item => `
         <button class="menu-item" aria-label="${item.label}" data-action="${item.action}">
           <span class="menu-icon">${item.icon}</span>
           <span class="menu-label">${item.label}</span>
@@ -1683,13 +1686,29 @@ document.addEventListener('DOMContentLoaded', () => {
           console.log('Action:', action);
           btn.classList.add('tapped');
 
-          // Handle reply action
+          const targetMessage = conversation.messages.find(m => m.id === messageId);
+
           if (action === 'reply') {
-            const targetMessage = conversation.messages.find(m => m.id === messageId);
             if (targetMessage) {
               const senderName = targetMessage.isOutgoing ? 'You' : conversation.username;
               const previewText = truncateText(targetMessage.text, 50);
               setReplyState(messageId, senderName, previewText);
+            }
+          } else if (action === 'copy') {
+            if (targetMessage) {
+              navigator.clipboard.writeText(targetMessage.text).then(() => {
+                showToast('Message copied', { type: 'success' });
+              }).catch(() => {
+                showToast('Failed to copy message', { type: 'error' });
+              });
+            }
+          } else if (action === 'delete') {
+            if (targetMessage && targetMessage.isOutgoing === true) {
+              showConfirmDialog('Delete Message', 'Delete this message? This cannot be undone.', () => {
+                deleteMessageFromThread(conversation, messageId);
+              });
+            } else {
+              showToast('You can only delete your own messages', { type: 'error' });
             }
           }
 
@@ -1758,6 +1777,29 @@ document.addEventListener('DOMContentLoaded', () => {
       // Prevent text selection during long-press
       bubble.style.userSelect = 'none';
     });
+  }
+
+  // Delete a message from a conversation/group/channel thread (own messages only)
+  function deleteMessageFromThread(thread, messageId) {
+    const messageIndex = thread.messages.findIndex(m => m.id === messageId);
+    if (messageIndex === -1) return;
+
+    thread.messages.splice(messageIndex, 1);
+
+    const messageEl = document.querySelector(`.message[data-message-id="${messageId}"]`);
+    if (messageEl) messageEl.remove();
+
+    // Keep the conversation list preview (last message) in sync
+    const previewConversation = conversations.find(c =>
+      c.id === thread.id || c.groupId === thread.id || c.channelId === thread.id
+    );
+    if (previewConversation) {
+      const lastMessage = thread.messages[thread.messages.length - 1];
+      previewConversation.lastMessage = lastMessage ? truncateText(lastMessage.text, 100) : 'No messages yet';
+      if (lastMessage) previewConversation.timestamp = lastMessage.timestamp;
+    }
+
+    showToast('Message deleted', { type: 'success' });
   }
 
   // Reply state management
