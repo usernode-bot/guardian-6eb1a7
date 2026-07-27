@@ -224,7 +224,7 @@ html, body {
   background-color: #1a1a1a;
 }
 
-.conversation-header {
+.conversation-page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -323,7 +323,14 @@ html, body {
   display: flex;
   flex-direction: column;
   max-width: 85%;
+  min-width: 0;
+  overflow-wrap: anywhere;
   word-wrap: break-word;
+}
+
+.message.has-avatar {
+  flex-direction: row;
+  align-items: flex-start;
 }
 
 .message.incoming {
@@ -348,7 +355,11 @@ html, body {
 
 .message-bubble {
   padding: 8px 12px;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
   word-wrap: break-word;
+  word-break: break-word;
   font-size: 15px;
   line-height: 1.4;
 }
@@ -382,6 +393,8 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 0;
+  flex: 1;
+  min-width: 0;
 }
 
 .message-sender-name {
@@ -2023,7 +2036,10 @@ html, body {
   line-height: 1.4;
   margin-bottom: 12px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-wrap: break-word;
+  word-break: break-word;
+  max-width: 100%;
 }
 
 .post-actions {
