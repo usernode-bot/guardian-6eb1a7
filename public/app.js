@@ -1988,37 +1988,146 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
   const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+  const DECODE_LIMIT_BYTES = 32 * 1024 * 1024;
   const MAX_IMAGE_DIMENSION = 1600;
   const SKIP_DOWNSCALE_BELOW_BYTES = 400 * 1024;
 
-  // Map platform storage error codes onto user-facing copy
+  const STORAGE_ERROR_CODES = [
+    'file_too_large',
+    'invalid_image',
+    'app_quota_exceeded',
+    'user_quota_exceeded',
+    'staging_quota_exceeded',
+    'storage_unavailable'
+  ];
+
+  // The bridge surfaces the platform's structured code in a few different
+  // shapes depending on how the rejection travelled back through postMessage.
+  function uploadErrorCode(err) {
+    if (!err) return null;
+    const direct = err.code
+      || err.errorCode
+      || (err.data && err.data.code)
+      || (err.error && err.error.code)
+      || (err.cause && err.cause.code);
+    if (typeof direct === 'string' && direct) return direct;
+
+    const message = typeof err.message === 'string' ? err.message : '';
+    return STORAGE_ERROR_CODES.find(code => message.includes(code)) || null;
+  }
+
+  // Map platform storage error codes onto user-facing copy. The code itself is
+  // appended so a user reporting "upload failed" can tell us the actual cause
+  // instead of the catch-all string.
   function uploadErrorMessage(err) {
-    const code = err && (err.code || err.errorCode);
+    const code = uploadErrorCode(err);
     switch (code) {
       case 'file_too_large':
-        return 'Image is too large (max 5 MB)';
+        return 'Image is too large (max 5 MB) — file_too_large';
       case 'invalid_image':
-        return 'Only PNG, JPEG, GIF or WebP images are supported';
+        return 'Only PNG, JPEG, GIF or WebP images are supported — invalid_image';
       case 'app_quota_exceeded':
       case 'user_quota_exceeded':
       case 'staging_quota_exceeded':
-        return 'Upload limit reached — try a smaller image or delete old ones';
+        return `Upload limit reached — try a smaller image or delete old ones (${code})`;
       case 'storage_unavailable':
-        return "Image upload isn't available right now";
+        return "Image upload isn't available right now — storage_unavailable";
       default:
-        // Outside the platform shell the bridge rejects without a code
-        if (err && /platform shell|not available standalone/i.test(err.message || '')) {
-          return "Image upload isn't available here";
-        }
-        return 'Upload failed — please try again';
+        break;
     }
+
+    // Outside the platform shell the bridge rejects without a code
+    const message = (err && typeof err.message === 'string') ? err.message.trim() : '';
+    if (/platform shell|not available standalone/i.test(message)) {
+      return "Image upload isn't available here";
+    }
+    if (code) return `Upload failed — ${code}`;
+    if (message) return `Upload failed — ${truncateText(message, 80)}`;
+    return 'Upload failed — please try again';
+  }
+
+  const EXTENSION_FOR_IMAGE_TYPE = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/gif': 'gif',
+    'image/webp': 'webp'
+  };
+
+  // The platform sniffs the bytes and rejects a file whose extension doesn't
+  // match them, so trust the bytes rather than the picker's reported MIME
+  // type (WebViews routinely guess it from the filename).
+  function sniffImageType(blob) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const b = new Uint8Array(reader.result || new ArrayBuffer(0));
+        if (b.length >= 4 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) {
+          resolve('image/png');
+        } else if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) {
+          resolve('image/jpeg');
+        } else if (b.length >= 3 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) {
+          resolve('image/gif');
+        } else if (b.length >= 12
+          && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46
+          && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) {
+          resolve('image/webp');
+        } else {
+          resolve(null);
+        }
+      };
+      reader.onerror = () => resolve(null);
+      try {
+        reader.readAsArrayBuffer(blob.slice(0, 12));
+      } catch (err) {
+        resolve(null);
+      }
+    });
+  }
+
+  // Strip any path and extension off the picked filename, leaving a safe stem
+  function imageFileStem(name) {
+    const withoutPath = String(name || '').split(/[\\/]/).pop() || '';
+    const stem = withoutPath
+      .replace(/\.[^.]+$/, '')
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .slice(0, 60);
+    return stem || 'photo';
+  }
+
+  // canvas.toBlob() returns a BARE BLOB - no filename at all - and re-encodes
+  // to JPEG, so a downscaled photo.png has to be uploaded as photo.jpg. The
+  // platform requires the extension to match the sniffed bytes, so always
+  // rebuild a File whose name, extension and type agree with the content.
+  function toUploadFile(blob, originalName, contentType) {
+    const type = contentType || blob.type || '';
+    const extension = EXTENSION_FOR_IMAGE_TYPE[type];
+    const stem = imageFileStem(originalName);
+    const filename = extension ? `${stem}.${extension}` : stem;
+
+    if (typeof File === 'function') {
+      try {
+        return new File([blob], filename, { type: type || undefined });
+      } catch (err) {
+        console.warn('File constructor unavailable, uploading a named Blob', err);
+      }
+    }
+
+    // Fallback for WebViews without a File constructor
+    const named = blob.slice(0, blob.size, type || blob.type);
+    try {
+      Object.defineProperty(named, 'name', { value: filename });
+    } catch (err) {
+      // Best effort - the bridge will fall back to its own default name
+    }
+    return named;
   }
 
   // Downscale oversized camera photos client-side (the platform does no
   // server-side resizing). GIFs are left alone so animation survives.
-  function downscaleImage(file) {
+  function downscaleImage(file, contentType) {
     return new Promise((resolve) => {
-      if (file.type === 'image/gif' || file.size < SKIP_DOWNSCALE_BELOW_BYTES) {
+      const type = contentType || file.type;
+      if (type === 'image/gif' || file.size < SKIP_DOWNSCALE_BELOW_BYTES) {
         resolve(file);
         return;
       }
@@ -2096,18 +2205,34 @@ document.addEventListener('DOMContentLoaded', () => {
         const file = e.target.files && e.target.files[0];
         if (!file) return;
 
-        if (ALLOWED_IMAGE_TYPES.indexOf(file.type) === -1) {
+        // Sniff the bytes rather than trusting the picker's MIME type - the
+        // platform sniffs too, and rejects anything whose extension disagrees
+        const sourceType = (await sniffImageType(file)) || file.type;
+        if (ALLOWED_IMAGE_TYPES.indexOf(sourceType) === -1) {
           showToast('Only PNG, JPEG, GIF or WebP images are supported', { type: 'error' });
           attachInput.value = '';
           return;
         }
-        if (file.size > MAX_IMAGE_BYTES) {
+        // Bail before decoding something pathological, but leave the real
+        // 5 MB check until after downscaling - phone camera photos routinely
+        // arrive at 6-12 MB and shrink well under the limit
+        if (file.size > DECODE_LIMIT_BYTES) {
           showToast('Image is too large (max 5 MB)', { type: 'error' });
           attachInput.value = '';
           return;
         }
 
-        const blob = await downscaleImage(file);
+        const downscaled = await downscaleImage(file, sourceType);
+        // Re-sniff: the canvas path re-encodes to JPEG, so the content type
+        // (and therefore the required extension) can differ from the source
+        const uploadType = (await sniffImageType(downscaled)) || downscaled.type || sourceType;
+        const blob = toUploadFile(downscaled, file.name, uploadType);
+
+        if (blob.size > MAX_IMAGE_BYTES) {
+          showToast('Image is too large (max 5 MB)', { type: 'error' });
+          attachInput.value = '';
+          return;
+        }
         const objectUrl = URL.createObjectURL(blob);
 
         pendingImage = { blob, objectUrl, url: null, id: null, status: 'uploading' };
@@ -2131,7 +2256,20 @@ document.addEventListener('DOMContentLoaded', () => {
           sendButton.disabled = false;
           attachButton.disabled = false;
         } catch (err) {
-          console.error('Image upload failed:', err);
+          // Log everything the platform gave us plus exactly what we sent, so
+          // "upload failed" reports are diagnosable from the console alone
+          console.error('Image upload failed:', {
+            code: uploadErrorCode(err),
+            name: err && err.name,
+            message: err && err.message,
+            status: err && (err.status || err.statusCode),
+            sentFilename: blob && blob.name,
+            sentContentType: blob && blob.type,
+            sentSizeBytes: blob && blob.size,
+            sourceFilename: file.name,
+            sourceContentType: file.type,
+            sniffedContentType: sourceType
+          }, err);
           if (pendingImage === uploadingFor) {
             clearPendingImage();
           }
