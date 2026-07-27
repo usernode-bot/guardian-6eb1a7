@@ -58,6 +58,11 @@
       "expectText": "Create Group"
     },
     {
+      "name": "Create menu shows exactly one Create Channel option",
+      "path": "/#/create",
+      "expectSelector": "[data-testid=\"create-channel-entry\"]"
+    },
+    {
       "name": "Suggested Users section displays",
       "path": "/#/create",
       "expectText": "Suggested Users"
