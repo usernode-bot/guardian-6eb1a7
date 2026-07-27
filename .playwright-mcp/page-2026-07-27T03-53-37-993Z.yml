@@ -1,0 +1,43 @@
+- generic [ref=e34]:
+  - generic [ref=e35]:
+    - button "Back to messages" [ref=e36] [cursor=pointer]: ←
+    - generic [ref=e37] [cursor=pointer]:
+      - generic [ref=e38]: SC
+      - generic [ref=e39]:
+        - generic [ref=e40]: Seeker Club
+        - generic [ref=e41]: 128 members
+    - button "More options" [ref=e42] [cursor=pointer]: ⋮
+  - generic [ref=e43]:
+    - generic [ref=e44]:
+      - generic [ref=e45]: A
+      - generic [ref=e46]:
+        - generic [ref=e47]: Alice
+        - generic [ref=e48]: Hey everyone!
+        - generic [ref=e49]: 3:43 AM
+    - generic [ref=e50]:
+      - generic [ref=e51]: B
+      - generic [ref=e52]:
+        - generic [ref=e53]: Bob
+        - generic [ref=e54]: Welcome to the group!
+        - generic [ref=e55]: 3:44 AM
+    - generic [ref=e56]:
+      - generic [ref=e57]: Thanks for adding me!
+      - generic [ref=e58]: 3:45 AM
+    - generic [ref=e59]:
+      - generic [ref=e60]: C
+      - generic [ref=e61]:
+        - generic [ref=e62]: Charlie
+        - generic [ref=e63]: Great to have you here!
+        - generic [ref=e64]: 3:46 AM
+    - generic [ref=e65]:
+      - generic [ref=e66]: A
+      - generic [ref=e67]:
+        - generic [ref=e68]: Alice
+        - generic [ref=e69]: Let's catch up soon!
+        - generic [ref=e70]: 3:47 AM
+    - generic [ref=e71]:
+      - generic [ref=e72]: Absolutely! Looking forward to it.
+      - generic [ref=e73]: 3:48 AM
+  - generic [ref=e74]:
+    - textbox "Message..." [ref=e75]
+    - button "Send" [ref=e76] [cursor=pointer]: ➤
