@@ -43,6 +43,31 @@
       "expectSelector": ".composer-input"
     },
     {
+      "name": "Scroll-to-latest FAB renders in direct message view",
+      "path": "/?shot=scroll-fab#/conversation/conv_1",
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"]"
+    },
+    {
+      "name": "Scroll-to-latest FAB is visible when scrolled up in direct messages",
+      "path": "/?shot=scroll-fab#/conversation/conv_1",
+      "expectSelector": ".scroll-to-latest-fab.is-visible"
+    },
+    {
+      "name": "Scroll-to-latest FAB renders in group chat view",
+      "path": "/?shot=scroll-fab#/group/group_1",
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"]"
+    },
+    {
+      "name": "Scroll-to-latest FAB is visible when scrolled up in group chat",
+      "path": "/?shot=scroll-fab#/group/group_1",
+      "expectSelector": ".scroll-to-latest-fab.is-visible"
+    },
+    {
+      "name": "Composer still renders alongside the scroll-to-latest FAB",
+      "path": "/?shot=scroll-fab#/group/group_1",
+      "expectSelector": ".composer-container .composer-input"
+    },
+    {
       "name": "New Message page loads",
       "path": "/#/create",
       "expectText": "New Message"

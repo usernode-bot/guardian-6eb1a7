@@ -10,6 +10,11 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('usernode-token', token);
   }
 
+  // Screenshot-state deep link: /?shot=scroll-fab#/conversation/conv_1 boots a
+  // long, deterministic thread scrolled to the top so the scroll-to-latest FAB
+  // is visible without any interaction. Pure UI state — nothing is persisted.
+  const SHOT_SCROLL_FAB = urlParams.get('shot') === 'scroll-fab';
+
   // Page definitions
   const pages = {
     messages: { title: 'Messages', name: 'Messages' },
@@ -179,6 +184,41 @@ document.addEventListener('DOMContentLoaded', () => {
       pinned: false
     }
   ]);
+
+  // Screenshot-state seed: pad the demo threads so the message list actually
+  // scrolls, which is what makes the scroll-to-latest FAB appear.
+  if (SHOT_SCROLL_FAB) {
+    const directThread = conversations.find(c => c.id === 'conv_1');
+    if (directThread) {
+      const padded = [];
+      for (let i = 0; i < 24; i++) {
+        padded.push({
+          id: `shot_msg_${i + 1}`,
+          text: `Staging demo message #${i + 1} in this conversation.`,
+          timestamp: Date.now() - (60 - i) * 60 * 1000,
+          isOutgoing: i % 3 === 0
+        });
+      }
+      directThread.messages = padded.concat(directThread.messages);
+    }
+
+    const demoGroup = groups.find(g => g.id === 'group_1');
+    if (demoGroup) {
+      const paddedGroup = [];
+      for (let i = 0; i < 24; i++) {
+        const outgoing = i % 3 === 0;
+        paddedGroup.push({
+          id: `shot_gmsg_${i + 1}`,
+          senderId: outgoing ? 'user_self' : 'user_alice',
+          senderName: outgoing ? undefined : 'Alice',
+          text: `Staging demo group message #${i + 1}.`,
+          timestamp: Date.now() - (60 - i) * 60 * 1000,
+          isOutgoing: outgoing
+        });
+      }
+      demoGroup.messages = paddedGroup.concat(demoGroup.messages);
+    }
+  }
 
   // Message requests data
   let requests = [
@@ -1471,6 +1511,85 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Render conversation screen
+  // Markup for the floating "jump to newest message" button. It lives inside
+  // .messages-area so it is pinned to the bottom-right of the scrolling list
+  // and can never overlap the composer, which sits below that area.
+  function scrollToLatestFabHTML() {
+    return `
+      <button
+        class="scroll-to-latest-fab un-touch-target"
+        data-testid="scroll-to-latest-fab"
+        type="button"
+        aria-label="Scroll to latest message"
+        aria-hidden="true"
+        tabindex="-1"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.2"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    `;
+  }
+
+  // Wire the FAB to the message list: fade in once the user has scrolled up by
+  // roughly one viewport, hide again near the bottom, smooth-scroll on tap.
+  function setupScrollToLatestFab() {
+    const messagesContainer = document.querySelector('.messages-container');
+    const fab = document.querySelector('.scroll-to-latest-fab');
+    if (!messagesContainer || !fab) return;
+
+    // Minimum scroll-up distance before the FAB appears: about one viewport of
+    // the list, with a floor so short lists don't flash it on tiny scrolls.
+    function showThreshold() {
+      return Math.max(messagesContainer.clientHeight * 0.9, 160);
+    }
+
+    function distanceFromBottom() {
+      return messagesContainer.scrollHeight
+        - messagesContainer.scrollTop
+        - messagesContainer.clientHeight;
+    }
+
+    function updateVisibility() {
+      const shouldShow = distanceFromBottom() > showThreshold();
+      fab.classList.toggle('is-visible', shouldShow);
+      fab.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
+      fab.tabIndex = shouldShow ? 0 : -1;
+    }
+
+    let ticking = false;
+    function onScroll() {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        ticking = false;
+        updateVisibility();
+      });
+    }
+
+    messagesContainer.addEventListener('scroll', onScroll, { passive: true });
+
+    // The list height changes when the composer grows / the keyboard opens.
+    if (typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(() => updateVisibility());
+      ro.observe(messagesContainer);
+    } else {
+      window.addEventListener('resize', updateVisibility);
+    }
+
+    fab.addEventListener('click', () => {
+      messagesContainer.scrollTo({
+        top: messagesContainer.scrollHeight,
+        behavior: 'smooth'
+      });
+    });
+
+    // Evaluate after the initial scroll-to-bottom has been applied.
+    setTimeout(updateVisibility, 0);
+    requestAnimationFrame(updateVisibility);
+  }
+
   function renderConversationPage(conversationId) {
     const conversation = conversations.find(c => c.id === conversationId);
     if (!conversation) {
@@ -1514,8 +1633,11 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           <button class="menu-button" aria-label="More options">⋮</button>
         </div>
-        <div class="messages-container">
-          ${messagesList}
+        <div class="messages-area">
+          <div class="messages-container">
+            ${messagesList}
+          </div>
+          ${scrollToLatestFabHTML()}
         </div>
         <div class="composer-container">
           <div class="reply-preview-bar" style="display: none;">
@@ -1542,9 +1664,12 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
       const messagesContainer = document.querySelector('.messages-container');
       if (messagesContainer) {
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        messagesContainer.scrollTop = SHOT_SCROLL_FAB ? 0 : messagesContainer.scrollHeight;
       }
     }, 0);
+
+    // Floating "jump to newest message" button
+    setupScrollToLatestFab();
 
     // Set up message long-press interactions
     setupMessageLongPress(conversation);
@@ -1968,8 +2093,11 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           <button class="menu-button" aria-label="More options">⋮</button>
         </div>
-        <div class="messages-container">
-          ${messagesList}
+        <div class="messages-area">
+          <div class="messages-container">
+            ${messagesList}
+          </div>
+          ${scrollToLatestFabHTML()}
         </div>
         <div class="composer-container">
           <div class="reply-preview-bar" style="display: none;">
@@ -2028,9 +2156,12 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
       const messagesContainer = document.querySelector('.messages-container');
       if (messagesContainer) {
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        messagesContainer.scrollTop = SHOT_SCROLL_FAB ? 0 : messagesContainer.scrollHeight;
       }
     }, 0);
+
+    // Floating "jump to newest message" button
+    setupScrollToLatestFab();
 
     // Set up message long-press interactions
     setupMessageLongPress(group);
