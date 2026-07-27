@@ -18,6 +18,12 @@ document.addEventListener('DOMContentLoaded', () => {
     profile: { title: 'Profile', name: 'Profile' }
   };
 
+  // Tiny inline placeholder images for the seeded demo image messages.
+  // Platform-stored files are NOT cloned into staging, so seeded rows must
+  // carry a data URI rather than a real /app-files/ URL.
+  const DEMO_IMAGE_BLUE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='200'%3E%3Crect width='320' height='200' fill='%234a90d9'/%3E%3Ctext x='160' y='115' font-family='sans-serif' font-size='40' fill='white' text-anchor='middle'%3EDEMO%3C/text%3E%3C/svg%3E";
+  const DEMO_IMAGE_ORANGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='200'%3E%3Crect width='320' height='200' fill='%23e07a3f'/%3E%3Ctext x='160' y='115' font-family='sans-serif' font-size='40' fill='white' text-anchor='middle'%3EDEMO%3C/text%3E%3C/svg%3E";
+
   const pageContainer = document.getElementById('page-container');
   const bottomNav = document.getElementById('bottom-nav');
   const navTabs = document.querySelectorAll('.nav-tab');
@@ -29,8 +35,8 @@ document.addEventListener('DOMContentLoaded', () => {
       type: 'direct',
       username: 'Alice Chen',
       avatar: 'AC',
-      lastMessage: 'That sounds great! Let\'s meet up soon.',
-      timestamp: Date.now() - 2 * 60 * 1000, // 2 minutes ago
+      lastMessage: '📷 Staging demo photo',
+      timestamp: Date.now() - 1 * 60 * 1000, // 1 minute ago
       unreadCount: 2,
       onlineStatus: true,
       archived: false,
@@ -41,7 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
         { id: 'msg_3', text: "Nice! Want to grab dinner?", timestamp: Date.now() - 4*60*1000, isOutgoing: false },
         { id: 'msg_4', text: "Sure! When?", timestamp: Date.now() - 3.5*60*1000, isOutgoing: true },
         { id: 'msg_5', text: "How about 7pm?", timestamp: Date.now() - 3*60*1000, isOutgoing: false },
-        { id: 'msg_6', text: "That sounds great! Let's meet up soon.", timestamp: Date.now() - 2*60*1000, isOutgoing: true }
+        { id: 'msg_6', text: "That sounds great! Let's meet up soon.", timestamp: Date.now() - 2*60*1000, isOutgoing: true },
+        { id: 'msg_demo_image', text: 'Staging demo photo', imageUrl: DEMO_IMAGE_BLUE, timestamp: Date.now() - 1*60*1000, isOutgoing: false }
       ]
     },
     {
@@ -131,7 +138,8 @@ document.addEventListener('DOMContentLoaded', () => {
         { id: 'msg_3', senderId: 'user_self', text: 'Thanks for adding me!', timestamp: Date.now() - 8*60*1000, isOutgoing: true },
         { id: 'msg_4', senderId: 'user_charlie', senderName: 'Charlie', text: 'Great to have you here!', timestamp: Date.now() - 7*60*1000, isOutgoing: false },
         { id: 'msg_5', senderId: 'user_alice', senderName: 'Alice', text: 'Let\'s catch up soon!', timestamp: Date.now() - 6*60*1000, isOutgoing: false },
-        { id: 'msg_6', senderId: 'user_self', text: 'Absolutely! Looking forward to it.', timestamp: Date.now() - 5*60*1000, isOutgoing: true }
+        { id: 'msg_6', senderId: 'user_self', text: 'Absolutely! Looking forward to it.', timestamp: Date.now() - 5*60*1000, isOutgoing: true },
+        { id: 'msg_demo_image', senderId: 'user_alice', senderName: 'Alice', text: 'Staging demo photo', imageUrl: DEMO_IMAGE_ORANGE, timestamp: Date.now() - 4*60*1000, isOutgoing: false }
       ]
     },
     {
@@ -160,8 +168,8 @@ document.addEventListener('DOMContentLoaded', () => {
       groupId: 'group_1',
       name: 'Seeker Club',
       avatar: 'SC',
-      lastMessage: 'Let\'s catch up soon!',
-      timestamp: Date.now() - 5*60*1000,
+      lastMessage: '📷 Staging demo photo',
+      timestamp: Date.now() - 4*60*1000,
       unreadCount: 0,
       archived: false,
       pinned: false
@@ -590,10 +598,62 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Truncate text to 50 characters with ellipsis
   function truncateText(text, length = 50) {
-    if (text.length > length) {
-      return text.substring(0, length) + '…';
+    const value = text == null ? '' : String(text);
+    if (value.length > length) {
+      return value.substring(0, length) + '…';
     }
-    return text;
+    return value;
+  }
+
+  // Escape a value for safe interpolation into an HTML attribute
+  function escapeAttr(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  // Only allow platform-hosted https URLs or inline image data URIs
+  function safeImageUrl(url) {
+    if (typeof url !== 'string') return null;
+    const trimmed = url.trim();
+    if (/^https:\/\//i.test(trimmed) || /^data:image\//i.test(trimmed)) {
+      return trimmed;
+    }
+    return null;
+  }
+
+  // Preview text used in the conversation list, reply quotes and toasts.
+  // Image messages have no (or optional) text, so they get a 📷 prefix.
+  function messagePreviewText(msg) {
+    if (!msg) return '';
+    if (msg.imageUrl) {
+      return msg.text ? `📷 ${msg.text}` : '📷 Photo';
+    }
+    return msg.text || '';
+  }
+
+  // Body of a message bubble - plain text, or an image with optional caption
+  function messageBodyHTML(msg) {
+    const url = msg.imageUrl ? safeImageUrl(msg.imageUrl) : null;
+    if (!url) return msg.text || '';
+
+    const caption = msg.text
+      ? `<div class="message-caption">${msg.text}</div>`
+      : '';
+    return `
+      <img class="message-image" src="${escapeAttr(url)}" alt="Photo" loading="lazy"
+           data-message-id="${escapeAttr(msg.id)}"
+           onerror="this.classList.add('message-image-missing');" />
+      ${caption}
+    `;
+  }
+
+  // Extra class for bubbles that hold an image (removes bubble padding)
+  function messageBubbleClass(msg) {
+    return msg && msg.imageUrl && safeImageUrl(msg.imageUrl) ? ' has-image' : '';
   }
 
   // Filter conversations by tab and search query
@@ -740,10 +800,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Update conversation last message and timestamp
   function updateConversationLastMessage(conversationId, lastMessage, newTimestamp) {
-    const conv = conversations.find(c => c.id === conversationId);
+    // Group/channel threads are keyed by their own id in the list rows
+    // (conv_group_1 -> groupId: group_1), so match on all three.
+    const conv = conversations.find(c =>
+      c.id === conversationId || c.groupId === conversationId || c.channelId === conversationId
+    );
     if (conv) {
       conv.lastMessage = lastMessage;
       conv.timestamp = newTimestamp || Date.now();
+    }
+  }
+
+  // Re-render whichever thread screen a message was just sent to.
+  // A group/channel thread must NOT go through renderConversationPage -
+  // its id isn't in `conversations`, which bounced the user to the list.
+  function rerenderThread(thread) {
+    if (groups.some(g => g.id === thread.id)) {
+      renderGroupConversationPage(thread.id);
+    } else if (channels.some(c => c.id === thread.id)) {
+      renderChannelConversationPage(thread.id);
+    } else {
+      renderConversationPage(thread.id);
     }
   }
 
@@ -1471,6 +1548,32 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Render conversation screen
+  // Shared composer markup for DM, group and channel threads.
+  // The attach-image control sits on the LEFT of the input field.
+  function composerMarkup(options = {}) {
+    const disabled = options.disabled ? 'disabled' : '';
+    return `
+      <div class="reply-preview-bar" style="display: none;">
+        <div class="reply-preview-content">
+          <div class="reply-quote">
+            <div class="reply-sender">Replying to: <span class="reply-sender-name"></span></div>
+            <div class="reply-text"></div>
+          </div>
+          <button class="reply-close-button" aria-label="Cancel reply">✕</button>
+        </div>
+      </div>
+      <div class="pending-image-bar" style="display: none;">
+        <img class="pending-image-thumb" alt="Selected image preview" />
+        <span class="pending-image-status">Uploading…</span>
+        <button class="pending-image-remove" aria-label="Remove image">✕</button>
+      </div>
+      <button class="attach-image-button" type="button" aria-label="Add image" ${disabled}>📷</button>
+      <input type="file" class="attach-image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display: none;" />
+      <textarea class="composer-input" placeholder="Message..." rows="1" ${disabled}></textarea>
+      <button class="send-button" aria-label="Send" ${disabled}>➤</button>
+    `;
+  }
+
   function renderConversationPage(conversationId) {
     const conversation = conversations.find(c => c.id === conversationId);
     if (!conversation) {
@@ -1495,7 +1598,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       messageHTML += `
-        <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
+        <div class="message-bubble${messageBubbleClass(msg)}" data-message-id="${msg.id}">${messageBodyHTML(msg)}</div>
         <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
       </div>`;
 
@@ -1518,17 +1621,7 @@ document.addEventListener('DOMContentLoaded', () => {
           ${messagesList}
         </div>
         <div class="composer-container">
-          <div class="reply-preview-bar" style="display: none;">
-            <div class="reply-preview-content">
-              <div class="reply-quote">
-                <div class="reply-sender">Replying to: <span class="reply-sender-name"></span></div>
-                <div class="reply-text"></div>
-              </div>
-              <button class="reply-close-button" aria-label="Cancel reply">✕</button>
-            </div>
-          </div>
-          <textarea class="composer-input" placeholder="Message..." rows="1"></textarea>
-          <button class="send-button" aria-label="Send">➤</button>
+          ${composerMarkup()}
         </div>
       </div>
     `;
@@ -1548,6 +1641,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Set up message long-press interactions
     setupMessageLongPress(conversation);
+
+    // Set up image lightbox for image messages
+    setupImageLightbox();
 
     // Set up send button and reply state management
     setupComposer(conversation);
@@ -1690,13 +1786,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
           if (action === 'reply') {
             if (targetMessage) {
-              const senderName = targetMessage.isOutgoing ? 'You' : conversation.username;
-              const previewText = truncateText(targetMessage.text, 50);
+              const senderName = targetMessage.isOutgoing
+                ? 'You'
+                : (targetMessage.senderName || conversation.username);
+              const previewText = truncateText(messagePreviewText(targetMessage), 50);
               setReplyState(messageId, senderName, previewText);
             }
           } else if (action === 'copy') {
             if (targetMessage) {
-              navigator.clipboard.writeText(targetMessage.text).then(() => {
+              const copyValue = targetMessage.imageUrl || targetMessage.text || '';
+              navigator.clipboard.writeText(copyValue).then(() => {
                 showToast('Message copied', { type: 'success' });
               }).catch(() => {
                 showToast('Failed to copy message', { type: 'error' });
@@ -1795,7 +1894,9 @@ document.addEventListener('DOMContentLoaded', () => {
     );
     if (previewConversation) {
       const lastMessage = thread.messages[thread.messages.length - 1];
-      previewConversation.lastMessage = lastMessage ? truncateText(lastMessage.text, 100) : 'No messages yet';
+      previewConversation.lastMessage = lastMessage
+        ? truncateText(messagePreviewText(lastMessage), 100)
+        : 'No messages yet';
       if (lastMessage) previewConversation.timestamp = lastMessage.timestamp;
     }
 
@@ -1837,10 +1938,215 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Full-screen viewer for image messages. Delegated on the thread
+  // container so it survives the re-render after every send.
+  function setupImageLightbox() {
+    const messagesContainer = document.querySelector('.messages-container');
+    if (!messagesContainer) return;
+
+    messagesContainer.addEventListener('click', (e) => {
+      const image = e.target.closest('.message-image');
+      if (!image) return;
+      // A long-press opens the context menu instead - don't stack a viewer on it
+      if (document.querySelector('.context-menu')) return;
+      if (image.classList.contains('message-image-missing')) return;
+      e.stopPropagation();
+      openImageLightbox(image.getAttribute('src'));
+    });
+  }
+
+  function openImageLightbox(src) {
+    const url = safeImageUrl(src);
+    if (!url) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'image-lightbox-overlay';
+    overlay.innerHTML = `
+      <button class="image-lightbox-close" aria-label="Close image">✕</button>
+      <img class="image-lightbox-image" src="${escapeAttr(url)}" alt="Photo" />
+    `;
+
+    function dismiss() {
+      overlay.remove();
+      document.removeEventListener('keydown', onKeydown);
+    }
+
+    function onKeydown(e) {
+      if (e.key === 'Escape') dismiss();
+    }
+
+    overlay.addEventListener('click', (e) => {
+      // Backdrop and the close button dismiss; the image itself does not
+      if (e.target === overlay || e.target.closest('.image-lightbox-close')) {
+        dismiss();
+      }
+    });
+    document.addEventListener('keydown', onKeydown);
+
+    document.body.appendChild(overlay);
+  }
+
+  const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+  const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+  const MAX_IMAGE_DIMENSION = 1600;
+  const SKIP_DOWNSCALE_BELOW_BYTES = 400 * 1024;
+
+  // Map platform storage error codes onto user-facing copy
+  function uploadErrorMessage(err) {
+    const code = err && (err.code || err.errorCode);
+    switch (code) {
+      case 'file_too_large':
+        return 'Image is too large (max 5 MB)';
+      case 'invalid_image':
+        return 'Only PNG, JPEG, GIF or WebP images are supported';
+      case 'app_quota_exceeded':
+      case 'user_quota_exceeded':
+      case 'staging_quota_exceeded':
+        return 'Upload limit reached — try a smaller image or delete old ones';
+      case 'storage_unavailable':
+        return "Image upload isn't available right now";
+      default:
+        // Outside the platform shell the bridge rejects without a code
+        if (err && /platform shell|not available standalone/i.test(err.message || '')) {
+          return "Image upload isn't available here";
+        }
+        return 'Upload failed — please try again';
+    }
+  }
+
+  // Downscale oversized camera photos client-side (the platform does no
+  // server-side resizing). GIFs are left alone so animation survives.
+  function downscaleImage(file) {
+    return new Promise((resolve) => {
+      if (file.type === 'image/gif' || file.size < SKIP_DOWNSCALE_BELOW_BYTES) {
+        resolve(file);
+        return;
+      }
+
+      const objectUrl = URL.createObjectURL(file);
+      const img = new Image();
+
+      img.onload = () => {
+        const longest = Math.max(img.naturalWidth, img.naturalHeight);
+        if (!longest || longest <= MAX_IMAGE_DIMENSION) {
+          URL.revokeObjectURL(objectUrl);
+          resolve(file);
+          return;
+        }
+
+        const scale = MAX_IMAGE_DIMENSION / longest;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.naturalWidth * scale);
+        canvas.height = Math.round(img.naturalHeight * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(objectUrl);
+
+        canvas.toBlob((blob) => {
+          resolve(blob || file);
+        }, 'image/jpeg', 0.85);
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(file);
+      };
+
+      img.src = objectUrl;
+    });
+  }
+
   function setupComposer(conversation) {
     const composerInput = document.querySelector('.composer-input');
     const sendButton = document.querySelector('.send-button');
     const replyCloseButton = document.querySelector('.reply-close-button');
+    const attachButton = document.querySelector('.attach-image-button');
+    const attachInput = document.querySelector('.attach-image-input');
+    const pendingBar = document.querySelector('.pending-image-bar');
+    const pendingThumb = document.querySelector('.pending-image-thumb');
+    const pendingStatus = document.querySelector('.pending-image-status');
+    const pendingRemove = document.querySelector('.pending-image-remove');
+
+    // Pending-image state is per render: every send re-runs setupComposer
+    let pendingImage = null;
+
+    function clearPendingImage() {
+      if (pendingImage && pendingImage.objectUrl) {
+        URL.revokeObjectURL(pendingImage.objectUrl);
+      }
+      pendingImage = null;
+      if (pendingBar) pendingBar.style.display = 'none';
+      if (pendingThumb) pendingThumb.removeAttribute('src');
+      if (sendButton) sendButton.disabled = false;
+      if (attachButton) attachButton.disabled = false;
+      if (attachInput) attachInput.value = '';
+    }
+
+    if (attachButton && attachInput) {
+      attachButton.addEventListener('click', () => {
+        // The bridge is only present inside the platform shell. Keep the
+        // button visible everywhere so the feature set never differs.
+        if (!(window.usernode && window.usernode.uploadFile)) {
+          showToast("Image upload isn't available here", { type: 'error' });
+          return;
+        }
+        attachInput.click();
+      });
+
+      attachInput.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+
+        if (ALLOWED_IMAGE_TYPES.indexOf(file.type) === -1) {
+          showToast('Only PNG, JPEG, GIF or WebP images are supported', { type: 'error' });
+          attachInput.value = '';
+          return;
+        }
+        if (file.size > MAX_IMAGE_BYTES) {
+          showToast('Image is too large (max 5 MB)', { type: 'error' });
+          attachInput.value = '';
+          return;
+        }
+
+        const blob = await downscaleImage(file);
+        const objectUrl = URL.createObjectURL(blob);
+
+        pendingImage = { blob, objectUrl, url: null, id: null, status: 'uploading' };
+
+        if (pendingThumb) pendingThumb.src = objectUrl;
+        if (pendingStatus) pendingStatus.textContent = 'Uploading…';
+        if (pendingBar) pendingBar.style.display = 'flex';
+        sendButton.disabled = true;
+        attachButton.disabled = true;
+
+        const uploadingFor = pendingImage;
+        try {
+          const stored = await window.usernode.uploadFile(blob, { visibility: 'public' });
+          // The user may have cancelled while the upload was in flight
+          if (pendingImage !== uploadingFor) return;
+
+          pendingImage.url = stored.url;
+          pendingImage.id = stored.id;
+          pendingImage.status = 'ready';
+          if (pendingStatus) pendingStatus.textContent = 'Ready to send';
+          sendButton.disabled = false;
+          attachButton.disabled = false;
+        } catch (err) {
+          console.error('Image upload failed:', err);
+          if (pendingImage === uploadingFor) {
+            clearPendingImage();
+          }
+          showToast(uploadErrorMessage(err), { type: 'error' });
+        } finally {
+          attachInput.value = '';
+        }
+      });
+    }
+
+    if (pendingRemove) {
+      pendingRemove.addEventListener('click', () => {
+        clearPendingImage();
+      });
+    }
 
     // Auto-expand textarea functionality
     function autoExpandTextarea() {
@@ -1869,15 +2175,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     sendButton.addEventListener('click', () => {
       const text = composerInput.value.trim();
-      if (!text) return;
+      const readyImage = pendingImage && pendingImage.status === 'ready' ? pendingImage : null;
+      // An image on its own is a valid message - text is optional now
+      if (!text && !readyImage) return;
 
       // Create new message with optional reply metadata
       const newMessage = {
         id: `msg_${Date.now()}`,
+        senderId: 'user_self',
         text: text,
         timestamp: Date.now(),
         isOutgoing: true
       };
+
+      if (readyImage) {
+        newMessage.imageUrl = readyImage.url;
+        newMessage.imageId = readyImage.id;
+      }
 
       // Attach reply metadata if replying
       if (replyState.targetMessageId) {
@@ -1893,12 +2207,17 @@ document.addEventListener('DOMContentLoaded', () => {
       composerInput.value = '';
       composerInput.style.height = '48px';
       clearReplyState();
+      clearPendingImage();
 
       // Update conversation last message and timestamp for All tab sorting
-      updateConversationLastMessage(conversation.id, text.substring(0, 100), newMessage.timestamp);
+      updateConversationLastMessage(
+        conversation.id,
+        truncateText(messagePreviewText(newMessage), 100),
+        newMessage.timestamp
+      );
 
-      // Re-render conversation to show new message
-      renderConversationPage(conversation.id);
+      // Re-render the thread this message belongs to (DM, group or channel)
+      rerenderThread(conversation);
     });
 
     // Set up quoted message click handlers for scrolling and highlighting
@@ -1938,7 +2257,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (msg.isOutgoing) {
         messageHTML += `
-          <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
+          <div class="message-bubble${messageBubbleClass(msg)}" data-message-id="${msg.id}">${messageBodyHTML(msg)}</div>
           <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
         </div>`;
       } else {
@@ -1946,7 +2265,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="message-avatar">${msg.senderName ? msg.senderName.charAt(0).toUpperCase() : ''}</div>
           <div class="message-content">
             <div class="message-sender-name">${msg.senderName}</div>
-            <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
+            <div class="message-bubble${messageBubbleClass(msg)}" data-message-id="${msg.id}">${messageBodyHTML(msg)}</div>
             <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
           </div>
         </div>`;
@@ -1972,17 +2291,7 @@ document.addEventListener('DOMContentLoaded', () => {
           ${messagesList}
         </div>
         <div class="composer-container">
-          <div class="reply-preview-bar" style="display: none;">
-            <div class="reply-preview-content">
-              <div class="reply-quote">
-                <div class="reply-sender">Replying to: <span class="reply-sender-name"></span></div>
-                <div class="reply-text"></div>
-              </div>
-              <button class="reply-close-button" aria-label="Cancel reply">✕</button>
-            </div>
-          </div>
-          <textarea class="composer-input" placeholder="Message..." rows="1"></textarea>
-          <button class="send-button" aria-label="Send">➤</button>
+          ${composerMarkup()}
         </div>
       </div>
     `;
@@ -2034,6 +2343,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Set up message long-press interactions
     setupMessageLongPress(group);
+
+    // Set up image lightbox for image messages
+    setupImageLightbox();
 
     // Set up send button and reply state management
     setupComposer(group);
@@ -3969,7 +4281,6 @@ document.addEventListener('DOMContentLoaded', () => {
       return messageHTML;
     }).join('');
 
-    const composerDisabled = !channel.currentUserCanSend ? 'disabled' : '';
     const viewOnlyBadge = !channel.currentUserCanSend ? '<div class="view-only-badge">View only</div>' : '';
     const composerDisplay = channel.currentUserIsAdmin ? '' : 'display: none;';
 
@@ -3991,18 +4302,7 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
         <div class="composer-container" style="${composerDisplay}">
           ${viewOnlyBadge}
-          <div class="reply-preview-bar" style="display: none;">
-            <div class="reply-preview-content">
-              <div class="reply-quote">
-                <div class="reply-sender">Replying to: <span class="reply-sender-name"></span></div>
-                <div class="reply-text"></div>
-              </div>
-              <button class="reply-close-button" aria-label="Cancel reply">✕</button>
-            </div>
-          </div>
-          <button class="emoji-button" aria-label="Emoji">😊</button>
-          <textarea class="composer-input" placeholder="Message..." rows="1" ${composerDisabled}></textarea>
-          <button class="send-button" aria-label="Send" ${composerDisabled}>➤</button>
+          ${composerMarkup({ disabled: !channel.currentUserCanSend })}
         </div>
       </div>
     `;
@@ -4041,6 +4341,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Set up message long-press interactions
     setupMessageLongPress(channel);
+
+    // Set up image lightbox for image messages
+    setupImageLightbox();
 
     // Set up send button and reply state management (only if can send)
     if (channel.currentUserCanSend) {
