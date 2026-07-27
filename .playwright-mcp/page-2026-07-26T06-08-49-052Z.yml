@@ -1,9 +1,0 @@
-- generic [ref=e47]:
-  - generic [ref=e48]:
-    - button "←" [ref=e49] [cursor=pointer]
-    - heading "About" [level=1] [ref=e50]
-  - generic [ref=e51]:
-    - generic [ref=e52]:
-      - generic [ref=e53]: App Version
-      - generic [ref=e54]: 1.0.0
-    - generic [ref=e56]: Built for Usernode
