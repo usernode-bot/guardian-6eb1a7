@@ -505,11 +505,6 @@ document.addEventListener('DOMContentLoaded', () => {
     return 'group_' + Date.now();
   }
 
-  // Helper: generate unique channel ID
-  function generateChannelId() {
-    return 'channel_' + Date.now();
-  }
-
   // Helper: generate default avatar from first letter of group/channel name
   function generateDefaultAvatar(name) {
     if (!name || name.length === 0) return '';
@@ -564,61 +559,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     console.log('Group created:', newGroup);
     return groupId;
-  }
-
-  // Helper: create a new channel and associated conversation
-  function createChannel(channelName, channelDescription, selectedMembers, visibility, avatarData) {
-    const channelId = generateChannelId();
-    const timestamp = Date.now();
-    const avatarValue = avatarData || generateDefaultAvatar(channelName);
-
-    // Only the current user is a member when creating a channel
-    const newChannel = {
-      id: channelId,
-      name: channelName,
-      description: channelDescription,
-      avatar: avatarValue,
-      visibility: visibility,
-      createdAt: timestamp,
-      creatorId: 'user_self',
-      memberCount: 1,
-      currentUserIsMember: true,
-      currentUserIsAdmin: true,
-      currentUserCanSend: true,
-      members: [
-        { id: 'user_self', username: 'You', role: 'admin', avatar: 'Y' }
-      ],
-      messages: [
-        {
-          id: 'msg_' + timestamp,
-          senderId: 'system',
-          senderName: 'System',
-          text: 'Channel created.',
-          timestamp: timestamp,
-          isOutgoing: false,
-          isSystemMessage: true
-        }
-      ]
-    };
-
-    channels.push(newChannel);
-    channelUnreadCounts[channelId] = 0;
-
-    const newConversation = {
-      id: `conv_channel_${channelId}`,
-      type: 'channel',
-      channelId: channelId,
-      name: channelName,
-      avatar: avatarValue,
-      lastMessage: 'Channel created.',
-      timestamp: timestamp,
-      unreadCount: 0
-    };
-
-    conversations.unshift(newConversation);
-
-    console.log('Channel created:', newChannel);
-    return channelId;
   }
 
   // Format relative timestamp for conversation list
@@ -2390,16 +2330,11 @@ document.addEventListener('DOMContentLoaded', () => {
             <span class="group-label">Create Group</span>
             <span class="group-chevron">></span>
           </div>
-          <div class="create-channel-card">
+          <div class="create-channel-card" data-testid="create-channel-entry">
             <span class="channel-icon">#</span>
             <span class="channel-label">Create Channel</span>
             <span class="channel-chevron">></span>
           </div>
-        </div>
-        <div class="create-group-card">
-          <span class="group-icon">📢</span>
-          <span class="group-label">Create Channel</span>
-          <span class="group-chevron">></span>
         </div>
         <div class="suggested-users-section">
           <div class="section-header">Suggested Users</div>
@@ -2415,17 +2350,17 @@ document.addEventListener('DOMContentLoaded', () => {
       window.location.hash = '/messages';
     });
 
-    // Add create group/channel card handlers
-    const cards = document.querySelectorAll('.create-group-card');
-    cards[0].addEventListener('click', () => {
+    // Add create group card handler
+    document.querySelector('.create-group-card').addEventListener('click', () => {
       window.location.hash = '/create-group';
     });
-    cards[1].addEventListener('click', () => {
-      window.location.hash = '/create-channel';
-    });
 
-    // Add create channel card handler
-    document.querySelector('.create-channel-card').addEventListener('click', () => {
+    // Add create channel card handler — exactly one entry point lives here
+    const createChannelEntries = document.querySelectorAll('[data-testid="create-channel-entry"]');
+    if (createChannelEntries.length !== 1) {
+      console.error(`Expected exactly 1 create-channel entry point, found ${createChannelEntries.length}`);
+    }
+    createChannelEntries[0].addEventListener('click', () => {
       window.location.hash = '/create-channel';
     });
 
@@ -3596,129 +3531,6 @@ document.addEventListener('DOMContentLoaded', () => {
     conversations = conversations.filter(c => !(c.type === 'channel' && c.channelId === channelId));
   }
 
-  // Render Create Channel page
-  function renderCreateChannelPage() {
-    const state = {
-      channelName: '',
-      channelDescription: '',
-      visibility: 'public',
-      avatarFile: null,
-      avatarPreview: null,
-      validationError: ''
-    };
-
-    pageContainer.innerHTML = `
-      <div class="create-group-page">
-        <div class="create-group-header">
-          <button class="back-button" aria-label="Back to new message">←</button>
-          <h1>Create Channel</h1>
-        </div>
-
-        <div class="group-avatar-section">
-          <div class="avatar-placeholder" id="avatar-placeholder">
-            <div class="avatar-placeholder-text">+ Add Photo</div>
-          </div>
-          <input type="file" id="avatar-file-input" accept="image/*" style="display: none;" />
-        </div>
-
-        <div class="form-section">
-          <div>
-            <input type="text" class="form-input" placeholder="Channel name" id="channel-name-input" maxlength="50" />
-            <div class="validation-error" id="name-error"></div>
-          </div>
-          <input type="text" class="form-input" placeholder="Add a description (optional)" id="channel-description-input" maxlength="250" />
-        </div>
-
-        <div class="form-section">
-          <div class="visibility-label">Visibility</div>
-          <div class="visibility-options">
-            <label class="visibility-option">
-              <input type="radio" name="visibility" value="public" checked />
-              <span>○ Public</span>
-            </label>
-            <label class="visibility-option">
-              <input type="radio" name="visibility" value="private" />
-              <span>○ Private</span>
-            </label>
-          </div>
-        </div>
-
-        <button class="create-group-button" id="create-channel-button">Create Channel</button>
-      </div>
-    `;
-
-    const backButton = document.querySelector('.back-button');
-    const channelNameInput = document.getElementById('channel-name-input');
-    const channelDescriptionInput = document.getElementById('channel-description-input');
-    const visibilityInputs = document.querySelectorAll('input[name="visibility"]');
-    const avatarPlaceholder = document.getElementById('avatar-placeholder');
-    const avatarFileInput = document.getElementById('avatar-file-input');
-    const createButton = document.getElementById('create-channel-button');
-    const nameError = document.getElementById('name-error');
-
-    function updateButtonState() {
-      const isValid = state.channelName.trim().length > 0;
-      createButton.disabled = !isValid;
-      createButton.style.opacity = isValid ? '1' : '0.5';
-    }
-
-    backButton.addEventListener('click', () => {
-      window.location.hash = '/create';
-    });
-
-    channelNameInput.addEventListener('input', (e) => {
-      state.channelName = e.target.value;
-      nameError.textContent = '';
-      updateButtonState();
-    });
-
-    channelDescriptionInput.addEventListener('input', (e) => {
-      state.channelDescription = e.target.value;
-    });
-
-    visibilityInputs.forEach(input => {
-      input.addEventListener('change', (e) => {
-        state.visibility = e.target.value;
-      });
-    });
-
-    avatarPlaceholder.addEventListener('click', () => {
-      avatarFileInput.click();
-    });
-
-    avatarFileInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          state.avatarPreview = event.target.result;
-          avatarPlaceholder.style.backgroundImage = `url(${state.avatarPreview})`;
-          avatarPlaceholder.style.backgroundSize = 'cover';
-          avatarPlaceholder.innerHTML = '';
-        };
-        reader.readAsDataURL(file);
-      }
-    });
-
-    createButton.addEventListener('click', () => {
-      if (!state.channelName.trim()) {
-        nameError.textContent = 'Channel name is required';
-        return;
-      }
-
-      const channelId = createChannel(
-        state.channelName,
-        state.channelDescription,
-        state.visibility,
-        state.avatarPreview
-      );
-
-      window.location.hash = `/channel/${channelId}`;
-    });
-
-    updateButtonState();
-  }
-
   // Render Channel View page
   function renderChannelView(channelId) {
     const channel = channels.find(c => c.id === channelId);
@@ -4325,7 +4137,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const state = {
       channelName: '',
       channelDescription: '',
-      visibility: 'public',
       avatarFile: null,
       avatarPreview: null,
       validationError: ''
@@ -4351,16 +4162,6 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="validation-error" id="name-error"></div>
           </div>
           <input type="text" class="form-input" placeholder="Add a description (optional)" id="channel-description-input" maxlength="250" />
-        </div>
-
-        <div class="form-section">
-          <div class="visibility-toggle-section">
-            <label>Visibility</label>
-            <div class="toggle-group">
-              <button class="toggle-btn active" data-visibility="public">🌐 Public</button>
-              <button class="toggle-btn" data-visibility="private">🔒 Private</button>
-            </div>
-          </div>
         </div>
 
         <button class="create-channel-button" id="create-channel-button">Create Channel</button>
@@ -4433,15 +4234,6 @@ document.addEventListener('DOMContentLoaded', () => {
       e.target.value = state.channelDescription;
     });
 
-    // Visibility toggle
-    document.querySelectorAll('.toggle-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        state.visibility = btn.dataset.visibility;
-      });
-    });
-
     createChannelButton.addEventListener('click', () => {
       nameError.innerHTML = '';
 
@@ -4453,8 +4245,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const channelId = createChannel(
         state.channelName,
         state.channelDescription,
-        [],
-        state.visibility,
+        'public',
         state.avatarPreview
       );
 
