@@ -1504,7 +1504,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     pageContainer.innerHTML = `
       <div class="conversation-page">
-        <div class="conversation-header">
+        <div class="conversation-page-header">
           <button class="back-button" aria-label="Back to messages">←</button>
           <div class="conversation-header-info">
             <div class="conversation-avatar-header">${conversation.avatar}</div>
@@ -1916,7 +1916,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     pageContainer.innerHTML = `
       <div class="conversation-page">
-        <div class="conversation-header">
+        <div class="conversation-page-header">
           <button class="back-button" aria-label="Back to messages">←</button>
           <div class="conversation-header-info group-header-info" id="group-header-info-${groupId}">
             <div class="conversation-avatar-header">${group.avatar}</div>
@@ -3567,7 +3567,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     pageContainer.innerHTML = `
       <div class="conversation-page">
-        <div class="conversation-header">
+        <div class="conversation-page-header">
           <button class="back-button" aria-label="Back to messages">←</button>
           <div class="conversation-header-info group-header-info" id="channel-header-info-${channelId}">
             <div class="conversation-avatar-header">${channel.avatar}</div>
@@ -3935,7 +3935,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     pageContainer.innerHTML = `
       <div class="conversation-page">
-        <div class="conversation-header">
+        <div class="conversation-page-header">
           <button class="back-button" aria-label="Back to messages">←</button>
           <div class="conversation-header-info channel-header-info" id="channel-header-info-${channelId}">
             <div class="conversation-avatar-header">${channel.avatar}</div>
