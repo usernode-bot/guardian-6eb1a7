@@ -1527,7 +1527,6 @@ document.addEventListener('DOMContentLoaded', () => {
               <button class="reply-close-button" aria-label="Cancel reply">✕</button>
             </div>
           </div>
-          <button class="emoji-button" aria-label="Emoji">😊</button>
           <textarea class="composer-input" placeholder="Message..." rows="1"></textarea>
           <button class="send-button" aria-label="Send">➤</button>
         </div>
@@ -1816,7 +1815,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const originalValue = composerInput.value;
     composerInput.addEventListener('input', () => {
       if (composerInput.value.trim() === '') {
-        composerInput.style.height = '40px';
+        composerInput.style.height = '48px';
       }
     });
 
@@ -1850,7 +1849,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Add message to conversation
       conversation.messages.push(newMessage);
       composerInput.value = '';
-      composerInput.style.height = '40px';
+      composerInput.style.height = '48px';
       clearReplyState();
 
       // Update conversation last message and timestamp for All tab sorting
@@ -1940,7 +1939,6 @@ document.addEventListener('DOMContentLoaded', () => {
               <button class="reply-close-button" aria-label="Cancel reply">✕</button>
             </div>
           </div>
-          <button class="emoji-button" aria-label="Emoji">😊</button>
           <textarea class="composer-input" placeholder="Message..." rows="1"></textarea>
           <button class="send-button" aria-label="Send">➤</button>
         </div>
