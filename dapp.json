@@ -43,6 +43,11 @@
       "expectSelector": ".composer-input"
     },
     {
+      "name": "Pinned message shows pin badge",
+      "path": "/#/conversation/conv_1",
+      "expectSelector": ".message-pin-badge"
+    },
+    {
       "name": "New Message page loads",
       "path": "/#/create",
       "expectText": "New Message"
