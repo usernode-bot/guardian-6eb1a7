@@ -10,6 +10,24 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('usernode-token', token);
   }
 
+  // Screenshot-state deep links. Each boots a long, deterministic thread so
+  // interaction-gated UI is reachable from a plain URL. Pure UI state — nothing
+  // is persisted, and none of it is gated on the environment.
+  //
+  //   ?shot=scroll-fab        thread parked at the TOP    → FAB must be on screen
+  //   ?shot=scroll-fab-bottom thread parked at the BOTTOM → FAB must be hidden
+  //   ?shot=send-stay         sends one message on load   → thread must survive
+  //
+  // The top/bottom pair matters: asserting only "the FAB is visible" would still
+  // pass if the FAB were visible unconditionally, so the bottom state pins the
+  // other direction.
+  const SHOT = urlParams.get('shot') || '';
+  const SHOT_SCROLL_FAB = SHOT === 'scroll-fab';
+  const SHOT_SCROLL_FAB_BOTTOM = SHOT === 'scroll-fab-bottom';
+  const SHOT_SEND_STAY = SHOT === 'send-stay';
+  const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
+  const SHOT_SEND_TEXT = 'Shot send stay check';
+
   // Page definitions
   const pages = {
     messages: { title: 'Messages', name: 'Messages' },
@@ -179,6 +197,41 @@ document.addEventListener('DOMContentLoaded', () => {
       pinned: false
     }
   ]);
+
+  // Screenshot-state seed: pad the demo threads so the message list actually
+  // scrolls, which is what makes the scroll-to-latest FAB appear.
+  if (SHOT_LONG_THREAD) {
+    const directThread = conversations.find(c => c.id === 'conv_1');
+    if (directThread) {
+      const padded = [];
+      for (let i = 0; i < 24; i++) {
+        padded.push({
+          id: `shot_msg_${i + 1}`,
+          text: `Staging demo message #${i + 1} in this conversation.`,
+          timestamp: Date.now() - (60 - i) * 60 * 1000,
+          isOutgoing: i % 3 === 0
+        });
+      }
+      directThread.messages = padded.concat(directThread.messages);
+    }
+
+    const demoGroup = groups.find(g => g.id === 'group_1');
+    if (demoGroup) {
+      const paddedGroup = [];
+      for (let i = 0; i < 24; i++) {
+        const outgoing = i % 3 === 0;
+        paddedGroup.push({
+          id: `shot_gmsg_${i + 1}`,
+          senderId: outgoing ? 'user_self' : 'user_alice',
+          senderName: outgoing ? undefined : 'Alice',
+          text: `Staging demo group message #${i + 1}.`,
+          timestamp: Date.now() - (60 - i) * 60 * 1000,
+          isOutgoing: outgoing
+        });
+      }
+      demoGroup.messages = paddedGroup.concat(demoGroup.messages);
+    }
+  }
 
   // Message requests data
   let requests = [
@@ -744,6 +797,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (conv) {
       conv.lastMessage = lastMessage;
       conv.timestamp = newTimestamp || Date.now();
+    }
+  }
+
+  // Update the Messages-list row for a thread. Direct conversations ARE rows in
+  // `conversations`; a group is a separate object whose row is linked by groupId.
+  function updateThreadLastMessage(thread, isGroup, lastMessage, newTimestamp) {
+    const row = isGroup
+      ? conversations.find(c => c.groupId === thread.id)
+      : conversations.find(c => c.id === thread.id);
+    if (row) {
+      row.lastMessage = lastMessage;
+      row.timestamp = newTimestamp || Date.now();
     }
   }
 
@@ -1471,7 +1536,150 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Render conversation screen
-  function renderConversationPage(conversationId) {
+  // Markup for the floating "jump to newest message" button. It lives inside
+  // .messages-area so it is pinned to the bottom-right of the scrolling list
+  // and can never overlap the composer, which sits below that area.
+  function scrollToLatestFabHTML() {
+    return `
+      <button
+        class="scroll-to-latest-fab un-touch-target"
+        data-testid="scroll-to-latest-fab"
+        type="button"
+        aria-label="Scroll to latest message"
+        aria-hidden="true"
+        tabindex="-1"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.2"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    `;
+  }
+
+  // Minimum scroll-up distance before the FAB appears. This is deliberately a
+  // small absolute value, NOT a fraction of the list height: an earlier version
+  // used `clientHeight * 0.9` (~640px on a phone), which a normal thread can
+  // never reach — the list simply isn't that much taller than the viewport, so
+  // the FAB stayed hidden even scrolled all the way to the top.
+  const SCROLL_FAB_THRESHOLD_PX = 120;
+
+  // Observers/listeners from the previous render, torn down on the next one so
+  // re-rendering a thread (e.g. after sending) never stacks duplicate watchers.
+  let scrollFabTeardown = null;
+
+  // Wire the FAB to the message list: fade in once the user has scrolled up past
+  // the threshold, hide again near the bottom, smooth-scroll on tap.
+  function setupScrollToLatestFab(root) {
+    if (scrollFabTeardown) {
+      scrollFabTeardown();
+      scrollFabTeardown = null;
+    }
+
+    // Scope the lookup to the page we just rendered so we can never bind to a
+    // stale container left over from a previous screen.
+    const scope = root || document;
+    const messagesContainer = scope.querySelector('.messages-container');
+    const fab = scope.querySelector('.scroll-to-latest-fab');
+    if (!messagesContainer || !fab) return;
+
+    function distanceFromBottom() {
+      return messagesContainer.scrollHeight
+        - messagesContainer.scrollTop
+        - messagesContainer.clientHeight;
+    }
+
+    // Reflect whether the button is genuinely painted on screen (not just
+    // class-toggled) so the dapp.json checks assert real visibility instead of
+    // passing on a hidden element. Measured after the fade so opacity settles.
+    function reportOnScreen(shouldShow) {
+      let onScreen = false;
+      if (shouldShow) {
+        const cs = window.getComputedStyle(fab);
+        const r = fab.getBoundingClientRect();
+        onScreen = cs.visibility === 'visible'
+          && cs.display !== 'none'
+          && parseFloat(cs.opacity || '0') > 0.5
+          && r.width > 0 && r.height > 0
+          && r.bottom <= window.innerHeight + 1 && r.top >= -1
+          && r.right <= window.innerWidth + 1 && r.left >= -1;
+      }
+      fab.setAttribute('data-fab-onscreen', onScreen ? 'true' : 'false');
+    }
+
+    function updateVisibility() {
+      const shouldShow = distanceFromBottom() > SCROLL_FAB_THRESHOLD_PX;
+      fab.classList.toggle('is-visible', shouldShow);
+      fab.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
+      fab.tabIndex = shouldShow ? 0 : -1;
+      reportOnScreen(shouldShow);
+      // Re-measure once the opacity transition has finished.
+      setTimeout(() => reportOnScreen(
+        distanceFromBottom() > SCROLL_FAB_THRESHOLD_PX
+      ), 240);
+    }
+
+    let ticking = false;
+    function onScroll() {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        ticking = false;
+        updateVisibility();
+      });
+    }
+
+    messagesContainer.addEventListener('scroll', onScroll, { passive: true });
+    fab.addEventListener('transitionend', () => reportOnScreen(
+      distanceFromBottom() > SCROLL_FAB_THRESHOLD_PX
+    ));
+
+    const observers = [];
+
+    // The list box changes height when the composer grows / the keyboard opens.
+    if (typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(() => updateVisibility());
+      ro.observe(messagesContainer);
+      observers.push(ro);
+    }
+
+    // The box height staying the same while its CONTENT grows (a message
+    // arrives, an image finally lays out) changes scrollHeight without firing
+    // either scroll or resize — so watch the content too.
+    if (typeof MutationObserver === 'function') {
+      const mo = new MutationObserver(() => updateVisibility());
+      mo.observe(messagesContainer, { childList: true, subtree: true });
+      observers.push(mo);
+    }
+
+    window.addEventListener('resize', updateVisibility);
+    window.addEventListener('orientationchange', updateVisibility);
+
+    fab.addEventListener('click', () => {
+      messagesContainer.scrollTo({
+        top: messagesContainer.scrollHeight,
+        behavior: 'smooth'
+      });
+    });
+
+    scrollFabTeardown = () => {
+      observers.forEach(o => o.disconnect());
+      messagesContainer.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', updateVisibility);
+      window.removeEventListener('orientationchange', updateVisibility);
+    };
+
+    // Evaluate after the initial scroll-to-bottom has been applied, and again
+    // once layout has settled (fonts/bubble wrapping can change scrollHeight).
+    setTimeout(updateVisibility, 0);
+    requestAnimationFrame(updateVisibility);
+    setTimeout(updateVisibility, 120);
+    setTimeout(updateVisibility, 350);
+    setTimeout(updateVisibility, 700);
+  }
+
+  function renderConversationPage(conversationId, renderOptions) {
+    const fromSend = !!(renderOptions && renderOptions.fromSend);
     const conversation = conversations.find(c => c.id === conversationId);
     if (!conversation) {
       renderPage('messages');
@@ -1514,8 +1722,11 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           <button class="menu-button" aria-label="More options">⋮</button>
         </div>
-        <div class="messages-container">
-          ${messagesList}
+        <div class="messages-area">
+          <div class="messages-container">
+            ${messagesList}
+          </div>
+          ${scrollToLatestFabHTML()}
         </div>
         <div class="composer-container">
           <div class="reply-preview-bar" style="display: none;">
@@ -1538,19 +1749,43 @@ document.addEventListener('DOMContentLoaded', () => {
       window.location.hash = '/messages';
     });
 
-    // Scroll to latest message after DOM renders
+    // Scroll to latest message after DOM renders. The screenshot deep link parks
+    // the list at the top so the FAB is visible — but after SENDING we always
+    // jump to the bottom so the user sees the message they just wrote.
+    const conversationRoot = pageContainer.querySelector('.conversation-page');
     setTimeout(() => {
       const messagesContainer = document.querySelector('.messages-container');
       if (messagesContainer) {
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        messagesContainer.scrollTop = (SHOT_SCROLL_FAB && !fromSend)
+          ? 0
+          : messagesContainer.scrollHeight;
       }
     }, 0);
+
+    // Floating "jump to newest message" button
+    setupScrollToLatestFab(conversationRoot);
 
     // Set up message long-press interactions
     setupMessageLongPress(conversation);
 
     // Set up send button and reply state management
-    setupComposer(conversation);
+    setupComposer(conversation, { isGroup: false });
+
+    // Must stay last: the send re-renders this page underneath us.
+    if (SHOT_SEND_STAY && !fromSend) sendShotMessage(conversationRoot);
+  }
+
+  // Screenshot-state helper: drive the real composer the same way a tap does, so
+  // a check can assert the thread survives sending rather than only that it
+  // renders. A send that bounced the user out would leave the Messages list here.
+  function sendShotMessage(root) {
+    const scope = root || document;
+    const input = scope.querySelector('.composer-input');
+    const button = scope.querySelector('.send-button');
+    if (!input || !button) return;
+    input.value = SHOT_SEND_TEXT;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    button.click();
   }
 
   // Setup long-press menu for messages
@@ -1837,7 +2072,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function setupComposer(conversation) {
+  // `thread` is either a direct conversation (from `conversations`) or a group
+  // (from `groups`). The two live in different arrays and are drawn by different
+  // renderers, so the caller says which one it is — re-rendering a group through
+  // renderConversationPage() used to find nothing and bounce the user out to the
+  // Messages list, losing the message they just sent.
+  function setupComposer(thread, options) {
+    const opts = options || {};
+    const isGroup = !!opts.isGroup;
+    // How to redraw the screen we're on after a send. Defaults to the direct
+    // conversation renderer; group and channel views pass their own.
+    const rerender = typeof opts.rerender === 'function'
+      ? opts.rerender
+      : (isGroup
+        ? () => renderGroupConversationPage(thread.id, { fromSend: true })
+        : () => renderConversationPage(thread.id, { fromSend: true }));
+    const conversation = thread;
     const composerInput = document.querySelector('.composer-input');
     const sendButton = document.querySelector('.send-button');
     const replyCloseButton = document.querySelector('.reply-close-button');
@@ -1879,6 +2129,9 @@ document.addEventListener('DOMContentLoaded', () => {
         isOutgoing: true
       };
 
+      // Group messages carry a sender id alongside the outgoing flag.
+      if (isGroup) newMessage.senderId = 'user_self';
+
       // Attach reply metadata if replying
       if (replyState.targetMessageId) {
         newMessage.replyTo = {
@@ -1894,11 +2147,12 @@ document.addEventListener('DOMContentLoaded', () => {
       composerInput.style.height = '48px';
       clearReplyState();
 
-      // Update conversation last message and timestamp for All tab sorting
-      updateConversationLastMessage(conversation.id, text.substring(0, 100), newMessage.timestamp);
+      // Update conversation last message and timestamp for All tab sorting. A
+      // group's row in the Messages list is keyed by groupId, not by group.id.
+      updateThreadLastMessage(thread, isGroup, text.substring(0, 100), newMessage.timestamp);
 
-      // Re-render conversation to show new message
-      renderConversationPage(conversation.id);
+      // Re-render the SAME screen we're on, so the user stays in the thread.
+      rerender();
     });
 
     // Set up quoted message click handlers for scrolling and highlighting
@@ -1926,7 +2180,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Render group conversation screen
-  function renderGroupConversationPage(groupId) {
+  function renderGroupConversationPage(groupId, renderOptions) {
+    const fromSend = !!(renderOptions && renderOptions.fromSend);
     const group = groups.find(g => g.id === groupId);
     if (!group) {
       renderPage('messages');
@@ -1968,8 +2223,11 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           <button class="menu-button" aria-label="More options">⋮</button>
         </div>
-        <div class="messages-container">
-          ${messagesList}
+        <div class="messages-area">
+          <div class="messages-container">
+            ${messagesList}
+          </div>
+          ${scrollToLatestFabHTML()}
         </div>
         <div class="composer-container">
           <div class="reply-preview-bar" style="display: none;">
@@ -2024,19 +2282,30 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    // Scroll to latest message after DOM renders
+    // Scroll to latest message after DOM renders. The screenshot deep link parks
+    // the list at the top so the FAB is visible — but after SENDING we always
+    // jump to the bottom so the user sees the message they just wrote.
+    const groupRoot = pageContainer.querySelector('.conversation-page');
     setTimeout(() => {
       const messagesContainer = document.querySelector('.messages-container');
       if (messagesContainer) {
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        messagesContainer.scrollTop = (SHOT_SCROLL_FAB && !fromSend)
+          ? 0
+          : messagesContainer.scrollHeight;
       }
     }, 0);
+
+    // Floating "jump to newest message" button
+    setupScrollToLatestFab(groupRoot);
 
     // Set up message long-press interactions
     setupMessageLongPress(group);
 
     // Set up send button and reply state management
-    setupComposer(group);
+    setupComposer(group, { isGroup: true });
+
+    // Must stay last: the send re-renders this page underneath us.
+    if (SHOT_SEND_STAY && !fromSend) sendShotMessage(groupRoot);
   }
 
   // Show group menu with all options (members, edit description, leave)
@@ -4042,9 +4311,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Set up message long-press interactions
     setupMessageLongPress(channel);
 
-    // Set up send button and reply state management (only if can send)
+    // Set up send button and reply state management (only if can send).
+    // Channels live in their own array, so they redraw with their own renderer —
+    // routing through renderConversationPage() would bounce the user out.
     if (channel.currentUserCanSend) {
-      setupComposer(channel);
+      setupComposer(channel, { rerender: () => renderChannelView(channelId) });
     }
   }
 
