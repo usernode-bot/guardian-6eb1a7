@@ -843,27 +843,6 @@ html, body {
   background-color: #f5f5f5;
 }
 
-.new-message-header {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 12px;
-  padding: 12px 16px;
-  background-color: #fff;
-  border-bottom: 1px solid #e0e0e0;
-  flex-shrink: 0;
-  height: 60px;
-  position: relative;
-  z-index: 10;
-}
-
-.new-message-header h1 {
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: #222;
-  margin: 0;
-}
-
 .search-container {
   padding: 12px 16px;
   background-color: #fff;

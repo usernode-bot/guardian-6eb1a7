@@ -100,7 +100,7 @@
     {
       "name": "New Message page loads",
       "path": "/#/create",
-      "expectText": "New Message"
+      "expectText": "Create Group"
     },
     {
       "name": "Search field displays on New Message page",
