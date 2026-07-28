@@ -425,6 +425,24 @@ html, body {
   line-height: 1.4;
 }
 
+.message-bubble.deleted {
+  font-style: italic;
+  opacity: 0.6;
+  cursor: default;
+}
+
+.message.incoming .message-bubble.deleted {
+  background-color: transparent;
+  border: 1px solid #d0d0d0;
+  color: #777;
+}
+
+.message.outgoing .message-bubble.deleted {
+  background-color: transparent;
+  border: 1px solid #b3d7ff;
+  color: #007aff;
+}
+
 .message-timestamp {
   font-size: 12px;
   color: #999;
