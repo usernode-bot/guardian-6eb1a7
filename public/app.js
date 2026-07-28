@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=scroll-fab        thread parked at the TOP    → FAB must be on screen
   //   ?shot=scroll-fab-bottom thread parked at the BOTTOM → FAB must be hidden
   //   ?shot=send-stay         sends one message on load   → thread must survive
+  //   ?shot=message-deleted   forces group_1's seeded deleted messages         → placeholder must render
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -25,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_SCROLL_FAB = SHOT === 'scroll-fab';
   const SHOT_SCROLL_FAB_BOTTOM = SHOT === 'scroll-fab-bottom';
   const SHOT_SEND_STAY = SHOT === 'send-stay';
+  const SHOT_MESSAGE_DELETED = SHOT === 'message-deleted';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
 
@@ -56,7 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
       messages: [
         { id: 'msg_1', text: "Hey! How's it going?", timestamp: Date.now() - 5*60*1000, isOutgoing: false },
         { id: 'msg_2', text: "Great! Just finished work", timestamp: Date.now() - 4.5*60*1000, isOutgoing: true },
-        { id: 'msg_3', text: "Nice! Want to grab dinner?", timestamp: Date.now() - 4*60*1000, isOutgoing: false },
+        { id: 'msg_3', text: "Nice! Want to grab dinner?", timestamp: Date.now() - 4*60*1000, isOutgoing: false, hiddenFor: { user_self: true } },
         { id: 'msg_4', text: "Sure! When?", timestamp: Date.now() - 3.5*60*1000, isOutgoing: true },
         { id: 'msg_5', text: "How about 7pm?", timestamp: Date.now() - 3*60*1000, isOutgoing: false },
         { id: 'msg_6', text: "That sounds great! Let's meet up soon.", timestamp: Date.now() - 2*60*1000, isOutgoing: true }
@@ -137,17 +139,18 @@ document.addEventListener('DOMContentLoaded', () => {
       avatar: 'SC',
       description: 'A community of seekers and explorers',
       memberCount: 128,
+      creatorId: 'user_self',
       members: [
-        { id: 'user_self', username: 'You' },
-        { id: 'user_alice', username: 'Alice' },
-        { id: 'user_bob', username: 'Bob' },
-        { id: 'user_charlie', username: 'Charlie' }
+        { id: 'user_self', username: 'You', role: 'admin' },
+        { id: 'user_alice', username: 'Alice', role: 'admin' },
+        { id: 'user_bob', username: 'Bob', role: 'member' },
+        { id: 'user_charlie', username: 'Charlie', role: 'member' }
       ],
       messages: [
         { id: 'msg_1', senderId: 'user_alice', senderName: 'Alice', text: 'Hey everyone!', timestamp: Date.now() - 10*60*1000, isOutgoing: false },
-        { id: 'msg_2', senderId: 'user_bob', senderName: 'Bob', text: 'Welcome to the group!', timestamp: Date.now() - 9*60*1000, isOutgoing: false },
+        { id: 'msg_2', senderId: 'user_bob', senderName: 'Bob', text: 'Welcome to the group!', timestamp: Date.now() - 9*60*1000, isOutgoing: false, isDeleted: true },
         { id: 'msg_3', senderId: 'user_self', text: 'Thanks for adding me!', timestamp: Date.now() - 8*60*1000, isOutgoing: true },
-        { id: 'msg_4', senderId: 'user_charlie', senderName: 'Charlie', text: 'Great to have you here!', timestamp: Date.now() - 7*60*1000, isOutgoing: false },
+        { id: 'msg_4', senderId: 'user_charlie', senderName: 'Charlie', text: 'Great to have you here!', timestamp: Date.now() - 7*60*1000, isOutgoing: false, isDeleted: true, deletedByAdmin: true },
         { id: 'msg_5', senderId: 'user_alice', senderName: 'Alice', text: 'Let\'s catch up soon!', timestamp: Date.now() - 6*60*1000, isOutgoing: false },
         { id: 'msg_6', senderId: 'user_self', text: 'Absolutely! Looking forward to it.', timestamp: Date.now() - 5*60*1000, isOutgoing: true }
       ]
@@ -158,10 +161,11 @@ document.addEventListener('DOMContentLoaded', () => {
       avatar: 'DT',
       description: 'Collaborate on visual designs and UI/UX',
       memberCount: 3,
+      creatorId: 'user_8',
       members: [
-        { id: 'user_self', username: 'You' },
-        { id: 'user_1', username: 'aksaranft' },
-        { id: 'user_8', username: 'designpro' }
+        { id: 'user_self', username: 'You', role: 'member' },
+        { id: 'user_1', username: 'aksaranft', role: 'member' },
+        { id: 'user_8', username: 'designpro', role: 'admin' }
       ],
       messages: [
         { id: 'msg_1', senderId: 'user_8', senderName: 'designpro', text: 'Just posted the new mockups', timestamp: Date.now() - 30*60*1000, isOutgoing: false },
@@ -230,6 +234,24 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
       demoGroup.messages = paddedGroup.concat(demoGroup.messages);
+    }
+  }
+
+  // Screenshot-state seed: force group_1's deleted-message placeholders to
+  // exist regardless of any future edits to the base seed data above.
+  if (SHOT_MESSAGE_DELETED) {
+    const group1 = groups.find(g => g.id === 'group_1');
+    if (group1) {
+      const ownDeleted = group1.messages.find(m => m.id === 'msg_2');
+      if (ownDeleted) {
+        ownDeleted.isDeleted = true;
+        ownDeleted.deletedByAdmin = false;
+      }
+      const adminDeleted = group1.messages.find(m => m.id === 'msg_4');
+      if (adminDeleted) {
+        adminDeleted.isDeleted = true;
+        adminDeleted.deletedByAdmin = true;
+      }
     }
   }
 
@@ -580,7 +602,11 @@ document.addEventListener('DOMContentLoaded', () => {
       description: groupDescription,
       avatar: avatarValue,
       memberCount: selectedMembers.length + 1, // +1 for the user
-      members: [{ id: 'user_self', username: 'You' }, ...selectedMembers],
+      creatorId: 'user_self',
+      members: [
+        { id: 'user_self', username: 'You', role: 'admin' },
+        ...selectedMembers.map(m => ({ ...m, role: m.role || 'member' }))
+      ],
       createdAt: timestamp,
       messages: [
         {
@@ -841,7 +867,11 @@ document.addEventListener('DOMContentLoaded', () => {
       description: discoverGroup.description,
       avatar: discoverGroup.avatar,
       memberCount: discoverGroup.memberCount + 1,
-      members: [{ id: 'user_self', username: 'You' }, ...discoverGroup.members],
+      creatorId: discoverGroup.creatorId || (discoverGroup.members[0] && discoverGroup.members[0].id) || null,
+      members: [
+        { id: 'user_self', username: 'You', role: 'member' },
+        ...discoverGroup.members.map(m => ({ ...m, role: m.role || 'member' }))
+      ],
       createdAt: Date.now(),
       messages: [
         {
@@ -1690,7 +1720,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const messagesList = conversation.messages.map(msg => {
+    const messagesList = conversation.messages.filter(msg => !(msg.hiddenFor && msg.hiddenFor.user_self)).map(msg => {
       let messageHTML = `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming'}" data-message-id="${msg.id}">`;
 
       // Add quoted message section if this is a reply
@@ -1770,7 +1800,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupScrollToLatestFab(conversationRoot);
 
     // Set up message long-press interactions
-    setupMessageLongPress(conversation);
+    setupMessageLongPress(conversation, 'dm');
 
     // Set up send button and reply state management
     setupComposer(conversation, { isGroup: false });
@@ -1792,8 +1822,22 @@ document.addEventListener('DOMContentLoaded', () => {
     button.click();
   }
 
-  // Setup long-press menu for messages
-  function setupMessageLongPress(conversation) {
+  // Whether 'user_self' is an admin or the creator of the given group
+  function isCurrentUserGroupAdmin(group) {
+    if (!group) return false;
+    if (group.creatorId === 'user_self') return true;
+    const member = group.members && group.members.find(m => m.id === 'user_self');
+    return !!member && member.role === 'admin';
+  }
+
+  // Setup long-press menu for messages. threadType is 'dm', 'group', or 'channel' —
+  // each has different delete permissions:
+  //   dm      - either participant may delete (hide) ANY message, but only from
+  //             their own view (WhatsApp/Telegram "delete for me")
+  //   group   - members may delete only their own messages; admins/the creator
+  //             may delete anyone's message, removing it for the whole group
+  //   channel - unchanged: a member may delete only their own message
+  function setupMessageLongPress(conversation, threadType) {
     const messageBubbles = document.querySelectorAll('.message-bubble');
     const LONG_PRESS_DURATION = 350;
     const MENU_ITEMS = [
@@ -1842,6 +1886,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function showMenu(messageId, bubbleElement) {
+      // Deleted placeholders (group only) can't be acted on at all
+      const menuTargetMessage = conversation.messages.find(m => m.id === messageId);
+      if (menuTargetMessage && menuTargetMessage.isDeleted) return;
+
       if (menuState.isMenuOpen) dismissMenu();
 
       menuState.selectedMessageId = messageId;
@@ -1857,9 +1905,16 @@ document.addEventListener('DOMContentLoaded', () => {
       overlay.addEventListener('click', dismissMenu);
       conversationPage.appendChild(overlay);
 
-      // Create context menu (Delete only shown for the current user's own messages)
-      const menuTargetMessage = conversation.messages.find(m => m.id === messageId);
-      const canDeleteMenuTarget = !!menuTargetMessage && menuTargetMessage.isOutgoing === true;
+      // Create context menu. DM: delete always offered (delete-for-me). Group:
+      // own messages, or any message if the current user is an admin/creator.
+      // Channel: own messages only (unchanged).
+      const canDeleteMenuTarget = !!menuTargetMessage && (
+        threadType === 'dm'
+          ? true
+          : threadType === 'group'
+            ? (menuTargetMessage.isOutgoing === true || isCurrentUserGroupAdmin(conversation))
+            : menuTargetMessage.isOutgoing === true
+      );
       const visibleMenuItems = MENU_ITEMS.filter(item => item.action !== 'delete' || canDeleteMenuTarget);
 
       const contextMenu = document.createElement('div');
@@ -1942,7 +1997,27 @@ document.addEventListener('DOMContentLoaded', () => {
               });
             }
           } else if (action === 'delete') {
-            if (targetMessage && targetMessage.isOutgoing === true) {
+            if (!targetMessage) {
+              // no-op
+            } else if (threadType === 'dm') {
+              showConfirmDialog(
+                'Delete Message',
+                'Delete this message? It will be removed from your chat history only — the other person will still see it.',
+                () => hideMessageForSelf(conversation, messageId)
+              );
+            } else if (threadType === 'group') {
+              const isOwnMessage = targetMessage.isOutgoing === true;
+              if (isOwnMessage || isCurrentUserGroupAdmin(conversation)) {
+                const confirmMessage = isOwnMessage
+                  ? 'Delete this message? This cannot be undone.'
+                  : "Delete this member's message? This cannot be undone.";
+                showConfirmDialog('Delete Message', confirmMessage, () => {
+                  deleteMessageForEveryone(conversation, messageId, { byAdmin: !isOwnMessage });
+                });
+              } else {
+                showToast('You can only delete your own messages', { type: 'error' });
+              }
+            } else if (targetMessage.isOutgoing === true) {
               showConfirmDialog('Delete Message', 'Delete this message? This cannot be undone.', () => {
                 deleteMessageFromThread(conversation, messageId);
               });
@@ -2018,7 +2093,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Delete a message from a conversation/group/channel thread (own messages only)
+  // Delete a message from a channel thread (own messages only) — hard delete
   function deleteMessageFromThread(thread, messageId) {
     const messageIndex = thread.messages.findIndex(m => m.id === messageId);
     if (messageIndex === -1) return;
@@ -2036,6 +2111,66 @@ document.addEventListener('DOMContentLoaded', () => {
       const lastMessage = thread.messages[thread.messages.length - 1];
       previewConversation.lastMessage = lastMessage ? truncateText(lastMessage.text, 100) : 'No messages yet';
       if (lastMessage) previewConversation.timestamp = lastMessage.timestamp;
+    }
+
+    showToast('Message deleted', { type: 'success' });
+  }
+
+  // DM "delete for me" (WhatsApp/Telegram style): hides a message from the
+  // current user's own view only. The message is untouched for the other
+  // participant — this is not a shared/real delete.
+  function hideMessageForSelf(conversation, messageId) {
+    const message = conversation.messages.find(m => m.id === messageId);
+    if (!message) return;
+
+    message.hiddenFor = message.hiddenFor || {};
+    message.hiddenFor.user_self = true;
+
+    const messageEl = document.querySelector(`.message[data-message-id="${messageId}"]`);
+    if (messageEl) messageEl.remove();
+
+    // Keep the conversation list preview in sync — skip hidden-for-self messages
+    const visibleMessages = conversation.messages.filter(m => !(m.hiddenFor && m.hiddenFor.user_self));
+    const lastMessage = visibleMessages[visibleMessages.length - 1];
+    conversation.lastMessage = lastMessage ? truncateText(lastMessage.text, 100) : 'No messages yet';
+    if (lastMessage) conversation.timestamp = lastMessage.timestamp;
+
+    showToast('Message deleted', { type: 'success' });
+  }
+
+  // Group shared moderation delete: removes a message for every member. Members
+  // may only do this to their own messages; admins/the creator may do it to
+  // anyone's. The message becomes a placeholder, not repliable/copyable/deletable.
+  function deleteMessageForEveryone(group, messageId, options) {
+    const byAdmin = !!(options && options.byAdmin);
+    const message = group.messages.find(m => m.id === messageId);
+    if (!message) return;
+
+    message.isDeleted = true;
+    message.deletedByAdmin = byAdmin;
+    const placeholderText = byAdmin ? 'This message was deleted by an admin' : 'Message deleted';
+
+    const messageEl = document.querySelector(`.message[data-message-id="${messageId}"]`);
+    if (messageEl) {
+      const bubbleEl = messageEl.querySelector('.message-bubble');
+      if (bubbleEl) {
+        bubbleEl.classList.add('deleted');
+        bubbleEl.textContent = placeholderText;
+      }
+    }
+
+    // Keep the conversation list preview (last message) in sync
+    const row = conversations.find(c => c.groupId === group.id);
+    if (row) {
+      const lastMessage = group.messages[group.messages.length - 1];
+      if (lastMessage) {
+        row.lastMessage = lastMessage.isDeleted
+          ? (lastMessage.deletedByAdmin ? 'This message was deleted by an admin' : 'Message deleted')
+          : truncateText(lastMessage.text, 100);
+        row.timestamp = lastMessage.timestamp;
+      } else {
+        row.lastMessage = 'No messages yet';
+      }
     }
 
     showToast('Message deleted', { type: 'success' });
@@ -2195,9 +2330,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const messagesList = group.messages.map(msg => {
       let messageHTML = `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming has-avatar'}" data-message-id="${msg.id}">`;
 
+      const bubbleText = msg.isDeleted
+        ? (msg.deletedByAdmin ? 'This message was deleted by an admin' : 'Message deleted')
+        : msg.text;
+      const bubbleClass = msg.isDeleted ? 'message-bubble deleted' : 'message-bubble';
+
       if (msg.isOutgoing) {
         messageHTML += `
-          <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
+          <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
           <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
         </div>`;
       } else {
@@ -2205,7 +2345,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="message-avatar">${msg.senderName ? msg.senderName.charAt(0).toUpperCase() : ''}</div>
           <div class="message-content">
             <div class="message-sender-name">${msg.senderName}</div>
-            <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
+            <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
             <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
           </div>
         </div>`;
@@ -2303,7 +2443,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupScrollToLatestFab(groupRoot);
 
     // Set up message long-press interactions
-    setupMessageLongPress(group);
+    setupMessageLongPress(group, 'group');
 
     // Set up send button and reply state management
     setupComposer(group, { isGroup: true });
@@ -4313,7 +4453,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 0);
 
     // Set up message long-press interactions
-    setupMessageLongPress(channel);
+    setupMessageLongPress(channel, 'channel');
 
     // Set up send button and reply state management (only if can send).
     // Channels live in their own array, so they redraw with their own renderer —
