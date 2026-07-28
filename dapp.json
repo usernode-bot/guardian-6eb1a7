@@ -48,9 +48,14 @@
       "expectSelector": "[data-testid=\"scroll-to-latest-fab\"]"
     },
     {
-      "name": "Scroll-to-latest FAB is visible when scrolled up in direct messages",
+      "name": "Scroll-to-latest FAB is painted on screen when scrolled up in direct messages",
       "path": "/?shot=scroll-fab#/conversation/conv_1",
-      "expectSelector": ".scroll-to-latest-fab.is-visible"
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"].is-visible[data-fab-onscreen=\"true\"]"
+    },
+    {
+      "name": "Scroll-to-latest FAB hides when direct message thread sits at the bottom",
+      "path": "/?shot=scroll-fab-bottom#/conversation/conv_1",
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"][data-fab-onscreen=\"false\"]"
     },
     {
       "name": "Scroll-to-latest FAB renders in group chat view",
@@ -58,14 +63,39 @@
       "expectSelector": "[data-testid=\"scroll-to-latest-fab\"]"
     },
     {
-      "name": "Scroll-to-latest FAB is visible when scrolled up in group chat",
+      "name": "Scroll-to-latest FAB is painted on screen when scrolled up in group chat",
       "path": "/?shot=scroll-fab#/group/group_1",
-      "expectSelector": ".scroll-to-latest-fab.is-visible"
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"].is-visible[data-fab-onscreen=\"true\"]"
+    },
+    {
+      "name": "Scroll-to-latest FAB hides when group thread sits at the bottom",
+      "path": "/?shot=scroll-fab-bottom#/group/group_1",
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"][data-fab-onscreen=\"false\"]"
     },
     {
       "name": "Composer still renders alongside the scroll-to-latest FAB",
       "path": "/?shot=scroll-fab#/group/group_1",
       "expectSelector": ".composer-container .composer-input"
+    },
+    {
+      "name": "Sending a direct message keeps the user in the conversation",
+      "path": "/?shot=send-stay#/conversation/conv_1",
+      "expectSelector": ".conversation-page .composer-container .composer-input"
+    },
+    {
+      "name": "Sent direct message appears in the thread",
+      "path": "/?shot=send-stay#/conversation/conv_1",
+      "expectText": "Shot send stay check"
+    },
+    {
+      "name": "Sending a group message keeps the user in the group chat",
+      "path": "/?shot=send-stay#/group/group_1",
+      "expectSelector": ".conversation-page .composer-container .composer-input"
+    },
+    {
+      "name": "Sent group message appears in the thread",
+      "path": "/?shot=send-stay#/group/group_1",
+      "expectText": "Shot send stay check"
     },
     {
       "name": "New Message page loads",
