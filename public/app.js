@@ -2016,12 +2016,38 @@ document.addEventListener('DOMContentLoaded', () => {
     return STORAGE_ERROR_CODES.find(code => message.includes(code)) || null;
   }
 
+  // Some rejections come back as prose with no structured code at all - the
+  // staging preview surfaces "File storage is unavailable right now" that way.
+  // Classify those onto the documented codes so the user still gets the right
+  // copy instead of the platform's raw internal wording.
+  const STORAGE_ERROR_MESSAGE_PATTERNS = [
+    [/storage\s+(?:is\s+)?(?:currently\s+|temporarily\s+)?(?:unavailable|offline|down)|unable to reach\s+(?:file\s+)?storage/i, 'storage_unavailable'],
+    [/quota|limit reached|out of space|no space left/i, 'user_quota_exceeded'],
+    [/too large|exceeds the (?:maximum|size)/i, 'file_too_large'],
+    [/(?:not a|unsupported|invalid)\s+(?:valid\s+)?image|unsupported (?:file )?type/i, 'invalid_image']
+  ];
+
+  function inferUploadErrorCode(err) {
+    const message = (err && typeof err.message === 'string') ? err.message : '';
+    if (!message) return null;
+    const match = STORAGE_ERROR_MESSAGE_PATTERNS.find(([pattern]) => pattern.test(message));
+    return match ? match[1] : null;
+  }
+
   // Map platform storage error codes onto user-facing copy. A known code
   // already names the cause, so it keeps its plain string; anything we can't
   // classify surfaces the platform's own code/message instead of the catch-all,
   // so a user reporting "upload failed" tells us something actionable.
   function uploadErrorMessage(err) {
-    const code = uploadErrorCode(err);
+    const message = (err && typeof err.message === 'string') ? err.message.trim() : '';
+
+    // Outside the platform shell the bridge rejects without a code. Check this
+    // before classifying prose, so "no shell" never reads as "storage is down".
+    if (!uploadErrorCode(err) && /platform shell|not available standalone|only works inside/i.test(message)) {
+      return "Image upload isn't available here";
+    }
+
+    const code = uploadErrorCode(err) || inferUploadErrorCode(err);
     switch (code) {
       case 'file_too_large':
         return 'Image is too large (max 5 MB)';
@@ -2032,19 +2058,16 @@ document.addEventListener('DOMContentLoaded', () => {
       case 'staging_quota_exceeded':
         return 'Upload limit reached — try a smaller image or delete old ones';
       case 'storage_unavailable':
-        return "Image upload isn't available right now — please try again later";
+        // Platform-side outage: retrying is the only useful advice, and the
+        // attach button is live again by the time this toast shows.
+        return 'Image storage is down right now — tap 📷 to try again';
       default:
         break;
     }
 
-    // Outside the platform shell the bridge rejects without a code
-    const message = (err && typeof err.message === 'string') ? err.message.trim() : '';
-    if (/platform shell|not available standalone/i.test(message)) {
-      return "Image upload isn't available here";
-    }
-    if (code) return `Upload failed — ${code}`;
+    if (code) return `Upload failed (${code}) — tap 📷 to try again`;
     if (message) return `Upload failed — ${truncateText(message, 80)}`;
-    return 'Upload failed — please try again';
+    return 'Upload failed — tap 📷 to try again';
   }
 
   const EXTENSION_FOR_IMAGE_TYPE = {
@@ -2272,6 +2295,7 @@ document.addEventListener('DOMContentLoaded', () => {
           // "upload failed" reports are diagnosable from the console alone
           console.error('Image upload failed:', {
             code: uploadErrorCode(err),
+            inferredCode: uploadErrorCode(err) ? null : inferUploadErrorCode(err),
             name: err && err.name,
             message: err && err.message,
             status: err && (err.status || err.statusCode),
