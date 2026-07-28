@@ -2016,22 +2016,23 @@ document.addEventListener('DOMContentLoaded', () => {
     return STORAGE_ERROR_CODES.find(code => message.includes(code)) || null;
   }
 
-  // Map platform storage error codes onto user-facing copy. The code itself is
-  // appended so a user reporting "upload failed" can tell us the actual cause
-  // instead of the catch-all string.
+  // Map platform storage error codes onto user-facing copy. A known code
+  // already names the cause, so it keeps its plain string; anything we can't
+  // classify surfaces the platform's own code/message instead of the catch-all,
+  // so a user reporting "upload failed" tells us something actionable.
   function uploadErrorMessage(err) {
     const code = uploadErrorCode(err);
     switch (code) {
       case 'file_too_large':
-        return 'Image is too large (max 5 MB) — file_too_large';
+        return 'Image is too large (max 5 MB)';
       case 'invalid_image':
-        return 'Only PNG, JPEG, GIF or WebP images are supported — invalid_image';
+        return 'Only PNG, JPEG, GIF or WebP images are supported';
       case 'app_quota_exceeded':
       case 'user_quota_exceeded':
       case 'staging_quota_exceeded':
-        return `Upload limit reached — try a smaller image or delete old ones (${code})`;
+        return 'Upload limit reached — try a smaller image or delete old ones';
       case 'storage_unavailable':
-        return "Image upload isn't available right now — storage_unavailable";
+        return "Image upload isn't available right now — please try again later";
       default:
         break;
     }
@@ -2103,6 +2104,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const extension = EXTENSION_FOR_IMAGE_TYPE[type];
     const stem = imageFileStem(originalName);
     const filename = extension ? `${stem}.${extension}` : stem;
+
+    // Nothing was re-encoded and the picked file's own name already agrees with
+    // its bytes - hand the original File straight through rather than copying
+    // several megabytes to produce an identical one.
+    if (extension
+      && typeof File === 'function'
+      && blob instanceof File
+      && blob.type === type
+      && new RegExp(`\\.${extension}$`, 'i').test(blob.name || '')) {
+      return blob;
+    }
 
     if (typeof File === 'function') {
       try {
