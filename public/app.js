@@ -1024,7 +1024,7 @@ document.addEventListener('DOMContentLoaded', () => {
     pageContainer.innerHTML = `
       <div class="discover-page">
         <div class="messages-header">
-          <h1>Discover</h1>
+          <h1>Guardian</h1>
         </div>
         <div class="discover-tabs">
           <button class="discover-tab ${activeDiscoverTab === 'all' ? 'active' : ''}" data-tab="all">All</button>
@@ -1264,7 +1264,7 @@ document.addEventListener('DOMContentLoaded', () => {
     pageContainer.innerHTML = `
       <div class="messages-page">
         <div class="messages-header">
-          <h1>Messages</h1>
+          <h1>Guardian</h1>
           <span class="search-icon">🔍</span>
         </div>
         <div class="messages-search" id="messages-search" style="display: ${showMessagesSearch ? 'flex' : 'none'};">
@@ -4623,7 +4623,7 @@ document.addEventListener('DOMContentLoaded', () => {
     pageContainer.innerHTML = `
       <div class="profile-page">
         <div class="messages-header">
-          <h1>Profile</h1>
+          <h1>Guardian</h1>
         </div>
 
         <div class="profile-content">
@@ -4760,7 +4760,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       pageContainer.innerHTML = `
         <div class="page">
-          <h1>${page.name}</h1>
+          <h1>Guardian</h1>
         </div>
       `;
     }
