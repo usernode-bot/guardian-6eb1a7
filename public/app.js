@@ -814,8 +814,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Filter discover communities by tab
   function filterDiscoverCommunities(tab) {
-    let filteredGroups = discoverGroups.filter(g => !groups.some(jg => jg.id === g.id));
-    let filteredChans = discoverChannels.filter(c => !channels.some(jc => jc.id === c.id));
+    let filteredGroups = discoverGroups
+      .filter(g => !groups.some(jg => jg.id === g.id))
+      .map(g => ({ ...g, type: 'group' }));
+    let filteredChans = discoverChannels
+      .filter(c => !channels.some(jc => jc.id === c.id))
+      .map(c => ({ ...c, type: 'channel' }));
 
     if (tab === 'groups') {
       return { groups: filteredGroups, channels: [] };
