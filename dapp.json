@@ -201,6 +201,16 @@
       "name": "Profile page shows the tappable avatar",
       "path": "/#/profile",
       "expectSelector": "#profile-avatar-large"
+    },
+    {
+      "name": "Change Photo dialog opens via its screenshot deep link",
+      "path": "/?shot=avatar-dialog#/profile",
+      "expectText": "Change Profile Photo"
+    },
+    {
+      "name": "Change Photo dialog offers a file picker",
+      "path": "/?shot=avatar-dialog#/profile",
+      "expectSelector": ".avatar-dialog #avatar-choose-button"
     }
   ]
 }

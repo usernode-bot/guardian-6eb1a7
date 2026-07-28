@@ -540,12 +540,17 @@ document.addEventListener('DOMContentLoaded', () => {
       .replace(/'/g, '&#39;');
   }
 
-  // Carries a platform storage error code so the dialog can show a real message.
+  // Carries a platform storage error code, the pipeline stage that failed, and
+  // the original error, so the dialog can show a real message and the dev
+  // console can show the real cause.
   class AvatarError extends Error {
-    constructor(code, message) {
-      super(message || code);
+    constructor(code, options) {
+      const opts = options || {};
+      super(opts.message || code);
       this.name = 'AvatarError';
       this.code = code;
+      this.stage = opts.stage || 'unknown';
+      this.cause = opts.cause || null;
     }
   }
 
@@ -553,6 +558,10 @@ document.addEventListener('DOMContentLoaded', () => {
     switch (code) {
       case 'invalid_image':
         return "That file isn't a supported image. Choose a JPG, PNG, GIF or WebP.";
+      case 'decode_failed':
+        return "That image couldn't be opened — it may be damaged. Try another photo.";
+      case 'encode_failed':
+        return "Guardian couldn't process that photo on this device. Try another photo.";
       case 'file_too_large':
         return 'That photo is too large. Try a smaller image.';
       case 'app_quota_exceeded':
@@ -561,25 +570,116 @@ document.addEventListener('DOMContentLoaded', () => {
         return 'Photo storage is full. Try again later.';
       case 'storage_unavailable':
         return "Photo upload isn't available here. Open Guardian inside Usernode to change your photo.";
+      case 'upload_timeout':
+        return 'The upload timed out. Check your connection and try again.';
+      case 'network_error':
+        return "Couldn't reach the network. Check your connection and try again.";
+      case 'not_signed_in':
+        return "You're not signed in. Reload Guardian and try again.";
+      case 'save_failed':
+        return "Your photo uploaded, but Guardian couldn't save it. Please try again.";
       default:
         return "Couldn't upload the photo. Please try again.";
     }
   }
 
+  // Platform storage codes, per the file-storage conventions.
+  const AVATAR_STORAGE_CODES = [
+    'file_too_large',
+    'invalid_image',
+    'app_quota_exceeded',
+    'user_quota_exceeded',
+    'staging_quota_exceeded',
+    'storage_unavailable'
+  ];
+
+  // The bridge relays storage failures across postMessage and rejects with a
+  // PLAIN Error carrying only a message string — it never sets `.code` (see
+  // bridge.js: `entry.reject(new Error(data.error))`). The structured codes in
+  // the conventions belong to the platform's HTTP storage API and are flattened
+  // into that text on the way out. So recovering a code means reading the
+  // message; without this every real failure collapsed to 'upload_failed' and
+  // the user got the generic "please try again" no matter the cause.
+  function classifyStorageError(err) {
+    const direct = err && (err.code || err.error);
+    if (direct && typeof direct === 'string') return direct;
+
+    const text = ((err && err.message) || '').toLowerCase();
+    for (const code of AVATAR_STORAGE_CODES) {
+      if (text.includes(code)) return code;
+    }
+    // Bridge-authored messages, in the order its own checks fire.
+    if (text.includes('expects a file') || text.includes('expects a blob')) return 'invalid_image';
+    if (text.includes('platform shell') || text.includes('standalone')) return 'storage_unavailable';
+    if (text.includes('did not respond') || text.includes('predates file storage')) {
+      return 'storage_unavailable';
+    }
+    if (text.includes('timed out') || text.includes('timeout')) return 'upload_timeout';
+    if (text.includes('too large') || text.includes('max 5 mb')) return 'file_too_large';
+    // Platform API messages that may arrive as prose rather than a code.
+    if (text.includes('quota') || text.includes('storage is full')) return 'app_quota_exceeded';
+    if (text.includes('not an image') || text.includes('unsupported image')) return 'invalid_image';
+    if (
+      text.includes('failed to fetch') ||
+      text.includes('networkerror') ||
+      text.includes('load failed') ||
+      text.includes('network')
+    ) {
+      return 'network_error';
+    }
+    return 'upload_failed';
+  }
+
+  // Always log the underlying failure so the platform dev console shows the real
+  // cause. This used to be guarded on "no code", which never fired because the
+  // fallback code was always truthy — so every failure was silently swallowed
+  // and the generic message was the only signal anyone got.
+  function logAvatarFailure(err) {
+    const stage = (err && err.stage) || 'unknown';
+    const code = (err && err.code) || 'none';
+    const cause = (err && err.cause) || null;
+    const detail = cause || err;
+    console.error(
+      '[avatar] failed at stage=' + stage +
+        ' code=' + code +
+        ' name=' + ((detail && detail.name) || 'Error') +
+        ' message=' + ((detail && detail.message) || String(detail))
+    );
+    if (cause && cause.stack) {
+      console.error('[avatar] underlying stack: ' + cause.stack);
+    }
+  }
+
   function validateAvatarFile(file) {
-    if (!file) throw new AvatarError('invalid_image');
-    if (AVATAR_MIME.indexOf(file.type) === -1) throw new AvatarError('invalid_image');
-    if (file.size > AVATAR_MAX_INPUT_BYTES) throw new AvatarError('file_too_large');
+    if (!file) {
+      throw new AvatarError('invalid_image', { stage: 'validate', message: 'no file selected' });
+    }
+    if (AVATAR_MIME.indexOf(file.type) === -1) {
+      throw new AvatarError('invalid_image', {
+        stage: 'validate',
+        message: 'unsupported type "' + (file.type || 'unknown') + '" for ' + (file.name || 'file')
+      });
+    }
+    if (file.size > AVATAR_MAX_INPUT_BYTES) {
+      throw new AvatarError('file_too_large', {
+        stage: 'validate',
+        message: file.size + ' bytes exceeds input cap ' + AVATAR_MAX_INPUT_BYTES
+      });
+    }
   }
 
   function decodeImage(file) {
     if (typeof createImageBitmap === 'function') {
-      return createImageBitmap(file).catch(() => decodeImageViaElement(file));
+      // Keep the first failure: if the <img> fallback also fails we want the
+      // original decode error in the log, not just "both paths failed".
+      return createImageBitmap(file).catch((bitmapErr) =>
+        decodeImageViaElement(file, bitmapErr)
+      );
     }
-    return decodeImageViaElement(file);
+    return decodeImageViaElement(file, null);
   }
 
-  function decodeImageViaElement(file) {
+  function decodeImageViaElement(file, priorErr) {
     return new Promise((resolve, reject) => {
       const url = URL.createObjectURL(file);
       const img = new Image();
@@ -589,7 +689,15 @@ document.addEventListener('DOMContentLoaded', () => {
       };
       img.onerror = () => {
         URL.revokeObjectURL(url);
-        reject(new AvatarError('invalid_image'));
+        reject(
+          new AvatarError('decode_failed', {
+            stage: 'decode',
+            message:
+              'could not decode ' + (file.type || 'image') +
+              (priorErr ? ' (createImageBitmap: ' + priorErr.message + ')' : ''),
+            cause: priorErr
+          })
+        );
       };
       img.src = url;
     });
@@ -598,7 +706,15 @@ document.addEventListener('DOMContentLoaded', () => {
   function canvasToBlob(canvas, quality) {
     return new Promise((resolve, reject) => {
       canvas.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(new AvatarError('invalid_image'))),
+        (blob) =>
+          blob
+            ? resolve(blob)
+            : reject(
+                new AvatarError('encode_failed', {
+                  stage: 'encode',
+                  message: 'canvas.toBlob returned null at quality ' + quality
+                })
+              ),
         'image/jpeg',
         quality
       );
@@ -609,53 +725,73 @@ document.addEventListener('DOMContentLoaded', () => {
   // through so animation survives; a canvas re-encode would flatten them.
   async function downscaleAvatar(file) {
     if (file.type === 'image/gif') {
-      if (file.size > AVATAR_MAX_UPLOAD_BYTES) throw new AvatarError('file_too_large');
-      return file;
+      if (file.size > AVATAR_MAX_UPLOAD_BYTES) {
+        throw new AvatarError('file_too_large', {
+          stage: 'downscale',
+          message: 'GIF passes through unresized; ' + file.size + ' bytes exceeds 5 MB cap'
+        });
+      }
+      // Re-wrap under a .gif name: the platform requires the extension to match
+      // the sniffed bytes, and the bridge forwards file.name verbatim — a picker
+      // that supplies an odd or extension-less name (a Blob has none at all)
+      // would otherwise be rejected as invalid_image.
+      return new File([file], 'avatar.gif', { type: 'image/gif' });
     }
 
     let source;
     try {
       source = await decodeImage(file);
     } catch (err) {
-      throw err instanceof AvatarError ? err : new AvatarError('invalid_image');
+      if (err instanceof AvatarError) throw err;
+      throw new AvatarError('decode_failed', { stage: 'decode', cause: err });
     }
 
     const srcW = source.width;
     const srcH = source.height;
-    if (!srcW || !srcH) throw new AvatarError('invalid_image');
+    if (!srcW || !srcH) {
+      throw new AvatarError('decode_failed', {
+        stage: 'decode',
+        message: 'decoded image has zero dimensions (' + srcW + 'x' + srcH + ')'
+      });
+    }
 
     const side = Math.min(srcW, srcH);
     const sx = Math.round((srcW - side) / 2);
     const sy = Math.round((srcH - side) / 2);
 
-    const canvas = document.createElement('canvas');
-    canvas.width = AVATAR_SIZE_PX;
-    canvas.height = AVATAR_SIZE_PX;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(source, sx, sy, side, side, 0, 0, AVATAR_SIZE_PX, AVATAR_SIZE_PX);
-    if (source.close) source.close();
+    let blob;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = AVATAR_SIZE_PX;
+      canvas.height = AVATAR_SIZE_PX;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        throw new AvatarError('encode_failed', {
+          stage: 'encode',
+          message: 'could not get a 2d canvas context'
+        });
+      }
+      ctx.drawImage(source, sx, sy, side, side, 0, 0, AVATAR_SIZE_PX, AVATAR_SIZE_PX);
+      if (source.close) source.close();
 
-    let blob = await canvasToBlob(canvas, AVATAR_JPEG_QUALITY);
-    if (blob.size > AVATAR_MAX_UPLOAD_BYTES) {
-      blob = await canvasToBlob(canvas, 0.6);
+      blob = await canvasToBlob(canvas, AVATAR_JPEG_QUALITY);
+      if (blob.size > AVATAR_MAX_UPLOAD_BYTES) {
+        blob = await canvasToBlob(canvas, 0.6);
+      }
+    } catch (err) {
+      if (err instanceof AvatarError) throw err;
+      // A tainted canvas or a WebView without toBlob lands here.
+      throw new AvatarError('encode_failed', { stage: 'encode', cause: err });
     }
-    if (blob.size > AVATAR_MAX_UPLOAD_BYTES) throw new AvatarError('file_too_large');
+
+    if (blob.size > AVATAR_MAX_UPLOAD_BYTES) {
+      throw new AvatarError('file_too_large', {
+        stage: 'encode',
+        message: 'still ' + blob.size + ' bytes after re-encoding at quality 0.6'
+      });
+    }
 
     return new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
-  }
-
-  // The bridge returns a structured code for storage failures, but rejects with
-  // a plain Error when there is no platform shell to talk to — recognise that
-  // so a standalone/dev page gets the "not available here" message rather than
-  // a generic retry prompt.
-  function uploadErrorCode(err) {
-    const code = err && (err.code || err.error);
-    if (code) return code;
-    const message = ((err && err.message) || '').toLowerCase();
-    if (message.includes('platform shell') || message.includes('standalone')) {
-      return 'storage_unavailable';
-    }
-    return 'upload_failed';
   }
 
   // validate -> downscale -> platform upload. Resolves { url, fileId }.
@@ -664,16 +800,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const processed = await downscaleAvatar(file);
 
     if (!window.usernode || typeof window.usernode.uploadFile !== 'function') {
-      throw new AvatarError('storage_unavailable');
+      throw new AvatarError('storage_unavailable', {
+        stage: 'upload',
+        message: 'window.usernode.uploadFile is not available on this page'
+      });
     }
 
     let stored;
     try {
       stored = await window.usernode.uploadFile(processed, { visibility: 'public' });
     } catch (err) {
-      throw new AvatarError(uploadErrorCode(err), err && err.message);
+      throw new AvatarError(classifyStorageError(err), {
+        stage: 'upload',
+        message: (err && err.message) || 'bridge upload rejected',
+        cause: err
+      });
     }
-    if (!stored || !stored.url) throw new AvatarError('upload_failed');
+    if (!stored || !stored.url) {
+      throw new AvatarError('upload_failed', {
+        stage: 'upload',
+        message: 'bridge resolved without a url: ' + JSON.stringify(stored || null)
+      });
+    }
     return { url: stored.url, fileId: stored.id || null };
   }
 
@@ -829,6 +977,7 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         validateAvatarFile(file);
       } catch (err) {
+        logAvatarFailure(err);
         setError(avatarErrorMessage(err.code));
         filePicker.value = '';
         return;
@@ -875,9 +1024,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (settings.onCommit) await settings.onCommit(result);
         close();
       } catch (err) {
-        const code = err instanceof AvatarError ? err.code : null;
-        if (!code) console.error('Avatar save failed:', err);
-        setError(code ? avatarErrorMessage(code) : "Couldn't save the photo. Please try again.");
+        // Log unconditionally — the dev console is the only place the real
+        // cause can surface, and the selection is kept so the user can retry.
+        logAvatarFailure(err);
+        const code =
+          err instanceof AvatarError ? err.code : classifyStorageError(err);
+        setError(avatarErrorMessage(code));
         setBusy(false);
       }
     });
@@ -886,20 +1038,44 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Persist an avatar mapping server-side. `payload` is null to clear it.
+  // Failures are tagged stage=persist so the dialog can say "uploaded but not
+  // saved" rather than blaming the upload that actually succeeded.
   async function persistAvatar(endpoint, payload) {
     const token = localStorage.getItem('usernode-token');
-    const response = await fetch(endpoint, {
-      method: 'PUT',
-      headers: Object.assign(
-        { 'content-type': 'application/json' },
-        token ? { 'x-usernode-token': token } : {}
-      ),
-      body: JSON.stringify({
-        avatarUrl: payload ? payload.url : null,
-        avatarFileId: payload ? payload.fileId : null
-      })
-    });
-    if (!response.ok) throw new Error('Failed to save avatar (' + response.status + ')');
+    let response;
+    try {
+      response = await fetch(endpoint, {
+        method: 'PUT',
+        headers: Object.assign(
+          { 'content-type': 'application/json' },
+          token ? { 'x-usernode-token': token } : {}
+        ),
+        body: JSON.stringify({
+          avatarUrl: payload ? payload.url : null,
+          avatarFileId: payload ? payload.fileId : null
+        })
+      });
+    } catch (err) {
+      throw new AvatarError('network_error', {
+        stage: 'persist',
+        message: 'PUT ' + endpoint + ' could not be sent',
+        cause: err
+      });
+    }
+
+    if (!response.ok) {
+      let detail = '';
+      try {
+        const body = await response.json();
+        detail = (body && body.error) || '';
+      } catch (err) {
+        /* non-JSON error body */
+      }
+      throw new AvatarError(response.status === 401 ? 'not_signed_in' : 'save_failed', {
+        stage: 'persist',
+        message: 'PUT ' + endpoint + ' -> ' + response.status + (detail ? ': ' + detail : '')
+      });
+    }
     return response.json();
   }
 
@@ -5017,9 +5193,50 @@ document.addEventListener('DOMContentLoaded', () => {
   // Listen for hash changes
   window.addEventListener('hashchange', handleNavigation);
 
+  // Screenshot-state deep links. Everything in the photo flow lives INSIDE the
+  // Change Photo dialog, which plain navigation can't reach — so the before/after
+  // screenshots and the "Test this change" button would otherwise only ever show
+  // the profile screen behind it. Pure UI state, no writes, so it is deliberately
+  // NOT staging-gated: the production "before" shot needs it too.
+  //   ?shot=avatar-dialog — opens the dialog
+  //   ?shot=avatar-error  — opens it and drives the REAL validation path with a
+  //                         fixed unsupported file, so the message shown is the
+  //                         one the real classifier produces, not a mock string.
+  function applyShotState() {
+    let shot = null;
+    try {
+      shot = new URLSearchParams(window.location.search).get('shot');
+    } catch (err) {
+      return;
+    }
+    if (shot !== 'avatar-dialog' && shot !== 'avatar-error') return;
+    if (window.location.hash !== '#/profile') return;
+
+    changeProfilePhoto();
+    if (shot !== 'avatar-error') return;
+
+    try {
+      // Scope to the dialog we just opened — other photo dialogs in the app
+      // reuse this input id, so getElementById could pick the wrong one.
+      const dialogs = document.querySelectorAll('.avatar-dialog');
+      const picker = dialogs[dialogs.length - 1].querySelector('#avatar-file-picker');
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(['not an image'], 'notes.txt', { type: 'text/plain' }));
+      picker.files = transfer.files;
+      picker.dispatchEvent(new Event('change', { bubbles: true }));
+    } catch (err) {
+      // DataTransfer is unavailable in some engines; the dialog still shows.
+      console.log('Shot state: could not attach the demo file');
+    }
+  }
+
   // Load the signed-in user and their stored avatar before the first paint
-  ensureProfileHydrated();
+  const hydrated = ensureProfileHydrated();
 
   // Initial render
   handleNavigation();
+
+  // Screenshot state runs after hydration so the profile screen — and the
+  // current photo the dialog previews — are already in place.
+  hydrated.then(applyShotState);
 });
