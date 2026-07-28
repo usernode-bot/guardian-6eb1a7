@@ -2630,9 +2630,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     pageContainer.innerHTML = `
       <div class="new-message-page">
-        <div class="new-message-header">
-          <button class="back-button" aria-label="Back to messages">←</button>
-          <h1>New Message</h1>
+        <div class="messages-header">
+          <h1>Guardian</h1>
         </div>
         <div class="search-container">
           <input type="text" class="search-field" placeholder="🔍 Search wallet, username" />
@@ -2657,11 +2656,6 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       </div>
     `;
-
-    // Add back button handler
-    document.querySelector('.back-button').addEventListener('click', () => {
-      window.location.hash = '/messages';
-    });
 
     // Add create group card handler
     document.querySelector('.create-group-card').addEventListener('click', () => {
