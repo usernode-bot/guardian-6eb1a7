@@ -34,6 +34,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
 
+  // ?demo=1 swaps the real Usernode users API for a small, obviously-fake
+  // fixture so the Create/Add Members screens have something deterministic
+  // to render from a plain URL (e.g. automated checks). Pure UI state —
+  // nothing is persisted, and none of it is gated on the environment.
+  const DEMO_USERS = urlParams.get('demo') === '1';
+  const DEMO_SUGGESTED_USERS = [
+    { id: 'staging-demo-user-1', username: 'Staging Demo User 1', usernode_pubkey: 'ut1demo0000000000000001' },
+    { id: 'staging-demo-user-2', username: 'Staging Demo User 2', usernode_pubkey: 'ut1demo0000000000000002' },
+    { id: 'staging-demo-user-3', username: 'Staging Demo User 3', usernode_pubkey: null }
+  ];
+
   // Page definitions
   const pages = {
     messages: { title: 'Messages', name: 'Messages' },
@@ -127,17 +138,95 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   ];
 
-  // Dummy suggested users data
-  const suggestedUsers = [
-    { id: 'user_1', username: 'aksaranft', avatar: 'AN', domain: 'aksaranft.node' },
-    { id: 'user_2', username: 'cryptosmith', avatar: 'CS', domain: 'smith.crypto' },
-    { id: 'user_3', username: 'nodeart', avatar: 'NA', domain: 'art.node' },
-    { id: 'user_4', username: 'vibemaster', avatar: 'VM', domain: 'vibe.eth' },
-    { id: 'user_5', username: 'chainwizard', avatar: 'CW', domain: 'wizard.node' },
-    { id: 'user_6', username: 'nftcollector', avatar: 'NC', domain: 'collector.crypto' },
-    { id: 'user_7', username: 'webbuilder', avatar: 'WB', domain: 'web.node' },
-    { id: 'user_8', username: 'designpro', avatar: 'DP', domain: 'design.eth' }
-  ];
+  // Real Usernode users - populated from /api/users/suggested (or the demo
+  // fixture above when ?demo=1 is set) instead of hardcoded mock accounts.
+  let suggestedUsers = [];
+  let currentUsernodeUserId = null;
+
+  function authHeaders() {
+    const token = localStorage.getItem('usernode-token');
+    return token ? { 'x-usernode-token': token } : {};
+  }
+
+  function shortenWalletAddress(address) {
+    if (!address) return '';
+    if (address.length <= 12) return address;
+    return address.substring(0, 6) + '…' + address.substring(address.length - 4);
+  }
+
+  function debounce(fn, wait) {
+    let timer = null;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), wait);
+    };
+  }
+
+  function renderUserItemHTML(user, { selected = false, showIndicator = false } = {}) {
+    const subtitle = shortenWalletAddress(user.usernode_pubkey);
+    return `
+      <div class="suggested-user-item${selected ? ' selected' : ''}" data-user-id="${user.id}">
+        <div class="user-avatar">${generateDefaultAvatar(user.username)}</div>
+        <div class="user-content">
+          <div class="user-username">${user.username}</div>
+          ${subtitle ? `<div class="user-domain">${subtitle}</div>` : ''}
+        </div>
+        ${showIndicator ? `<div class="selection-indicator">${selected ? '✓' : ''}</div>` : ''}
+      </div>
+    `;
+  }
+
+  async function fetchCurrentUser() {
+    if (DEMO_USERS) return;
+    try {
+      const response = await fetch('/api/state', { headers: authHeaders() });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.user && data.user.id) {
+          currentUsernodeUserId = data.user.id;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch current user:', err);
+    }
+  }
+
+  async function fetchSuggestedUsers() {
+    if (DEMO_USERS) {
+      suggestedUsers = DEMO_SUGGESTED_USERS;
+      return suggestedUsers;
+    }
+    try {
+      const response = await fetch('/api/users/suggested', { headers: authHeaders() });
+      if (!response.ok) throw new Error('Failed to fetch suggested users');
+      const data = await response.json();
+      suggestedUsers = (data.users || []).filter(u => u.id !== currentUsernodeUserId);
+    } catch (err) {
+      console.error('Failed to fetch suggested users:', err);
+      suggestedUsers = [];
+    }
+    return suggestedUsers;
+  }
+
+  async function searchUsers(query) {
+    const trimmed = (query || '').trim();
+    if (!trimmed) return suggestedUsers;
+
+    if (DEMO_USERS) {
+      const q = trimmed.toLowerCase();
+      return DEMO_SUGGESTED_USERS.filter(u =>
+        u.username.toLowerCase().includes(q) ||
+        (u.usernode_pubkey || '').toLowerCase().includes(q)
+      );
+    }
+
+    const response = await fetch(`/api/users/search?q=${encodeURIComponent(trimmed)}`, { headers: authHeaders() });
+    if (!response.ok) throw new Error('Failed to search users');
+    const data = await response.json();
+    return (data.users || []).filter(u => u.id !== currentUsernodeUserId);
+  }
+
+  fetchCurrentUser();
 
   // Dummy groups data with messages
   let groups = [
@@ -3024,25 +3113,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // Show add members sheet
   function showAddMembersSheet(groupId, group) {
     let selectedMembers = [];
-
-    const availableUsers = suggestedUsers.filter(u => !group.members.find(m => m.id === u.id));
+    let currentUsersList = [];
 
     const overlay = document.createElement('div');
     overlay.className = 'dialog-overlay';
 
     const dialog = document.createElement('div');
     dialog.className = 'dialog add-members-sheet-dialog';
-
-    const usersList = availableUsers.map(user => `
-      <div class="suggested-user-item" data-user-id="${user.id}">
-        <div class="user-avatar">${user.avatar}</div>
-        <div class="user-content">
-          <div class="user-username">${user.username}</div>
-          <div class="user-domain">${user.domain}</div>
-        </div>
-        <div class="selection-indicator"></div>
-      </div>
-    `).join('');
 
     dialog.innerHTML = `
       <div class="dialog-header">
@@ -3053,7 +3130,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <input type="text" class="form-input search-members-add-sheet" placeholder="🔍 Search username" id="search-members-add-sheet" />
         <div class="members-chips-container" id="members-chips-container-sheet"></div>
         <div class="users-list add-members-sheet-list" id="add-members-sheet-list">
-          ${usersList}
+          <div class="empty-state">Loading users…</div>
         </div>
         <div class="validation-error" id="add-members-error"></div>
       </div>
@@ -3076,6 +3153,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const usersListEl = document.getElementById('add-members-sheet-list');
     const errorEl = document.getElementById('add-members-error');
 
+    function excludeExistingMembers(users) {
+      return users.filter(u => !group.members.find(m => m.id === u.id));
+    }
+
     function renderChips() {
       if (selectedMembers.length === 0) {
         membersChipsContainer.innerHTML = '';
@@ -3084,7 +3165,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       membersChipsContainer.innerHTML = selectedMembers.map(user => `
         <div class="member-chip">
-          <div class="chip-avatar">${user.avatar}</div>
+          <div class="chip-avatar">${generateDefaultAvatar(user.username)}</div>
           <span>${user.username}</span>
           <button class="chip-remove" data-user-id="${user.id}" aria-label="Remove ${user.username}">×</button>
         </div>
@@ -3096,13 +3177,13 @@ document.addEventListener('DOMContentLoaded', () => {
           const userId = btn.dataset.userId;
           selectedMembers = selectedMembers.filter(u => u.id !== userId);
           renderChips();
-          filterAndDisplay();
+          displayUsers(currentUsersList);
         });
       });
     }
 
     function toggleUser(userId) {
-      const user = suggestedUsers.find(u => u.id === userId);
+      const user = currentUsersList.find(u => u.id === userId);
       if (!user || group.members.find(m => m.id === userId)) return;
 
       if (selectedMembers.find(u => u.id === userId)) {
@@ -3112,28 +3193,20 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       renderChips();
-      filterAndDisplay();
+      displayUsers(currentUsersList);
       errorEl.innerHTML = '';
     }
 
-    function filterAndDisplay() {
-      const query = searchInput.value.toLowerCase();
-      const filtered = availableUsers.filter(u =>
-        u.username.toLowerCase().includes(query) || u.domain.toLowerCase().includes(query)
-      );
+    function displayUsers(users, emptyMessage) {
+      currentUsersList = users;
+      usersListEl.innerHTML = users.length > 0
+        ? users.map(user => renderUserItemHTML(user, {
+            selected: !!selectedMembers.find(m => m.id === user.id),
+            showIndicator: true
+          })).join('')
+        : `<div class="empty-state">${emptyMessage || 'No users found.'}</div>`;
 
-      usersListEl.innerHTML = filtered.map(user => `
-        <div class="suggested-user-item ${selectedMembers.find(m => m.id === user.id) ? 'selected' : ''}" data-user-id="${user.id}">
-          <div class="user-avatar">${user.avatar}</div>
-          <div class="user-content">
-            <div class="user-username">${user.username}</div>
-            <div class="user-domain">${user.domain}</div>
-          </div>
-          <div class="selection-indicator">${selectedMembers.find(m => m.id === user.id) ? '✓' : ''}</div>
-        </div>
-      `).join('');
-
-      document.querySelectorAll('.suggested-user-item').forEach(item => {
+      usersListEl.querySelectorAll('.suggested-user-item').forEach(item => {
         item.addEventListener('click', () => {
           const userId = item.dataset.userId;
           toggleUser(userId);
@@ -3141,13 +3214,33 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    searchInput.addEventListener('input', filterAndDisplay);
+    fetchSuggestedUsers().then(users => {
+      if (searchInput.value.trim() === '') {
+        displayUsers(excludeExistingMembers(users), 'No users available.');
+      }
+    });
 
-    document.querySelectorAll('.suggested-user-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const userId = item.dataset.userId;
-        toggleUser(userId);
-      });
+    let searchRequestId = 0;
+    const runSearch = debounce(async (query) => {
+      const requestId = ++searchRequestId;
+      if (!query) {
+        displayUsers(excludeExistingMembers(suggestedUsers), 'No users available.');
+        return;
+      }
+      usersListEl.innerHTML = '<div class="empty-state">Searching…</div>';
+      try {
+        const results = await searchUsers(query);
+        if (requestId !== searchRequestId) return;
+        displayUsers(excludeExistingMembers(results), `No users found for "${query}"`);
+      } catch (err) {
+        if (requestId !== searchRequestId) return;
+        console.error('Search failed:', err);
+        usersListEl.innerHTML = '<div class="empty-state">Couldn\'t load users. Try again.</div>';
+      }
+    }, 250);
+
+    searchInput.addEventListener('input', () => {
+      runSearch(searchInput.value.trim());
     });
 
     document.getElementById('cancel-add-members-sheet').addEventListener('click', () => {
@@ -3201,25 +3294,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Render new message page
   function renderNewMessagePage() {
-    const usersList = suggestedUsers.length > 0
-      ? suggestedUsers.map(user => `
-        <div class="suggested-user-item" data-user-id="${user.id}">
-          <div class="user-avatar">${user.avatar}</div>
-          <div class="user-content">
-            <div class="user-username">${user.username}</div>
-            <div class="user-domain">${user.domain}</div>
-          </div>
-        </div>
-      `).join('')
-      : '<div class="empty-state">No suggested users.</div>';
-
     pageContainer.innerHTML = `
       <div class="new-message-page">
         <div class="messages-header">
           <h1>Guardian</h1>
         </div>
         <div class="search-container">
-          <input type="text" class="search-field" placeholder="🔍 Search wallet, username" />
+          <input type="text" class="search-field" placeholder="🔍 Search wallet, username" id="new-message-search" />
         </div>
         <div class="create-options">
           <div class="create-group-card">
@@ -3235,8 +3316,8 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
         <div class="suggested-users-section">
           <div class="section-header">Suggested Users</div>
-          <div class="users-list">
-            ${usersList}
+          <div class="users-list" id="new-message-users-list">
+            <div class="empty-state">Loading users…</div>
           </div>
         </div>
       </div>
@@ -3256,12 +3337,49 @@ document.addEventListener('DOMContentLoaded', () => {
       window.location.hash = '/create-channel';
     });
 
-    // Add user item handlers
-    document.querySelectorAll('.suggested-user-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const userId = item.dataset.userId;
-        console.log('User tapped:', userId);
+    const searchInput = document.getElementById('new-message-search');
+    const usersListEl = document.getElementById('new-message-users-list');
+
+    function renderUsers(users, emptyMessage) {
+      usersListEl.innerHTML = users.length > 0
+        ? users.map(user => renderUserItemHTML(user)).join('')
+        : `<div class="empty-state">${emptyMessage}</div>`;
+
+      usersListEl.querySelectorAll('.suggested-user-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const userId = item.dataset.userId;
+          console.log('User tapped:', userId);
+        });
       });
+    }
+
+    fetchSuggestedUsers().then(users => {
+      if (searchInput.value.trim() === '') {
+        renderUsers(users, 'No suggested users.');
+      }
+    });
+
+    let searchRequestId = 0;
+    const runSearch = debounce(async (query) => {
+      const requestId = ++searchRequestId;
+      if (!query) {
+        renderUsers(suggestedUsers, 'No suggested users.');
+        return;
+      }
+      usersListEl.innerHTML = '<div class="empty-state">Searching…</div>';
+      try {
+        const results = await searchUsers(query);
+        if (requestId !== searchRequestId) return;
+        renderUsers(results, `No users found for "${query}"`);
+      } catch (err) {
+        if (requestId !== searchRequestId) return;
+        console.error('Search failed:', err);
+        usersListEl.innerHTML = '<div class="empty-state">Couldn\'t load users. Try again.</div>';
+      }
+    }, 250);
+
+    searchInput.addEventListener('input', () => {
+      runSearch(searchInput.value.trim());
     });
   }
 
@@ -3277,16 +3395,6 @@ document.addEventListener('DOMContentLoaded', () => {
       avatarPreview: null,
       validationError: ''
     };
-
-    const usersList = suggestedUsers.map(user => `
-      <div class="suggested-user-item" data-user-id="${user.id}">
-        <div class="user-avatar">${user.avatar}</div>
-        <div class="user-content">
-          <div class="user-username">${user.username}</div>
-          <div class="user-domain">${user.domain}</div>
-        </div>
-      </div>
-    `).join('');
 
     pageContainer.innerHTML = `
       <div class="create-group-page">
@@ -3327,7 +3435,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="suggested-users-section-create">
           <div class="section-header">Suggested Users</div>
           <div class="users-list" id="suggested-users-list">
-            ${usersList}
+            <div class="empty-state">Loading users…</div>
           </div>
         </div>
 
@@ -3336,6 +3444,8 @@ document.addEventListener('DOMContentLoaded', () => {
         <button class="create-group-button" id="create-group-button">Create Group</button>
       </div>
     `;
+
+    let currentUsersList = [];
 
     // Cache DOM references
     const backButton = document.querySelector('.back-button');
@@ -3379,7 +3489,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Helper function to find user by ID
     function findUserById(userId) {
-      return suggestedUsers.find(u => u.id === userId);
+      return currentUsersList.find(u => u.id === userId) || suggestedUsers.find(u => u.id === userId);
     }
 
     // Helper function to check if user is selected
@@ -3412,7 +3522,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const chipsHTML = state.selectedMembers.map(user => `
         <div class="member-chip">
-          <div class="chip-avatar">${user.avatar}</div>
+          <div class="chip-avatar">${generateDefaultAvatar(user.username)}</div>
           <span>${user.username}</span>
           <button class="chip-remove" data-user-id="${user.id}" aria-label="Remove ${user.username}">×</button>
         </div>
@@ -3431,36 +3541,43 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    // Helper function to filter and display users based on search
-    function filterAndDisplayUsers() {
-      const query = state.searchQuery.toLowerCase();
-      const filteredUsers = query === ''
-        ? suggestedUsers
-        : suggestedUsers.filter(user =>
-            user.username.toLowerCase().includes(query) ||
-            user.domain.toLowerCase().includes(query)
-          );
+    // Helper function to display a list of users in the suggested-users panel
+    function displayUsers(users, emptyMessage) {
+      currentUsersList = users;
+      suggestedUsersList.innerHTML = users.length > 0
+        ? users.map(user => renderUserItemHTML(user, { selected: isUserSelected(user.id) })).join('')
+        : `<div class="empty-state">${emptyMessage}</div>`;
 
-      const usersList = filteredUsers.map(user => `
-        <div class="suggested-user-item" data-user-id="${user.id}">
-          <div class="user-avatar">${user.avatar}</div>
-          <div class="user-content">
-            <div class="user-username">${user.username}</div>
-            <div class="user-domain">${user.domain}</div>
-          </div>
-        </div>
-      `).join('');
-
-      suggestedUsersList.innerHTML = usersList;
-
-      // Re-attach event listeners
-      document.querySelectorAll('.suggested-user-item').forEach(item => {
+      suggestedUsersList.querySelectorAll('.suggested-user-item').forEach(item => {
         item.addEventListener('click', () => {
           const userId = item.dataset.userId;
           toggleUser(userId);
         });
       });
     }
+
+    // Helper function to filter and display users based on search
+    let searchRequestId = 0;
+    const filterAndDisplayUsers = debounce(async () => {
+      const requestId = ++searchRequestId;
+      const query = state.searchQuery.trim();
+
+      if (!query) {
+        displayUsers(suggestedUsers, 'No suggested users.');
+        return;
+      }
+
+      suggestedUsersList.innerHTML = '<div class="empty-state">Searching…</div>';
+      try {
+        const results = await searchUsers(query);
+        if (requestId !== searchRequestId) return;
+        displayUsers(results, `No users found for "${query}"`);
+      } catch (err) {
+        if (requestId !== searchRequestId) return;
+        console.error('Search failed:', err);
+        suggestedUsersList.innerHTML = '<div class="empty-state">Couldn\'t load users. Try again.</div>';
+      }
+    }, 250);
 
     // Privacy toggle handlers
     const privacyPrivateBtn = document.getElementById('privacy-private-btn');
@@ -3521,12 +3638,11 @@ document.addEventListener('DOMContentLoaded', () => {
       filterAndDisplayUsers();
     });
 
-    // Suggested user item handlers
-    document.querySelectorAll('.suggested-user-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const userId = item.dataset.userId;
-        toggleUser(userId);
-      });
+    // Load suggested users
+    fetchSuggestedUsers().then(users => {
+      if (state.searchQuery.trim() === '') {
+        displayUsers(users, 'No suggested users.');
+      }
     });
 
     // Create Group button handler
@@ -4028,18 +4144,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     let selectedMembers = [];
-
-    const usersList = suggestedUsers.filter(u => !group.members.find(m => m.id === u.id))
-      .map(user => `
-        <div class="suggested-user-item" data-user-id="${user.id}">
-          <div class="user-avatar">${user.avatar}</div>
-          <div class="user-content">
-            <div class="user-username">${user.username}</div>
-            <div class="user-domain">${user.domain}</div>
-          </div>
-          <div class="selection-indicator"></div>
-        </div>
-      `).join('');
+    let currentUsersList = [];
 
     pageContainer.innerHTML = `
       <div class="add-members-page">
@@ -4057,7 +4162,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="suggested-users-section-create">
           <div class="section-header">Available Users</div>
           <div class="users-list" id="suggested-users-list-add">
-            ${usersList}
+            <div class="empty-state">Loading users…</div>
           </div>
         </div>
 
@@ -4077,6 +4182,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const addBtn = document.getElementById('add-members-button');
     const errorEl = document.getElementById('add-members-error');
 
+    function excludeExistingMembers(users) {
+      return users.filter(u => !group.members.find(m => m.id === u.id));
+    }
+
     function renderChips() {
       if (selectedMembers.length === 0) {
         membersChipsContainer.innerHTML = '';
@@ -4085,7 +4194,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       membersChipsContainer.innerHTML = selectedMembers.map(user => `
         <div class="member-chip">
-          <div class="chip-avatar">${user.avatar}</div>
+          <div class="chip-avatar">${generateDefaultAvatar(user.username)}</div>
           <span>${user.username}</span>
           <button class="chip-remove" data-user-id="${user.id}" aria-label="Remove ${user.username}">×</button>
         </div>
@@ -4097,13 +4206,13 @@ document.addEventListener('DOMContentLoaded', () => {
           const userId = btn.dataset.userId;
           selectedMembers = selectedMembers.filter(u => u.id !== userId);
           renderChips();
-          filterAndDisplay();
+          displayUsers(currentUsersList);
         });
       });
     }
 
     function toggleUser(userId) {
-      const user = suggestedUsers.find(u => u.id === userId);
+      const user = currentUsersList.find(u => u.id === userId);
       if (!user) return;
 
       if (selectedMembers.find(u => u.id === userId)) {
@@ -4113,29 +4222,20 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       renderChips();
-      filterAndDisplay();
+      displayUsers(currentUsersList);
       errorEl.innerHTML = '';
     }
 
-    function filterAndDisplay() {
-      const query = searchInput.value.toLowerCase();
-      const filtered = suggestedUsers.filter(u =>
-        !group.members.find(m => m.id === u.id) &&
-        (u.username.toLowerCase().includes(query) || u.domain.toLowerCase().includes(query))
-      );
+    function displayUsers(users, emptyMessage) {
+      currentUsersList = users;
+      suggestedList.innerHTML = users.length > 0
+        ? users.map(user => renderUserItemHTML(user, {
+            selected: !!selectedMembers.find(m => m.id === user.id),
+            showIndicator: true
+          })).join('')
+        : `<div class="empty-state">${emptyMessage || 'No users found.'}</div>`;
 
-      suggestedList.innerHTML = filtered.map(user => `
-        <div class="suggested-user-item ${selectedMembers.find(m => m.id === user.id) ? 'selected' : ''}" data-user-id="${user.id}">
-          <div class="user-avatar">${user.avatar}</div>
-          <div class="user-content">
-            <div class="user-username">${user.username}</div>
-            <div class="user-domain">${user.domain}</div>
-          </div>
-          <div class="selection-indicator">${selectedMembers.find(m => m.id === user.id) ? '✓' : ''}</div>
-        </div>
-      `).join('');
-
-      document.querySelectorAll('.suggested-user-item').forEach(item => {
+      suggestedList.querySelectorAll('.suggested-user-item').forEach(item => {
         item.addEventListener('click', () => {
           const userId = item.dataset.userId;
           toggleUser(userId);
@@ -4143,13 +4243,33 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    searchInput.addEventListener('input', filterAndDisplay);
+    fetchSuggestedUsers().then(users => {
+      if (searchInput.value.trim() === '') {
+        displayUsers(excludeExistingMembers(users), 'No users available.');
+      }
+    });
 
-    document.querySelectorAll('.suggested-user-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const userId = item.dataset.userId;
-        toggleUser(userId);
-      });
+    let searchRequestId = 0;
+    const runSearch = debounce(async (query) => {
+      const requestId = ++searchRequestId;
+      if (!query) {
+        displayUsers(excludeExistingMembers(suggestedUsers), 'No users available.');
+        return;
+      }
+      suggestedList.innerHTML = '<div class="empty-state">Searching…</div>';
+      try {
+        const results = await searchUsers(query);
+        if (requestId !== searchRequestId) return;
+        displayUsers(excludeExistingMembers(results), `No users found for "${query}"`);
+      } catch (err) {
+        if (requestId !== searchRequestId) return;
+        console.error('Search failed:', err);
+        suggestedList.innerHTML = '<div class="empty-state">Couldn\'t load users. Try again.</div>';
+      }
+    }, 250);
+
+    searchInput.addEventListener('input', () => {
+      runSearch(searchInput.value.trim());
     });
 
     addBtn.addEventListener('click', async () => {

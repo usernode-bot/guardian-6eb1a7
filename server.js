@@ -1,6 +1,12 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
+const {
+  ensureUsernodeUsernamesSchema,
+  recordUsernodeUser,
+  getSuggestedUsernodeUsers,
+  searchUsernodeUsernames
+} = require('./usernode-usernames');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -24,6 +30,9 @@ app.use((req, res, next) => {
   if (token && JWT_SECRET) {
     try {
       req.user = jwt.verify(token, JWT_SECRET);
+      recordUsernodeUser(pool, req.user).catch((err) => {
+        console.error('Failed to record Usernode user:', err);
+      });
     } catch (err) {
       // Token verification failed, continue without user
     }
@@ -244,6 +253,35 @@ app.post('/api/groups/:groupId/join-requests/:requestId/deny', (req, res) => {
   });
 });
 
+// Real Usernode Users API Endpoints
+
+// GET /api/users/suggested - Suggested real Usernode users for the Create menu
+app.get('/api/users/suggested', async (req, res) => {
+  try {
+    const users = await getSuggestedUsernodeUsers(pool, { excludeUserId: req.user.id, limit: 20 });
+    res.json({ users });
+  } catch (err) {
+    console.error('Failed to fetch suggested users:', err);
+    res.status(500).json({ error: 'Failed to fetch suggested users' });
+  }
+});
+
+// GET /api/users/search?q= - Search real Usernode users by username or wallet address
+app.get('/api/users/search', async (req, res) => {
+  const query = (req.query.q || '').trim();
+  if (!query) {
+    return res.json({ users: [] });
+  }
+
+  try {
+    const users = await searchUsernodeUsernames(pool, { query, excludeUserId: req.user.id, limit: 20 });
+    res.json({ users });
+  } catch (err) {
+    console.error('Failed to search users:', err);
+    res.status(500).json({ error: 'Failed to search users' });
+  }
+});
+
 // In-memory conversation storage (demo/frontend state)
 let conversations = {};
 
@@ -281,6 +319,7 @@ async function initDatabase() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    await ensureUsernodeUsernamesSchema(pool);
     console.log('Database initialized');
   } catch (err) {
     console.error('Database initialization error:', err);

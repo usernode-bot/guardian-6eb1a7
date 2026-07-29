@@ -144,7 +144,7 @@
     },
     {
       "name": "Suggested users render with avatars",
-      "path": "/#/create",
+      "path": "/?demo=1#/create",
       "expectSelector": ".suggested-user-item"
     },
     {
@@ -249,7 +249,7 @@
     },
     {
       "name": "Add Members page displays available users",
-      "path": "/#/group/group_1/add-members",
+      "path": "/?demo=1#/group/group_1/add-members",
       "expectSelector": ".suggested-user-item"
     },
     {
