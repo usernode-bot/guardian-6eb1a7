@@ -61,6 +61,27 @@ app.get('/api/groups/:groupId', (req, res) => {
   res.json({ status: 'ok', message: 'Group fetch endpoint available' });
 });
 
+// POST /api/groups - Create a new group
+app.post('/api/groups', (req, res) => {
+  const { name, description, visibility } = req.body;
+
+  if (!name || name.trim().length === 0) {
+    return res.status(400).json({ error: 'Group name is required' });
+  }
+
+  const groupVisibility = visibility === 'public' ? 'public' : 'private';
+
+  // TODO: Persist group with creator as owner
+  // TODO: Update database
+  res.json({
+    id: 'group_' + Date.now(),
+    name: name.trim(),
+    description: description || '',
+    visibility: groupVisibility,
+    message: 'Group created successfully'
+  });
+});
+
 // PUT /api/groups/:groupId/name - Update group name
 app.put('/api/groups/:groupId/name', (req, res) => {
   const { name } = req.body;
@@ -117,10 +138,10 @@ app.post('/api/groups/:groupId/members', (req, res) => {
     return res.status(400).json({ error: 'At least one member must be selected' });
   }
 
-  // TODO: Validate user is group creator/admin
+  // TODO: Validate user is group creator/admin (only owner/admin roles may add members)
   // TODO: Validate users exist
   // TODO: Check for duplicates
-  // TODO: Update database
+  // TODO: Update database - new members are added with role 'member'
   res.json({
     id: groupId,
     members: [],
@@ -145,6 +166,26 @@ app.delete('/api/groups/:groupId/members/:memberId', (req, res) => {
   });
 });
 
+// PUT /api/groups/:groupId/members/:memberId/role - Promote/demote a member (owner only)
+app.put('/api/groups/:groupId/members/:memberId/role', (req, res) => {
+  const { groupId, memberId } = req.params;
+  const { role } = req.body;
+
+  if (role !== 'admin' && role !== 'member') {
+    return res.status(400).json({ error: 'Role must be "admin" or "member"' });
+  }
+
+  // TODO: Validate requesting user is the group owner
+  // TODO: Prevent changing the owner's own role
+  // TODO: Update database
+  res.json({
+    id: groupId,
+    memberId,
+    role,
+    message: 'Member role updated successfully'
+  });
+});
+
 // POST /api/groups/:groupId/leave - Leave the group
 app.post('/api/groups/:groupId/leave', (req, res) => {
   const { groupId } = req.params;
@@ -159,6 +200,47 @@ app.post('/api/groups/:groupId/leave', (req, res) => {
     memberCount: 0,
     isLeftByUser: true,
     message: 'You have left the group'
+  });
+});
+
+// POST /api/groups/:groupId/join-requests - Request to join a private group
+app.post('/api/groups/:groupId/join-requests', (req, res) => {
+  const { groupId } = req.params;
+
+  // TODO: Validate group exists and is private
+  // TODO: Validate user isn't already a member or already has a pending request
+  // TODO: Update database
+  res.json({
+    id: groupId,
+    message: 'Join request sent'
+  });
+});
+
+// POST /api/groups/:groupId/join-requests/:requestId/approve - Approve a join request
+app.post('/api/groups/:groupId/join-requests/:requestId/approve', (req, res) => {
+  const { groupId, requestId } = req.params;
+
+  // TODO: Validate user is group creator/admin
+  // TODO: Move requester into group_members with role 'member'
+  // TODO: Update database
+  // TODO: Add system message to chat
+  res.json({
+    id: groupId,
+    requestId,
+    message: 'Join request approved'
+  });
+});
+
+// POST /api/groups/:groupId/join-requests/:requestId/deny - Deny a join request
+app.post('/api/groups/:groupId/join-requests/:requestId/deny', (req, res) => {
+  const { groupId, requestId } = req.params;
+
+  // TODO: Validate user is group creator/admin
+  // TODO: Update database
+  res.json({
+    id: groupId,
+    requestId,
+    message: 'Join request denied'
   });
 });
 
