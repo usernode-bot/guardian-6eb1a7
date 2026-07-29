@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=send-stay         sends one message on load   → thread must survive
   //   ?shot=message-deleted   forces group_1's seeded deleted messages         → placeholder must render
   //   ?shot=dm-menu           clicks the DM header's ⋮ button on load          → options menu must render
+  //   ?shot=dm-cleared        clears conv_1's chat via the real Clear Chat fn  → list preview must read "No messages yet"
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -29,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_SEND_STAY = SHOT === 'send-stay';
   const SHOT_MESSAGE_DELETED = SHOT === 'message-deleted';
   const SHOT_DM_MENU = SHOT === 'dm-menu';
+  const SHOT_DM_CLEARED = SHOT === 'dm-cleared';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
 
@@ -266,6 +268,12 @@ document.addEventListener('DOMContentLoaded', () => {
         adminDeleted.deletedByAdmin = true;
       }
     }
+  }
+
+  // Screenshot-state seed: exercise the real Clear Chat function on conv_1 so
+  // the deep link locks in the "list preview goes stale after clearing" fix.
+  if (SHOT_DM_CLEARED) {
+    clearDMChat('conv_1');
   }
 
   // Message requests data
@@ -1952,6 +1960,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!msg.hiddenFor) msg.hiddenFor = {};
       msg.hiddenFor.user_self = true;
     });
+
+    // Keep the conversation list preview in sync — every message is now
+    // hidden for this user, so the list should read as empty.
+    conv.lastMessage = 'No messages yet';
   }
 
   // Show the DM conversation's ⋮ menu with pin, mute, and clear-chat options
