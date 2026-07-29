@@ -186,6 +186,65 @@ document.addEventListener('DOMContentLoaded', () => {
         { id: 'msg_1', senderId: 'user_8', senderName: 'designpro', text: 'Just posted the new mockups', timestamp: Date.now() - 30*60*1000, isOutgoing: false },
         { id: 'msg_2', senderId: 'user_self', text: 'Thanks! Reviewing now', timestamp: Date.now() - 25*60*1000, isOutgoing: true }
       ]
+    },
+    {
+      // Admin-but-not-creator: proves the Create menu lists groups the user
+      // administers, not just the ones they created.
+      id: 'group_3',
+      name: 'Guardian Mods',
+      avatar: 'GM',
+      description: 'Moderation crew for the Guardian community',
+      memberCount: 12,
+      visibility: 'private',
+      creatorId: 'user_1',
+      createdAt: Date.now() - 18*24*60*60*1000,
+      members: [
+        { id: 'user_1', username: 'aksaranft', role: 'owner' },
+        { id: 'user_self', username: 'You', role: 'admin' },
+        { id: 'user_3', username: 'nodeart', role: 'member' }
+      ],
+      joinRequests: [],
+      messages: [
+        { id: 'msg_1', senderId: 'user_1', senderName: 'aksaranft', text: 'Added you as a mod — welcome aboard!', timestamp: Date.now() - 3*60*60*1000, isOutgoing: false },
+        { id: 'msg_2', senderId: 'user_self', text: 'On it. I\'ll watch the reports queue.', timestamp: Date.now() - 2.5*60*60*1000, isOutgoing: true }
+      ]
+    },
+    {
+      id: 'group_4',
+      name: 'Alpha Signals',
+      avatar: 'AS',
+      description: 'Early calls and market chatter',
+      memberCount: 42,
+      visibility: 'private',
+      creatorId: 'user_self',
+      createdAt: Date.now() - 9*24*60*60*1000,
+      members: [
+        { id: 'user_self', username: 'You', role: 'owner' },
+        { id: 'user_2', username: 'cryptosmith', role: 'member' }
+      ],
+      joinRequests: [],
+      messages: [
+        { id: 'msg_1', senderId: 'user_self', text: 'Room is open — drop your theses here.', timestamp: Date.now() - 6*60*60*1000, isOutgoing: true }
+      ]
+    },
+    {
+      id: 'group_5',
+      name: 'Node Runners',
+      avatar: 'NR',
+      description: 'Validator and node operator talk',
+      memberCount: 67,
+      visibility: 'public',
+      creatorId: 'user_self',
+      createdAt: Date.now() - 21*24*60*60*1000,
+      members: [
+        { id: 'user_self', username: 'You', role: 'owner' },
+        { id: 'user_5', username: 'chainwizard', role: 'admin' },
+        { id: 'user_7', username: 'webbuilder', role: 'member' }
+      ],
+      joinRequests: [],
+      messages: [
+        { id: 'msg_1', senderId: 'user_5', senderName: 'chainwizard', text: 'Uptime is back to 100% after the patch.', timestamp: Date.now() - 8*60*60*1000, isOutgoing: false }
+      ]
     }
   ];
 
@@ -211,6 +270,42 @@ document.addEventListener('DOMContentLoaded', () => {
       avatar: 'DT',
       lastMessage: 'Thanks! Reviewing now',
       timestamp: Date.now() - 25*60*1000,
+      unreadCount: 0,
+      archived: false,
+      pinned: false
+    },
+    {
+      id: 'conv_group_3',
+      type: 'group',
+      groupId: 'group_3',
+      name: 'Guardian Mods',
+      avatar: 'GM',
+      lastMessage: 'On it. I\'ll watch the reports queue.',
+      timestamp: Date.now() - 2.5*60*60*1000,
+      unreadCount: 0,
+      archived: false,
+      pinned: false
+    },
+    {
+      id: 'conv_group_4',
+      type: 'group',
+      groupId: 'group_4',
+      name: 'Alpha Signals',
+      avatar: 'AS',
+      lastMessage: 'Room is open — drop your theses here.',
+      timestamp: Date.now() - 6*60*60*1000,
+      unreadCount: 0,
+      archived: false,
+      pinned: false
+    },
+    {
+      id: 'conv_group_5',
+      type: 'group',
+      groupId: 'group_5',
+      name: 'Node Runners',
+      avatar: 'NR',
+      lastMessage: 'Uptime is back to 100% after the patch.',
+      timestamp: Date.now() - 8*60*60*1000,
       unreadCount: 0,
       archived: false,
       pinned: false
@@ -574,6 +669,21 @@ document.addEventListener('DOMContentLoaded', () => {
           isPinned: false
         }
       ]
+    },
+    {
+      // Second user-created channel — gives the Create menu's channel list
+      // more than one row and covers the no-posts sort-key fallback.
+      id: 'channel_4',
+      name: 'Builder Notes',
+      description: 'Short notes from things I ship',
+      avatar: 'BN',
+      isPublic: true,
+      creatorId: 'user_self',
+      createdAt: Date.now() - 36 * 60 * 60 * 1000,
+      followerCount: 18,
+      followers: { 'user_self': true },
+      mutedByUsers: {},
+      posts: []
     }
   ];
 
@@ -599,6 +709,18 @@ document.addEventListener('DOMContentLoaded', () => {
       avatar: 'WB',
       lastMessage: 'Welcome to Web3 Builders! 👨‍💻\n\nThis is a space to share projects, learn together, and build the future of web3.',
       timestamp: Date.now() - 60 * 60 * 1000,
+      unreadCount: 0,
+      archived: false,
+      pinned: false
+    },
+    {
+      id: 'conv_channel_4',
+      type: 'channel',
+      channelId: 'channel_4',
+      name: 'Builder Notes',
+      avatar: 'BN',
+      lastMessage: 'No posts yet',
+      timestamp: Date.now() - 36 * 60 * 60 * 1000,
       unreadCount: 0,
       archived: false,
       pinned: false
@@ -2051,6 +2173,156 @@ document.addEventListener('DOMContentLoaded', () => {
     return !!member && member.role === 'admin';
   }
 
+  // The current user's role inside a group, or null when they aren't a member.
+  function getSelfGroupRole(group) {
+    if (!group || !group.members) return null;
+    const member = group.members.find(m => m.id === 'user_self');
+    return member ? (member.role || 'member') : null;
+  }
+
+  // Whether the current user MANAGES this group — i.e. still a member AND
+  // either its creator or holding the owner/admin role. Deliberately stricter
+  // than isCurrentUserGroupAdmin(), which ignores membership: a group the user
+  // created and then left keeps its creatorId, but its chat route is gated to
+  // members, so it must not be offered as a destination.
+  function isCurrentUserGroupManager(group) {
+    if (!group || group.isLeftByUser) return false;
+    const role = getSelfGroupRole(group);
+    if (!role) return false;
+    return group.creatorId === 'user_self' || role === 'owner' || role === 'admin';
+  }
+
+  // Best-available recency timestamp for a group/channel. createdAt when it
+  // exists (only groups made in-session carry one), else the newest
+  // message/post, else the linked conversation row, else 0.
+  function getCommunitySortKey(entity, kind) {
+    if (!entity) return 0;
+    if (typeof entity.createdAt === 'number') return entity.createdAt;
+
+    const items = kind === 'channel' ? entity.posts : entity.messages;
+    if (items && items.length > 0) {
+      return items.reduce((newest, item) => Math.max(newest, item.timestamp || 0), 0);
+    }
+
+    const conv = conversations.find(c => kind === 'channel'
+      ? (c.type === 'channel' && c.channelId === entity.id)
+      : (c.type === 'group' && c.groupId === entity.id));
+    return (conv && conv.timestamp) || 0;
+  }
+
+  // Newest-first, name A→Z as the tie-break.
+  function sortCommunitiesByRecency(list, kind) {
+    return list.slice().sort((a, b) => {
+      const diff = getCommunitySortKey(b, kind) - getCommunitySortKey(a, kind);
+      if (diff !== 0) return diff;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+  }
+
+  // Groups the user created or administers (never merely joined).
+  function getManagedGroups() {
+    return sortCommunitiesByRecency(groups.filter(isCurrentUserGroupManager), 'group');
+  }
+
+  // Channels the user created. Channels have no admin role — every ownership
+  // check in this file is creatorId-based — so creator is the whole predicate.
+  function getManagedChannels() {
+    return sortCommunitiesByRecency(channels.filter(c => c.creatorId === 'user_self'), 'channel');
+  }
+
+  // 'Owner' / 'Admin' badge text, matching the wording used on the members list.
+  function getManagedGroupRoleLabel(group) {
+    const role = getSelfGroupRole(group);
+    if (group.creatorId === 'user_self' || role === 'owner') return 'Owner';
+    return role === 'admin' ? 'Admin' : '';
+  }
+
+  // Avatars are either two-letter initials (seeded data) or a data-URL from
+  // the avatar picker — render each appropriately instead of printing base64.
+  function renderCommunityAvatar(avatar, name) {
+    const value = avatar || generateDefaultAvatar(name || '');
+    const isImage = typeof value === 'string' && (value.startsWith('data:') || value.startsWith('http'));
+    return isImage
+      ? `<img src="${value}" alt="" />`
+      : value;
+  }
+
+  // Number of managed rows shown before the "Show all (N)" expander kicks in.
+  const MANAGED_LIST_PREVIEW_COUNT = 3;
+
+  // Renders one "Your Groups" / "Your Channels" list for the Create menu.
+  function renderManagedListHtml(kind) {
+    const isChannel = kind === 'channel';
+    const items = isChannel ? getManagedChannels() : getManagedGroups();
+    const testId = isChannel ? 'managed-channels-list' : 'managed-groups-list';
+
+    if (items.length === 0) {
+      return `
+        <div class="managed-list" data-testid="${testId}">
+          <div class="managed-list-empty">You don't manage any ${isChannel ? 'channels' : 'groups'} yet.</div>
+        </div>
+      `;
+    }
+
+    const rows = items.map((item, index) => {
+      const hidden = index >= MANAGED_LIST_PREVIEW_COUNT ? ' is-hidden' : '';
+      const roleLabel = isChannel ? 'Owner' : getManagedGroupRoleLabel(item);
+      const meta = isChannel
+        ? `${(item.followerCount || 0).toLocaleString()} followers`
+        : `${item.memberCount || 0} members`;
+      const idAttr = isChannel ? `data-channel-id="${item.id}"` : `data-group-id="${item.id}"`;
+
+      return `
+        <div class="managed-list-item${hidden}" ${idAttr}>
+          <div class="managed-list-avatar">${renderCommunityAvatar(item.avatar, item.name)}</div>
+          <div class="managed-list-content">
+            <div class="managed-list-title">
+              <span class="managed-list-name">${item.name}</span>
+              ${roleLabel ? `<span class="managed-role-badge">${roleLabel}</span>` : ''}
+            </div>
+            <div class="managed-list-meta">${meta}</div>
+          </div>
+          <span class="managed-list-chevron">></span>
+        </div>
+      `;
+    }).join('');
+
+    const showAll = items.length > MANAGED_LIST_PREVIEW_COUNT
+      ? `<button class="managed-show-all" data-target="${kind}" data-count="${items.length}">Show all (${items.length})</button>`
+      : '';
+
+    return `
+      <div class="managed-list" data-testid="${testId}">
+        ${rows}
+        ${showAll}
+      </div>
+    `;
+  }
+
+  // Wires row taps and the "Show all (N)" expander for both managed lists.
+  function attachManagedListListeners() {
+    document.querySelectorAll('.managed-list-item').forEach(row => {
+      row.addEventListener('click', () => {
+        const groupId = row.dataset.groupId;
+        const channelId = row.dataset.channelId;
+        if (groupId) {
+          window.location.hash = `/group/${groupId}`;
+        } else if (channelId) {
+          window.location.hash = `/channel/${channelId}`;
+        }
+      });
+    });
+
+    document.querySelectorAll('.managed-show-all').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const list = btn.closest('.managed-list');
+        if (!list) return;
+        const expanded = list.classList.toggle('is-expanded');
+        btn.textContent = expanded ? 'Show less' : `Show all (${btn.dataset.count})`;
+      });
+    });
+  }
+
   // Setup long-press menu for messages. threadType is 'dm', 'group', or 'channel' —
   // each has different delete permissions:
   //   dm      - either participant may delete (hide) ANY message, but only from
@@ -3221,22 +3493,30 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="search-container">
           <input type="text" class="search-field" placeholder="🔍 Search wallet, username" />
         </div>
-        <div class="create-options">
-          <div class="create-group-card">
-            <span class="group-icon">👥</span>
-            <span class="group-label">Create Group</span>
-            <span class="group-chevron">></span>
+        <div class="create-scroll">
+          <div class="create-options">
+            <div class="create-section create-section-group">
+              <div class="create-group-card">
+                <span class="group-icon">👥</span>
+                <span class="group-label">Create Group</span>
+                <span class="group-chevron">></span>
+              </div>
+              ${renderManagedListHtml('group')}
+            </div>
+            <div class="create-section create-section-channel">
+              <div class="create-channel-card" data-testid="create-channel-entry">
+                <span class="channel-icon">#</span>
+                <span class="channel-label">Create Channel</span>
+                <span class="channel-chevron">></span>
+              </div>
+              ${renderManagedListHtml('channel')}
+            </div>
           </div>
-          <div class="create-channel-card" data-testid="create-channel-entry">
-            <span class="channel-icon">#</span>
-            <span class="channel-label">Create Channel</span>
-            <span class="channel-chevron">></span>
-          </div>
-        </div>
-        <div class="suggested-users-section">
-          <div class="section-header">Suggested Users</div>
-          <div class="users-list">
-            ${usersList}
+          <div class="suggested-users-section">
+            <div class="section-header">Suggested Users</div>
+            <div class="users-list">
+              ${usersList}
+            </div>
           </div>
         </div>
       </div>
@@ -3255,6 +3535,9 @@ document.addEventListener('DOMContentLoaded', () => {
     createChannelEntries[0].addEventListener('click', () => {
       window.location.hash = '/create-channel';
     });
+
+    // Managed group/channel rows sitting under each create card
+    attachManagedListListeners();
 
     // Add user item handlers
     document.querySelectorAll('.suggested-user-item').forEach(item => {
