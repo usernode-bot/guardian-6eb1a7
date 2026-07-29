@@ -18,6 +18,8 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=scroll-fab-bottom thread parked at the BOTTOM → FAB must be hidden
   //   ?shot=send-stay         sends one message on load   → thread must survive
   //   ?shot=message-deleted   forces group_1's seeded deleted messages         → placeholder must render
+  //   ?shot=dm-menu           clicks the DM header's ⋮ button on load          → options menu must render
+  //   ?shot=dm-cleared        clears conv_1's chat via the real Clear Chat fn  → list preview must read "No messages yet"
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -27,6 +29,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_SCROLL_FAB_BOTTOM = SHOT === 'scroll-fab-bottom';
   const SHOT_SEND_STAY = SHOT === 'send-stay';
   const SHOT_MESSAGE_DELETED = SHOT === 'message-deleted';
+  const SHOT_DM_MENU = SHOT === 'dm-menu';
+  const SHOT_DM_CLEARED = SHOT === 'dm-cleared';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
 
@@ -55,6 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
       onlineStatus: true,
       archived: false,
       pinned: false,
+      mutedByUsers: {},
       messages: [
         { id: 'msg_1', text: "Hey! How's it going?", timestamp: Date.now() - 5*60*1000, isOutgoing: false },
         { id: 'msg_2', text: "Great! Just finished work", timestamp: Date.now() - 4.5*60*1000, isOutgoing: true },
@@ -75,6 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
       onlineStatus: false,
       archived: false,
       pinned: false,
+      mutedByUsers: {},
       messages: [
         { id: 'msg_1', text: "Check out the new features", timestamp: Date.now() - 2*60*60*1000, isOutgoing: false },
         { id: 'msg_2', text: "Looking good!", timestamp: Date.now() - 1.5*60*60*1000, isOutgoing: true },
@@ -92,6 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
       onlineStatus: true,
       archived: false,
       pinned: false,
+      mutedByUsers: {},
       messages: [
         { id: 'msg_1', text: "I need some help with a project", timestamp: Date.now() - 26*60*60*1000, isOutgoing: false },
         { id: 'msg_2', text: "Happy to help! What do you need?", timestamp: Date.now() - 25.5*60*60*1000, isOutgoing: true },
@@ -111,6 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
       onlineStatus: false,
       archived: false,
       pinned: false,
+      mutedByUsers: {},
       messages: [
         { id: 'msg_1', text: "See you at the event!", timestamp: Date.now() - 3*24*60*60*1000, isOutgoing: false },
         { id: 'msg_2', text: "Definitely! Can't wait", timestamp: Date.now() - 2.5*24*60*60*1000, isOutgoing: true },
@@ -260,6 +268,12 @@ document.addEventListener('DOMContentLoaded', () => {
         adminDeleted.deletedByAdmin = true;
       }
     }
+  }
+
+  // Screenshot-state seed: exercise the real Clear Chat function on conv_1 so
+  // the deep link locks in the "list preview goes stale after clearing" fix.
+  if (SHOT_DM_CLEARED) {
+    clearDMChat('conv_1');
   }
 
   // Message requests data
@@ -1459,6 +1473,7 @@ document.addEventListener('DOMContentLoaded', () => {
       archived: false,
       pinned: false,
       onlineStatus: false,
+      mutedByUsers: {},
       messages: []
     };
 
@@ -1868,6 +1883,15 @@ document.addEventListener('DOMContentLoaded', () => {
       window.location.hash = '/messages';
     });
 
+    // Add DM menu button for more options (pin, mute, clear chat)
+    const menuButton = document.querySelector('.menu-button');
+    if (menuButton) {
+      menuButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showDMMenuDialog(conversationId, conversation);
+      });
+    }
+
     // Scroll to latest message after DOM renders. The screenshot deep link parks
     // the list at the top so the FAB is visible — but after SENDING we always
     // jump to the bottom so the user sees the message they just wrote.
@@ -1893,6 +1917,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Must stay last: the send re-renders this page underneath us.
     if (SHOT_SEND_STAY && !fromSend) sendShotMessage(conversationRoot);
+
+    // Screenshot-state: click the real ⋮ button so the deep link exercises the
+    // actual event listener wiring, not just the dialog-rendering function.
+    if (SHOT_DM_MENU) menuButton?.click();
   }
 
   // Screenshot-state helper: drive the real composer the same way a tap does, so
@@ -1906,6 +1934,113 @@ document.addEventListener('DOMContentLoaded', () => {
     input.value = SHOT_SEND_TEXT;
     input.dispatchEvent(new Event('input', { bubbles: true }));
     button.click();
+  }
+
+  // Mute/unmute a DM conversation's notifications (client-side only, mirrors
+  // toggleMuteChannel)
+  function toggleMuteDM(conversationId, isMuted) {
+    const conv = conversations.find(c => c.id === conversationId);
+    if (!conv) return;
+    if (!conv.mutedByUsers) conv.mutedByUsers = {};
+
+    if (isMuted) {
+      conv.mutedByUsers['user_self'] = true;
+    } else {
+      delete conv.mutedByUsers['user_self'];
+    }
+  }
+
+  // Hide every message in a DM for the current user only ("delete for me",
+  // applied to the whole thread) — mirrors the per-message hiddenFor pattern.
+  function clearDMChat(conversationId) {
+    const conv = conversations.find(c => c.id === conversationId);
+    if (!conv) return;
+
+    conv.messages.forEach(msg => {
+      if (!msg.hiddenFor) msg.hiddenFor = {};
+      msg.hiddenFor.user_self = true;
+    });
+
+    // Keep the conversation list preview in sync — every message is now
+    // hidden for this user, so the list should read as empty.
+    conv.lastMessage = 'No messages yet';
+  }
+
+  // Show the DM conversation's ⋮ menu with pin, mute, and clear-chat options
+  function showDMMenuDialog(conversationId, conversation) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog group-menu-dialog';
+
+    const isPinned = !!conversation.pinned;
+    const isMuted = !!(conversation.mutedByUsers && conversation.mutedByUsers['user_self']);
+
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>${conversation.username}</h2>
+        <button class="close-dialog-button">✕</button>
+      </div>
+      <div class="dialog-content group-menu-content">
+        <button class="menu-option" id="pin-conversation-btn">
+          <span class="option-icon">📌</span>
+          <span class="option-label">${isPinned ? 'Unpin' : 'Pin'} Conversation</span>
+          <span class="option-chevron">›</span>
+        </button>
+        <button class="menu-option" id="mute-dm-btn">
+          <span class="option-icon">🔔</span>
+          <span class="option-label">${isMuted ? 'Unmute' : 'Mute'} Notifications</span>
+          <span class="option-chevron">›</span>
+        </button>
+        <button class="menu-option leave-option" id="clear-dm-chat-btn">
+          <span class="option-icon">🗑️</span>
+          <span class="option-label">Clear Chat</span>
+        </button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const closeButton = dialog.querySelector('.close-dialog-button');
+    closeButton.addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+
+    document.getElementById('pin-conversation-btn')?.addEventListener('click', async () => {
+      const newPinnedState = !conversation.pinned;
+      try {
+        const res = await fetch(`/api/conversations/${conversationId}/pin`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pinned: newPinnedState })
+        });
+        if (res.ok) {
+          conversation.pinned = newPinnedState;
+        }
+      } catch (err) {
+        console.error('Failed to pin conversation:', err);
+      }
+      overlay.remove();
+      showToast(newPinnedState ? 'Conversation pinned' : 'Conversation unpinned', { type: 'success' });
+    });
+
+    document.getElementById('mute-dm-btn')?.addEventListener('click', () => {
+      toggleMuteDM(conversationId, !isMuted);
+      overlay.remove();
+      showToast(isMuted ? 'Notifications unmuted' : 'Notifications muted', { type: 'success' });
+    });
+
+    document.getElementById('clear-dm-chat-btn')?.addEventListener('click', () => {
+      overlay.remove();
+      showConfirmDialog('Clear Chat', `Clear all messages with ${conversation.username}? This only removes them for you.`, () => {
+        clearDMChat(conversationId);
+        renderConversationPage(conversationId);
+        showToast('Chat cleared', { type: 'success' });
+      });
+    });
   }
 
   // Whether 'user_self' is an admin or the creator of the given group

@@ -88,6 +88,21 @@
       "expectText": "Shot send stay check"
     },
     {
+      "name": "DM header's ⋮ menu opens and shows its options",
+      "path": "/?shot=dm-menu#/conversation/conv_1",
+      "expectText": "Pin Conversation"
+    },
+    {
+      "name": "DM header's ⋮ menu includes Clear Chat option",
+      "path": "/?shot=dm-menu#/conversation/conv_1",
+      "expectText": "Clear Chat"
+    },
+    {
+      "name": "Conversation list preview updates after clearing a DM chat",
+      "path": "/?shot=dm-cleared",
+      "expectText": "No messages yet"
+    },
+    {
       "name": "Sending a group message keeps the user in the group chat",
       "path": "/?shot=send-stay#/group/group_1",
       "expectSelector": ".conversation-page .composer-container .composer-input"
