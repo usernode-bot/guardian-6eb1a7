@@ -1,6 +1,19 @@
 {
   "name": "Guardian",
-  "secrets": [],
+  "secrets": [
+    {
+      "key": "PLATFORM_BASE_URL",
+      "description": "Base URL of the Usernode Social Vibecoding platform shell, used to build chromeless deep-link redirects for shared links.",
+      "required": false,
+      "default": "https://social-vibecoding.usernodelabs.org"
+    },
+    {
+      "key": "APP_SLUG",
+      "description": "This app's slug on the Usernode platform, used in chromeless deep-link redirects (#app/<slug>/full).",
+      "required": false,
+      "default": "guardian"
+    }
+  ],
   "tests": [
     {
       "name": "Messages page loads (default)",
@@ -213,14 +226,29 @@
       "expectText": "Members"
     },
     {
-      "name": "Group Info page shows edit buttons",
+      "name": "Group Info page shows edit buttons for admin/owner",
       "path": "/#/group/group_1/info",
       "expectSelector": ".detail-edit-button"
+    },
+    {
+      "name": "Group Info page loads for a plain (non-admin) member",
+      "path": "/#/group/group_2/info",
+      "expectText": "Design Team"
     },
     {
       "name": "Group Info page displays leave button",
       "path": "/#/group/group_1/info",
       "expectSelector": ".leave-group-button"
+    },
+    {
+      "name": "Group Info page shows Share Group button for every member",
+      "path": "/#/group/group_2/info",
+      "expectSelector": ".share-group-button"
+    },
+    {
+      "name": "Shared group link routes to the group's info via ?group= query",
+      "path": "/?group=group_1#/group/group_1/info",
+      "expectText": "Seeker Club"
     },
     {
       "name": "Add Members page loads",

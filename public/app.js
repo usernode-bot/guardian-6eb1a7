@@ -10,6 +10,14 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('usernode-token', token);
   }
 
+  // Shared-group deep link. A copied "Share Group" link is `<origin>/?group=<id>`
+  // (a real query param, since HTTP requests never see the URL fragment) --
+  // translate it into this app's own hash route before the router runs.
+  const sharedGroupId = urlParams.get('group');
+  if (sharedGroupId) {
+    window.location.hash = `/group/${sharedGroupId}`;
+  }
+
   // Screenshot-state deep links. Each boots a long, deterministic thread so
   // interaction-gated UI is reachable from a plain URL. Pure UI state — nothing
   // is persisted, and none of it is gated on the environment.
@@ -3438,6 +3446,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const myRole = (group.members.find(m => m.id === 'user_self') || {}).role;
     const canManageMembers = myRole === 'owner' || myRole === 'admin';
+    const isAdmin = isCurrentUserGroupAdmin(group);
     const pendingRequestCount = (group.joinRequests || []).length;
 
     const membersList = group.members.map(member => {
@@ -3468,22 +3477,24 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="group-info-content">
           <div class="group-avatar-section">
             <div class="group-avatar-large" id="group-avatar-large">${group.avatar}</div>
-            <button class="edit-avatar-button" id="edit-avatar-button">Change Photo</button>
+            ${isAdmin ? `<button class="edit-avatar-button" id="edit-avatar-button">Change Photo</button>` : ''}
           </div>
 
           <div class="group-details-section">
             <div class="detail-item">
               <div class="detail-label">Group Name</div>
               <div class="detail-value" id="group-name-value">${group.name}</div>
-              <button class="detail-edit-button" id="edit-name-button">Edit</button>
+              ${isAdmin ? `<button class="detail-edit-button" id="edit-name-button">Edit</button>` : ''}
             </div>
 
             <div class="detail-item">
               <div class="detail-label">Description</div>
               <div class="detail-value" id="group-description-value">${group.description || 'No description'}</div>
-              <button class="detail-edit-button" id="edit-description-button">Edit</button>
+              ${isAdmin ? `<button class="detail-edit-button" id="edit-description-button">Edit</button>` : ''}
             </div>
           </div>
+
+          <button class="share-group-button" id="share-group-button">Share Group</button>
 
           <div class="members-section">
             <div class="section-title">Members (${group.memberCount})</div>
@@ -3504,19 +3515,45 @@ document.addEventListener('DOMContentLoaded', () => {
       window.location.hash = `/group/${groupId}`;
     });
 
-    // Edit name
-    document.getElementById('edit-name-button').addEventListener('click', () => {
-      showEditNameDialog(groupId, group.name);
-    });
+    // Edit name (admin/owner only)
+    const editNameButton = document.getElementById('edit-name-button');
+    if (editNameButton) {
+      editNameButton.addEventListener('click', () => {
+        showEditNameDialog(groupId, group.name);
+      });
+    }
 
-    // Edit description
-    document.getElementById('edit-description-button').addEventListener('click', () => {
-      showEditDescriptionDialog(groupId, group.description);
-    });
+    // Edit description (admin/owner only)
+    const editDescriptionButton = document.getElementById('edit-description-button');
+    if (editDescriptionButton) {
+      editDescriptionButton.addEventListener('click', () => {
+        showEditDescriptionDialog(groupId, group.description);
+      });
+    }
 
-    // Change avatar
-    document.getElementById('edit-avatar-button').addEventListener('click', () => {
-      showAvatarPickerDialog(groupId, group);
+    // Change avatar (admin/owner only)
+    const editAvatarButton = document.getElementById('edit-avatar-button');
+    if (editAvatarButton) {
+      editAvatarButton.addEventListener('click', () => {
+        showAvatarPickerDialog(groupId, group);
+      });
+    }
+
+    // Share Group (all members)
+    document.getElementById('share-group-button').addEventListener('click', () => {
+      const link = `${window.location.origin}/?group=${groupId}`;
+      if (navigator.share) {
+        navigator.share({
+          title: group.name,
+          url: link
+        }).catch(err => console.log('Share cancelled or failed'));
+      } else {
+        navigator.clipboard.writeText(link).then(() => {
+          showToast('Link copied to clipboard', { type: 'success' });
+        }).catch(() => {
+          showToast('Failed to copy link', { type: 'error' });
+        });
+      }
     });
 
     // Add members

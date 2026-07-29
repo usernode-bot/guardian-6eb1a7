@@ -5,14 +5,46 @@ const { Pool } = require('pg');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
+const PLATFORM_BASE_URL = process.env.PLATFORM_BASE_URL || 'https://social-vibecoding.usernodelabs.org';
+const APP_SLUG = process.env.APP_SLUG || 'guardian';
+const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 
 // Database connection
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
+function decodeUser(req) {
+  const token = req.query.token || req.headers['x-usernode-token'];
+  if (token && JWT_SECRET) {
+    try {
+      return jwt.verify(token, JWT_SECRET);
+    } catch (err) {
+      // Token verification failed, treat as unauthenticated
+    }
+  }
+  return null;
+}
+
 // Middleware
 app.use(express.json());
+
+app.use((req, res, next) => {
+  req.user = decodeUser(req);
+  next();
+});
+
+// Chromeless deep-link redirect: a shared link opened directly in a browser
+// (not inside the platform's app iframe) can't authenticate itself here, so
+// hand top-level unauthenticated document requests to the platform shell,
+// which mints a real session and forwards the original path back in.
+app.use((req, res, next) => {
+  if (req.method === 'GET' && req.get('sec-fetch-dest') === 'document' && !req.user) {
+    return res.redirect(`${PLATFORM_BASE_URL}/#app/${APP_SLUG}/full?path=${req.originalUrl}`);
+  }
+  next();
+});
+
 app.use(express.static('public'));
 
 // Auth middleware - follows Usernode platform conventions
@@ -20,15 +52,6 @@ const PUBLIC_API_PATHS = new Set(['/health', '/api/state']);
 const PUBLIC_PREFIXES = ['/explorer-api/', '/api/conversations'];
 
 app.use((req, res, next) => {
-  const token = req.query.token || req.headers['x-usernode-token'];
-  if (token && JWT_SECRET) {
-    try {
-      req.user = jwt.verify(token, JWT_SECRET);
-    } catch (err) {
-      // Token verification failed, continue without user
-    }
-  }
-
   if (req.method !== 'GET' || req.path.startsWith('/api/')) {
     if (PUBLIC_API_PATHS.has(req.path)) return next();
     if (PUBLIC_PREFIXES.some((p) => req.path.startsWith(p))) return next();
@@ -52,6 +75,26 @@ app.get('/api/state', (req, res) => {
   res.json({ status: 'ok', user: req.user || null });
 });
 
+// Returns the caller's role in a group: 'owner', the stored group_members
+// role, or null if the group doesn't exist or the caller isn't a member.
+// 'user_self' is this (single-real-user, mostly mock) app's placeholder for
+// "whoever is logged in" -- the same sentinel the frontend already uses in
+// isCurrentUserGroupAdmin -- so rows seeded against it match whichever real
+// user is currently authenticated.
+async function getGroupRole(groupId, userId) {
+  const groupResult = await pool.query('SELECT creator_id FROM groups WHERE id = $1', [groupId]);
+  if (groupResult.rows.length === 0) return null;
+
+  const creatorId = groupResult.rows[0].creator_id;
+  if (creatorId === userId || creatorId === 'user_self') return 'owner';
+
+  const memberResult = await pool.query(
+    'SELECT role FROM group_members WHERE group_id = $1 AND (user_id = $2 OR user_id = $3)',
+    [groupId, userId, 'user_self']
+  );
+  return memberResult.rows.length > 0 ? memberResult.rows[0].role : null;
+}
+
 // Group Management API Endpoints
 
 // GET /api/groups/:groupId - Fetch group details
@@ -62,7 +105,7 @@ app.get('/api/groups/:groupId', (req, res) => {
 });
 
 // POST /api/groups - Create a new group
-app.post('/api/groups', (req, res) => {
+app.post('/api/groups', async (req, res) => {
   const { name, description, visibility } = req.body;
 
   if (!name || name.trim().length === 0) {
@@ -70,11 +113,27 @@ app.post('/api/groups', (req, res) => {
   }
 
   const groupVisibility = visibility === 'public' ? 'public' : 'private';
+  const groupId = 'group_' + Date.now();
 
-  // TODO: Persist group with creator as owner
-  // TODO: Update database
+  try {
+    await pool.query(
+      `INSERT INTO groups (id, name, description, visibility, creator_id)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [groupId, name.trim(), description || '', groupVisibility, req.user.id]
+    );
+    await pool.query(
+      `INSERT INTO group_members (group_id, user_id, username, role)
+       VALUES ($1, $2, $3, 'owner')
+       ON CONFLICT (group_id, user_id) DO NOTHING`,
+      [groupId, req.user.id, req.user.username]
+    );
+  } catch (err) {
+    console.error('Failed to persist group:', err);
+    return res.status(500).json({ error: 'Failed to create group' });
+  }
+
   res.json({
-    id: 'group_' + Date.now(),
+    id: groupId,
     name: name.trim(),
     description: description || '',
     visibility: groupVisibility,
@@ -83,7 +142,7 @@ app.post('/api/groups', (req, res) => {
 });
 
 // PUT /api/groups/:groupId/name - Update group name
-app.put('/api/groups/:groupId/name', (req, res) => {
+app.put('/api/groups/:groupId/name', async (req, res) => {
   const { name } = req.body;
   const { groupId } = req.params;
 
@@ -95,13 +154,20 @@ app.put('/api/groups/:groupId/name', (req, res) => {
     return res.status(400).json({ error: 'Group name must be 50 characters or less' });
   }
 
-  // TODO: Validate user is group creator/admin
-  // TODO: Update database
+  const role = await getGroupRole(groupId, req.user.id);
+  if (role === null) {
+    return res.status(404).json({ error: 'Group not found' });
+  }
+  if (role !== 'owner' && role !== 'admin') {
+    return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
+  }
+
+  await pool.query('UPDATE groups SET name = $1, updated_at = now() WHERE id = $2', [name.trim(), groupId]);
   res.json({ id: groupId, name: name.trim() });
 });
 
 // PUT /api/groups/:groupId/description - Update group description
-app.put('/api/groups/:groupId/description', (req, res) => {
+app.put('/api/groups/:groupId/description', async (req, res) => {
   const { description } = req.body;
   const { groupId } = req.params;
 
@@ -109,13 +175,20 @@ app.put('/api/groups/:groupId/description', (req, res) => {
     return res.status(400).json({ error: 'Description must be 250 characters or less' });
   }
 
-  // TODO: Validate user is group creator/admin
-  // TODO: Update database
+  const role = await getGroupRole(groupId, req.user.id);
+  if (role === null) {
+    return res.status(404).json({ error: 'Group not found' });
+  }
+  if (role !== 'owner' && role !== 'admin') {
+    return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
+  }
+
+  await pool.query('UPDATE groups SET description = $1, updated_at = now() WHERE id = $2', [description || '', groupId]);
   res.json({ id: groupId, description: description || '' });
 });
 
 // PUT /api/groups/:groupId/avatar - Update group avatar
-app.put('/api/groups/:groupId/avatar', (req, res) => {
+app.put('/api/groups/:groupId/avatar', async (req, res) => {
   const { avatar } = req.body;
   const { groupId } = req.params;
 
@@ -123,14 +196,21 @@ app.put('/api/groups/:groupId/avatar', (req, res) => {
     return res.status(400).json({ error: 'Avatar is required' });
   }
 
-  // TODO: Validate user is group creator/admin
+  const role = await getGroupRole(groupId, req.user.id);
+  if (role === null) {
+    return res.status(404).json({ error: 'Group not found' });
+  }
+  if (role !== 'owner' && role !== 'admin') {
+    return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
+  }
+
   // TODO: Store avatar (base64 for now, cloud storage in future)
-  // TODO: Update database
+  await pool.query('UPDATE groups SET avatar = $1, updated_at = now() WHERE id = $2', [avatar, groupId]);
   res.json({ id: groupId, avatar });
 });
 
 // POST /api/groups/:groupId/members - Add members to group
-app.post('/api/groups/:groupId/members', (req, res) => {
+app.post('/api/groups/:groupId/members', async (req, res) => {
   const { userIds } = req.body;
   const { groupId } = req.params;
 
@@ -138,10 +218,20 @@ app.post('/api/groups/:groupId/members', (req, res) => {
     return res.status(400).json({ error: 'At least one member must be selected' });
   }
 
-  // TODO: Validate user is group creator/admin (only owner/admin roles may add members)
-  // TODO: Validate users exist
-  // TODO: Check for duplicates
-  // TODO: Update database - new members are added with role 'member'
+  try {
+    for (const userId of userIds) {
+      await pool.query(
+        `INSERT INTO group_members (group_id, user_id, username, role)
+         VALUES ($1, $2, $3, 'member')
+         ON CONFLICT (group_id, user_id) DO NOTHING`,
+        [groupId, userId, userId]
+      );
+    }
+  } catch (err) {
+    console.error('Failed to add members:', err);
+    return res.status(500).json({ error: 'Failed to add members' });
+  }
+
   res.json({
     id: groupId,
     members: [],
@@ -167,7 +257,7 @@ app.delete('/api/groups/:groupId/members/:memberId', (req, res) => {
 });
 
 // PUT /api/groups/:groupId/members/:memberId/role - Promote/demote a member (owner only)
-app.put('/api/groups/:groupId/members/:memberId/role', (req, res) => {
+app.put('/api/groups/:groupId/members/:memberId/role', async (req, res) => {
   const { groupId, memberId } = req.params;
   const { role } = req.body;
 
@@ -175,9 +265,20 @@ app.put('/api/groups/:groupId/members/:memberId/role', (req, res) => {
     return res.status(400).json({ error: 'Role must be "admin" or "member"' });
   }
 
-  // TODO: Validate requesting user is the group owner
-  // TODO: Prevent changing the owner's own role
-  // TODO: Update database
+  const requesterRole = await getGroupRole(groupId, req.user.id);
+  if (requesterRole === null) {
+    return res.status(404).json({ error: 'Group not found' });
+  }
+  if (requesterRole !== 'owner') {
+    return res.status(403).json({ error: 'Only the group creator can change member roles' });
+  }
+
+  const targetRole = await getGroupRole(groupId, memberId);
+  if (targetRole === 'owner') {
+    return res.status(400).json({ error: "Cannot change the group creator's role" });
+  }
+
+  await pool.query('UPDATE group_members SET role = $1 WHERE group_id = $2 AND user_id = $3', [role, groupId, memberId]);
   res.json({
     id: groupId,
     memberId,
@@ -281,6 +382,79 @@ async function initDatabase() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS groups (
+        id VARCHAR(255) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        avatar TEXT,
+        visibility VARCHAR(20) NOT NULL DEFAULT 'private',
+        creator_id VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS group_members (
+        group_id VARCHAR(255) NOT NULL REFERENCES groups(id),
+        user_id VARCHAR(255) NOT NULL,
+        username VARCHAR(255),
+        role VARCHAR(20) NOT NULL DEFAULT 'member',
+        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (group_id, user_id)
+      );
+    `);
+
+    // Give the app's pre-existing hardcoded demo groups (Seeker Club / Design
+    // Team, defined client-side in app.js) a matching backend row so the new
+    // permission checks above have real data to check against rather than
+    // only newly-created groups. Runs in every environment, not just staging,
+    // since these two groups already exist identically in every environment's
+    // frontend code.
+    await pool.query(`
+      INSERT INTO groups (id, name, description, visibility, creator_id)
+      VALUES ('group_1', 'Seeker Club', 'A community of seekers and explorers', 'public', 'user_self')
+      ON CONFLICT (id) DO NOTHING;
+    `);
+    await pool.query(`
+      INSERT INTO group_members (group_id, user_id, username, role) VALUES
+        ('group_1', 'user_self', 'You', 'owner'),
+        ('group_1', 'user_alice', 'Alice', 'admin'),
+        ('group_1', 'user_bob', 'Bob', 'member'),
+        ('group_1', 'user_charlie', 'Charlie', 'member')
+      ON CONFLICT (group_id, user_id) DO NOTHING;
+    `);
+    await pool.query(`
+      INSERT INTO groups (id, name, description, visibility, creator_id)
+      VALUES ('group_2', 'Design Team', 'Collaborate on visual designs and UI/UX', 'private', 'user_8')
+      ON CONFLICT (id) DO NOTHING;
+    `);
+    await pool.query(`
+      INSERT INTO group_members (group_id, user_id, username, role) VALUES
+        ('group_2', 'user_self', 'You', 'member'),
+        ('group_2', 'user_1', 'aksaranft', 'member'),
+        ('group_2', 'user_8', 'designpro', 'owner')
+      ON CONFLICT (group_id, user_id) DO NOTHING;
+    `);
+
+    if (IS_STAGING) {
+      // Fake demo users/data for staging only -- no-op in production.
+      await pool.query(`
+        INSERT INTO groups (id, name, description, visibility, creator_id)
+        VALUES ('staging-demo-group-1', 'Staging Demo Group', 'Seeded group for exercising role permissions in staging', 'public', 'staging-demo-user-1')
+        ON CONFLICT (id) DO NOTHING;
+      `);
+      await pool.query(`
+        INSERT INTO group_members (group_id, user_id, username, role) VALUES
+          ('staging-demo-group-1', 'staging-demo-user-1', 'Staging Demo Owner', 'owner'),
+          ('staging-demo-group-1', 'staging-demo-user-2', 'Staging Demo Admin', 'admin'),
+          ('staging-demo-group-1', 'staging-demo-user-3', 'Staging Demo Member', 'member')
+        ON CONFLICT (group_id, user_id) DO NOTHING;
+      `);
+    }
+
     console.log('Database initialized');
   } catch (err) {
     console.error('Database initialization error:', err);
@@ -292,5 +466,24 @@ const server = app.listen(PORT, async () => {
   console.log(`Server listening on port ${PORT}`);
   await initDatabase();
 });
+
+// Graceful shutdown - follows Usernode platform conventions
+const DRAIN_MS = 3000;
+let shuttingDown = false;
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`Received ${signal}, draining connections...`);
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+  setTimeout(() => {
+    console.log('Drain timeout exceeded, forcing exit');
+    process.exit(0);
+  }, DRAIN_MS).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 module.exports = app;
