@@ -281,6 +281,71 @@
       "name": "Channel detail screen loads",
       "path": "/#/discover/channel/discover_channel_1",
       "expectText": "Announcements"
+    },
+    {
+      "name": "Channel view renders the post feed",
+      "path": "/#/channel/channel_1",
+      "expectText": "Mainnet Beta is Live"
+    },
+    {
+      "name": "Channel posts render as cards",
+      "path": "/#/channel/channel_1",
+      "expectSelector": ".post-card"
+    },
+    {
+      "name": "Channel post shows reaction chips with counts",
+      "path": "/#/channel/channel_1",
+      "expectSelector": ".post-reaction-chip"
+    },
+    {
+      "name": "Own reactions are highlighted on the chip",
+      "path": "/#/channel/channel_1",
+      "expectSelector": ".post-reaction-chip.is-mine"
+    },
+    {
+      "name": "Channel post exposes a forward action",
+      "path": "/#/channel/channel_1",
+      "expectSelector": ".post-forward-button"
+    },
+    {
+      "name": "Channel header shows follower count",
+      "path": "/#/channel/channel_1",
+      "expectText": "followers"
+    },
+    {
+      "name": "Unfollowed channel shows a header Follow pill",
+      "path": "/#/channel/channel_3",
+      "expectSelector": ".channel-follow-pill"
+    },
+    {
+      "name": "Owned channel keeps the publish composer",
+      "path": "/#/channel/channel_2",
+      "expectSelector": ".channel-footer .composer-input"
+    },
+    {
+      "name": "Reaction picker opens from the react button",
+      "path": "/?shot=post-reactions#/channel/channel_1",
+      "expectSelector": ".reaction-picker-option"
+    },
+    {
+      "name": "Forward sheet opens with selectable targets",
+      "path": "/?shot=forward-sheet#/channel/channel_1",
+      "expectText": "Forward to"
+    },
+    {
+      "name": "Forward sheet lists forward targets",
+      "path": "/?shot=forward-sheet#/channel/channel_1",
+      "expectSelector": ".forward-target-item"
+    },
+    {
+      "name": "Forwarded DM message shows source channel",
+      "path": "/#/conversation/conv_2",
+      "expectText": "Forwarded from Solana Indonesia"
+    },
+    {
+      "name": "Forwarded group message shows attribution",
+      "path": "/#/group/group_1",
+      "expectSelector": ".forward-attribution"
     }
   ]
 }
