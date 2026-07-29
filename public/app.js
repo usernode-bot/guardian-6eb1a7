@@ -64,7 +64,7 @@ document.addEventListener('DOMContentLoaded', () => {
         { id: 'msg_3', text: "Nice! Want to grab dinner?", timestamp: Date.now() - 4*60*1000, isOutgoing: false, hiddenFor: { user_self: true } },
         { id: 'msg_4', text: "Sure! When?", timestamp: Date.now() - 3.5*60*1000, isOutgoing: true },
         { id: 'msg_5', text: "How about 7pm?", timestamp: Date.now() - 3*60*1000, isOutgoing: false },
-        { id: 'msg_6', text: "That sounds great! Let's meet up soon.", timestamp: Date.now() - 2*60*1000, isOutgoing: true }
+        { id: 'msg_6', text: "That sounds great! Let's meet up soon.", timestamp: Date.now() - 2*60*1000, isOutgoing: true, replyTo: { messageId: 'msg_5', senderName: 'Alice Chen', previewText: 'How about 7pm?' } }
       ]
     },
     {
@@ -145,20 +145,22 @@ document.addEventListener('DOMContentLoaded', () => {
       avatar: 'SC',
       description: 'A community of seekers and explorers',
       memberCount: 128,
+      visibility: 'public',
       creatorId: 'user_self',
       members: [
-        { id: 'user_self', username: 'You', role: 'admin' },
+        { id: 'user_self', username: 'You', role: 'owner' },
         { id: 'user_alice', username: 'Alice', role: 'admin' },
         { id: 'user_bob', username: 'Bob', role: 'member' },
         { id: 'user_charlie', username: 'Charlie', role: 'member' }
       ],
+      joinRequests: [],
       messages: [
         { id: 'msg_1', senderId: 'user_alice', senderName: 'Alice', text: 'Hey everyone!', timestamp: Date.now() - 10*60*1000, isOutgoing: false },
         { id: 'msg_2', senderId: 'user_bob', senderName: 'Bob', text: 'Welcome to the group!', timestamp: Date.now() - 9*60*1000, isOutgoing: false, isDeleted: true },
         { id: 'msg_3', senderId: 'user_self', text: 'Thanks for adding me!', timestamp: Date.now() - 8*60*1000, isOutgoing: true },
         { id: 'msg_4', senderId: 'user_charlie', senderName: 'Charlie', text: 'Great to have you here!', timestamp: Date.now() - 7*60*1000, isOutgoing: false, isDeleted: true, deletedByAdmin: true },
         { id: 'msg_5', senderId: 'user_alice', senderName: 'Alice', text: 'Let\'s catch up soon!', timestamp: Date.now() - 6*60*1000, isOutgoing: false },
-        { id: 'msg_6', senderId: 'user_self', text: 'Absolutely! Looking forward to it.', timestamp: Date.now() - 5*60*1000, isOutgoing: true }
+        { id: 'msg_6', senderId: 'user_self', text: 'Absolutely! Looking forward to it.', timestamp: Date.now() - 5*60*1000, isOutgoing: true, replyTo: { messageId: 'msg_5', senderName: 'Alice', previewText: "Let's catch up soon!" } }
       ]
     },
     {
@@ -167,11 +169,16 @@ document.addEventListener('DOMContentLoaded', () => {
       avatar: 'DT',
       description: 'Collaborate on visual designs and UI/UX',
       memberCount: 3,
+      visibility: 'private',
       creatorId: 'user_8',
       members: [
         { id: 'user_self', username: 'You', role: 'member' },
         { id: 'user_1', username: 'aksaranft', role: 'member' },
-        { id: 'user_8', username: 'designpro', role: 'admin' }
+        { id: 'user_8', username: 'designpro', role: 'owner' }
+      ],
+      joinRequests: [
+        { userId: 'user_join_req_1', username: 'Staging Demo User', requestedAt: Date.now() - 2*60*60*1000 },
+        { userId: 'user_join_req_2', username: 'Staging Demo User 2', requestedAt: Date.now() - 45*60*1000 }
       ],
       messages: [
         { id: 'msg_1', senderId: 'user_8', senderName: 'designpro', text: 'Just posted the new mockups', timestamp: Date.now() - 30*60*1000, isOutgoing: false },
@@ -289,7 +296,9 @@ document.addEventListener('DOMContentLoaded', () => {
       description: 'A community for tech lovers and innovators',
       avatar: 'TE',
       memberCount: 256,
+      visibility: 'public',
       members: [],
+      joinRequests: [],
       isFeatured: true,
       isNew: false,
       createdAt: Date.now() - 60*24*60*60*1000
@@ -300,7 +309,9 @@ document.addEventListener('DOMContentLoaded', () => {
       description: 'Collaborate and share design ideas and projects',
       avatar: 'DC',
       memberCount: 189,
+      visibility: 'private',
       members: [],
+      joinRequests: [],
       isFeatured: true,
       isNew: false,
       createdAt: Date.now() - 45*24*60*60*1000
@@ -311,7 +322,9 @@ document.addEventListener('DOMContentLoaded', () => {
       description: 'Share and discuss photography techniques',
       avatar: 'PC',
       memberCount: 412,
+      visibility: 'public',
       members: [],
+      joinRequests: [],
       isFeatured: false,
       isNew: false,
       createdAt: Date.now() - 30*24*60*60*1000
@@ -322,7 +335,9 @@ document.addEventListener('DOMContentLoaded', () => {
       description: 'Discuss books, authors, and reading experiences',
       avatar: 'BL',
       memberCount: 178,
+      visibility: 'public',
       members: [],
+      joinRequests: [],
       isFeatured: false,
       isNew: true,
       createdAt: Date.now() - 3*24*60*60*1000
@@ -333,7 +348,9 @@ document.addEventListener('DOMContentLoaded', () => {
       description: 'Share fitness goals, workouts, and health tips',
       avatar: 'FS',
       memberCount: 334,
+      visibility: 'public',
       members: [],
+      joinRequests: [],
       isFeatured: false,
       isNew: false,
       createdAt: Date.now() - 20*24*60*60*1000
@@ -344,7 +361,9 @@ document.addEventListener('DOMContentLoaded', () => {
       description: 'Deep dive into artificial intelligence and machine learning',
       avatar: 'AM',
       memberCount: 567,
+      visibility: 'public',
       members: [],
+      joinRequests: [],
       isFeatured: true,
       isNew: false,
       createdAt: Date.now() - 15*24*60*60*1000
@@ -355,7 +374,9 @@ document.addEventListener('DOMContentLoaded', () => {
       description: 'Build and discuss decentralized applications',
       avatar: 'WB',
       memberCount: 291,
+      visibility: 'public',
       members: [],
+      joinRequests: [],
       isFeatured: false,
       isNew: true,
       createdAt: Date.now() - 5*24*60*60*1000
@@ -366,7 +387,9 @@ document.addEventListener('DOMContentLoaded', () => {
       description: 'Connect with independent developers and entrepreneurs',
       avatar: 'IH',
       memberCount: 445,
+      visibility: 'public',
       members: [],
+      joinRequests: [],
       isFeatured: false,
       isNew: false,
       createdAt: Date.now() - 12*24*60*60*1000
@@ -597,22 +620,25 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Helper: create a new group and associated conversation
-  function createGroup(groupName, groupDescription, selectedMembers, avatarData) {
+  function createGroup(groupName, groupDescription, selectedMembers, avatarData, visibility) {
     const groupId = generateGroupId();
     const timestamp = Date.now();
     const avatarValue = avatarData || generateDefaultAvatar(groupName);
+    const groupVisibility = visibility === 'public' ? 'public' : 'private';
 
     const newGroup = {
       id: groupId,
       name: groupName,
       description: groupDescription,
       avatar: avatarValue,
-      memberCount: selectedMembers.length + 1, // +1 for the user
+      visibility: groupVisibility,
       creatorId: 'user_self',
+      memberCount: selectedMembers.length + 1, // +1 for the user
       members: [
-        { id: 'user_self', username: 'You', role: 'admin' },
+        { id: 'user_self', username: 'You', role: 'owner' },
         ...selectedMembers.map(m => ({ ...m, role: m.role || 'member' }))
       ],
+      joinRequests: [],
       createdAt: timestamp,
       messages: [
         {
@@ -862,22 +888,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Join a group from discover
+  // Join a group from discover (public groups only — private groups go through requestToJoinGroup)
   function joinDiscoverGroup(groupId) {
     const discoverGroup = discoverGroups.find(g => g.id === groupId);
-    if (!discoverGroup) return;
+    if (!discoverGroup || discoverGroup.visibility === 'private') return;
 
     const newGroup = {
       id: groupId,
       name: discoverGroup.name,
       description: discoverGroup.description,
       avatar: discoverGroup.avatar,
-      memberCount: discoverGroup.memberCount + 1,
+      visibility: discoverGroup.visibility || 'public',
       creatorId: discoverGroup.creatorId || (discoverGroup.members[0] && discoverGroup.members[0].id) || null,
+      memberCount: discoverGroup.memberCount + 1,
       members: [
         { id: 'user_self', username: 'You', role: 'member' },
         ...discoverGroup.members.map(m => ({ ...m, role: m.role || 'member' }))
       ],
+      joinRequests: [],
       createdAt: Date.now(),
       messages: [
         {
@@ -911,6 +939,36 @@ document.addEventListener('DOMContentLoaded', () => {
     discoverGroups = discoverGroups.filter(g => g.id !== groupId);
 
     renderDiscoverPage(activeDiscoverTab);
+  }
+
+  // Request to join a private group from discover
+  async function requestToJoinGroup(groupId) {
+    const discoverGroup = discoverGroups.find(g => g.id === groupId);
+    if (!discoverGroup) return;
+    if (!discoverGroup.joinRequests) discoverGroup.joinRequests = [];
+    if (discoverGroup.joinRequests.some(r => r.userId === 'user_self')) return;
+
+    try {
+      const response = await fetch(`/api/groups/${groupId}/join-requests`, {
+        method: 'POST',
+        headers: {
+          'x-usernode-token': localStorage.getItem('usernode-token')
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to send join request');
+      }
+
+      discoverGroup.joinRequests.push({
+        userId: 'user_self',
+        username: 'You',
+        requestedAt: Date.now()
+      });
+    } catch (error) {
+      console.error(error);
+      showToast('Failed to send join request', { type: 'error' });
+    }
   }
 
   // Follow a channel from discover
@@ -1155,6 +1213,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const isJoined = groups.some(g => g.id === groupId);
+    const isPrivate = group.visibility === 'private';
+    const hasPendingRequest = !isJoined && isPrivate && (group.joinRequests || []).some(r => r.userId === 'user_self');
+
+    let actionButtonHTML;
+    if (isJoined) {
+      actionButtonHTML = '<button class="detail-button" disabled>Already Joined</button>';
+    } else if (isPrivate) {
+      actionButtonHTML = hasPendingRequest
+        ? '<button class="detail-button" id="request-pending-button" disabled>Request Pending</button>'
+        : '<button class="detail-button" id="request-join-button">Request to Join</button>';
+    } else {
+      actionButtonHTML = '<button class="detail-button" id="join-button">Join Group</button>';
+    }
 
     pageContainer.innerHTML = `
       <div class="detail-screen">
@@ -1165,9 +1236,10 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="detail-content">
           <div class="detail-avatar">${group.avatar}</div>
           <h2>${group.name}</h2>
+          <div class="detail-badge">${isPrivate ? '🔒 Private' : '🌐 Public'}</div>
           <p class="detail-description">${group.description}</p>
           <div class="detail-stat">${group.memberCount} members</div>
-          ${!isJoined ? `<button class="detail-button" id="join-button">Join Group</button>` : '<button class="detail-button" disabled>Already Joined</button>'}
+          ${actionButtonHTML}
         </div>
       </div>
     `;
@@ -1181,6 +1253,15 @@ document.addEventListener('DOMContentLoaded', () => {
       joinBtn.addEventListener('click', () => {
         joinDiscoverGroup(groupId);
         window.location.hash = '/discover';
+      });
+    }
+
+    const requestJoinBtn = document.getElementById('request-join-button');
+    if (requestJoinBtn) {
+      requestJoinBtn.addEventListener('click', async () => {
+        await requestToJoinGroup(groupId);
+        renderGroupDetailScreen(groupId);
+        showToast('Request sent', { type: 'success' });
       });
     }
 
@@ -1728,7 +1809,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const messagesList = conversation.messages.filter(msg => !(msg.hiddenFor && msg.hiddenFor.user_self)).map(msg => {
-      let messageHTML = `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming'}" data-message-id="${msg.id}">`;
+      let messageHTML = `<div class="message-swipe-wrapper ${msg.isOutgoing ? 'wrapper-outgoing' : 'wrapper-incoming'}" data-message-id="${msg.id}">`;
+      messageHTML += `<div class="message-reply-icon" aria-hidden="true">↩️</div>`;
+      messageHTML += `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming'}" data-message-id="${msg.id}">`;
 
       // Add quoted message section if this is a reply
       if (msg.replyTo) {
@@ -1747,6 +1830,8 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
         <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
       </div>`;
+
+      messageHTML += `</div>`;
 
       return messageHTML;
     }).join('');
@@ -1817,6 +1902,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Set up message long-press interactions
     setupMessageLongPress(conversation, 'dm');
+    setupMessageSwipeToReply(conversation, 'dm');
 
     // Set up send button and reply state management
     setupComposer(conversation, { isGroup: false });
@@ -2107,7 +2193,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
           if (action === 'reply') {
             if (targetMessage) {
-              const senderName = targetMessage.isOutgoing ? 'You' : conversation.username;
+              const senderName = targetMessage.isOutgoing
+                ? 'You'
+                : (threadType === 'group' ? targetMessage.senderName : conversation.username);
               const previewText = truncateText(targetMessage.text, 50);
               setReplyState(messageId, senderName, previewText);
             }
@@ -2160,18 +2248,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
     messageBubbles.forEach(bubble => {
       const messageId = bubble.dataset.messageId;
+      let mouseDownPos = null;
 
       // Mouse events
       bubble.addEventListener('mousedown', (e) => {
         if (menuState.lastEventWasTouch) return;
+        mouseDownPos = { x: e.clientX, y: e.clientY };
         menuState.touchStartTime = Date.now();
         menuState.longPressTimer = setTimeout(() => {
           showMenu(messageId, bubble);
         }, LONG_PRESS_DURATION);
       });
 
+      bubble.addEventListener('mousemove', (e) => {
+        if (!menuState.longPressTimer || !mouseDownPos) return;
+        const dx = e.clientX - mouseDownPos.x;
+        const dy = e.clientY - mouseDownPos.y;
+        if (Math.sqrt(dx * dx + dy * dy) > 8) {
+          clearTimeout(menuState.longPressTimer);
+          menuState.longPressTimer = null;
+        }
+      });
+
       bubble.addEventListener('mouseup', () => {
         if (menuState.lastEventWasTouch) return;
+        mouseDownPos = null;
         if (menuState.longPressTimer) {
           clearTimeout(menuState.longPressTimer);
           menuState.longPressTimer = null;
@@ -2213,6 +2314,184 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Prevent text selection during long-press
       bubble.style.userSelect = 'none';
+    });
+  }
+
+  // Swipe-to-reply gesture: incoming messages swipe right, outgoing messages swipe left.
+  function setupMessageSwipeToReply(thread, threadType) {
+    const AXIS_LOCK_DISTANCE = 8;
+    const SWIPE_MAX_OFFSET = 64;
+    const SWIPE_COMMIT_THRESHOLD = 40;
+    const SWIPE_FLICK_VELOCITY = 0.5; // px/ms
+
+    const wrappers = pageContainer.querySelectorAll('.message-swipe-wrapper');
+
+    wrappers.forEach(wrapper => {
+      const messageId = wrapper.dataset.messageId;
+      const messageEl = wrapper.querySelector('.message');
+      const iconEl = wrapper.querySelector('.message-reply-icon');
+      if (!messageEl) return;
+
+      function getMessage() {
+        return thread.messages.find(m => m.id === messageId);
+      }
+
+      function isSwipeable() {
+        const msg = getMessage();
+        return !!msg && !msg.isDeleted && !msg.isSystemMessage;
+      }
+
+      // Incoming messages only swipe right (+1), outgoing only swipe left (-1)
+      function directionSign() {
+        const msg = getMessage();
+        return msg && msg.isOutgoing ? -1 : 1;
+      }
+
+      function clampOffset(rawAbs, sign) {
+        const abs = Math.min(rawAbs, SWIPE_MAX_OFFSET * 1.4);
+        const eased = abs <= SWIPE_MAX_OFFSET
+          ? abs
+          : SWIPE_MAX_OFFSET + (abs - SWIPE_MAX_OFFSET) * 0.35;
+        return eased * sign;
+      }
+
+      function updateVisual(offset) {
+        const progress = Math.min(Math.abs(offset) / SWIPE_COMMIT_THRESHOLD, 1);
+        messageEl.style.transform = `translateX(${offset}px)`;
+        if (iconEl) {
+          iconEl.style.opacity = String(progress);
+          iconEl.style.transform = `translateY(-50%) scale(${0.6 + 0.4 * progress})`;
+        }
+      }
+
+      function resetVisual() {
+        messageEl.classList.remove('swiping');
+        messageEl.style.transform = '';
+        if (iconEl) {
+          iconEl.style.opacity = '';
+          iconEl.style.transform = '';
+        }
+      }
+
+      let state = null;
+
+      function beginDrag(x, y) {
+        if (!isSwipeable()) return null;
+        return {
+          startX: x,
+          startY: y,
+          offset: 0,
+          velocity: 0,
+          lastTime: Date.now(),
+          axisLocked: false,
+          horizontal: false
+        };
+      }
+
+      function handleMove(x, y, evt) {
+        if (!state) return;
+        const dx = x - state.startX;
+        const dy = y - state.startY;
+
+        if (!state.axisLocked) {
+          if (Math.abs(dx) < AXIS_LOCK_DISTANCE && Math.abs(dy) < AXIS_LOCK_DISTANCE) return;
+          state.axisLocked = true;
+          state.horizontal = Math.abs(dx) > Math.abs(dy);
+          if (!state.horizontal) {
+            state = null;
+            return;
+          }
+          messageEl.classList.add('swiping');
+        }
+        if (!state.horizontal) return;
+
+        const sign = directionSign();
+        const rawInAllowedDir = sign > 0 ? Math.max(dx, 0) : Math.max(-dx, 0);
+        const clamped = clampOffset(rawInAllowedDir, sign);
+
+        if (clamped !== 0 && evt && evt.cancelable) evt.preventDefault();
+
+        const now = Date.now();
+        const dt = now - state.lastTime;
+        if (dt > 0) state.velocity = (clamped - state.offset) / dt;
+        state.lastTime = now;
+        state.offset = clamped;
+
+        updateVisual(clamped);
+      }
+
+      function handleEnd() {
+        if (!state) return;
+        const wasHorizontal = state.horizontal;
+        const offset = state.offset;
+        const velocity = state.velocity;
+        state = null;
+
+        if (!wasHorizontal) return;
+
+        const committed = Math.abs(offset) >= SWIPE_COMMIT_THRESHOLD ||
+          Math.abs(velocity) >= SWIPE_FLICK_VELOCITY;
+
+        resetVisual();
+
+        if (committed) {
+          const msg = getMessage();
+          if (msg) {
+            const senderName = msg.isOutgoing
+              ? 'You'
+              : (threadType === 'group' ? msg.senderName : thread.username);
+            const previewText = truncateText(msg.text, 50);
+            setReplyState(msg.id, senderName, previewText);
+            if (navigator.vibrate) navigator.vibrate(10);
+            const composerInput = pageContainer.querySelector('.composer-input');
+            if (composerInput) composerInput.focus();
+          }
+        }
+      }
+
+      // Touch events
+      wrapper.addEventListener('touchstart', (e) => {
+        const touch = e.touches[0];
+        state = beginDrag(touch.clientX, touch.clientY);
+      }, { passive: true });
+
+      wrapper.addEventListener('touchmove', (e) => {
+        const touch = e.touches[0];
+        handleMove(touch.clientX, touch.clientY, e);
+      }, { passive: false });
+
+      wrapper.addEventListener('touchend', () => {
+        handleEnd();
+      });
+
+      wrapper.addEventListener('touchcancel', () => {
+        state = null;
+        resetVisual();
+      });
+
+      // Mouse events (desktop testing)
+      let mouseIsDown = false;
+      wrapper.addEventListener('mousedown', (e) => {
+        mouseIsDown = true;
+        state = beginDrag(e.clientX, e.clientY);
+      });
+
+      wrapper.addEventListener('mousemove', (e) => {
+        if (!mouseIsDown) return;
+        handleMove(e.clientX, e.clientY, e);
+      });
+
+      wrapper.addEventListener('mouseup', () => {
+        mouseIsDown = false;
+        handleEnd();
+      });
+
+      wrapper.addEventListener('mouseleave', () => {
+        if (mouseIsDown) {
+          mouseIsDown = false;
+          handleEnd();
+        }
+      });
     });
   }
 
@@ -2451,15 +2730,28 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const messagesList = group.messages.map(msg => {
-      let messageHTML = `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming has-avatar'}" data-message-id="${msg.id}">`;
+      let messageHTML = `<div class="message-swipe-wrapper ${msg.isOutgoing ? 'wrapper-outgoing' : 'wrapper-incoming'}" data-message-id="${msg.id}">`;
+      messageHTML += `<div class="message-reply-icon" aria-hidden="true">↩️</div>`;
+      messageHTML += `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming has-avatar'}" data-message-id="${msg.id}">`;
 
       const bubbleText = msg.isDeleted
         ? (msg.deletedByAdmin ? 'This message was deleted by an admin' : 'Message deleted')
         : msg.text;
       const bubbleClass = msg.isDeleted ? 'message-bubble deleted' : 'message-bubble';
 
+      const quoteHTML = msg.replyTo ? `
+        <div class="message-quote" data-quoted-message-id="${msg.replyTo.messageId}">
+          <div class="quote-border"></div>
+          <div class="quote-content">
+            <div class="quote-sender">${msg.replyTo.senderName}</div>
+            <div class="quote-text">${msg.replyTo.previewText}</div>
+          </div>
+        </div>
+      ` : '';
+
       if (msg.isOutgoing) {
         messageHTML += `
+          ${quoteHTML}
           <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
           <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
         </div>`;
@@ -2468,11 +2760,14 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="message-avatar">${msg.senderName ? msg.senderName.charAt(0).toUpperCase() : ''}</div>
           <div class="message-content">
             <div class="message-sender-name">${msg.senderName}</div>
+            ${quoteHTML}
             <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
             <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
           </div>
         </div>`;
       }
+
+      messageHTML += `</div>`;
 
       return messageHTML;
     }).join('');
@@ -2567,6 +2862,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Set up message long-press interactions
     setupMessageLongPress(group, 'group');
+    setupMessageSwipeToReply(group, 'group');
 
     // Set up send button and reply state management
     setupComposer(group, { isGroup: true });
@@ -2577,6 +2873,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Show group menu with all options (members, edit description, leave)
   function showGroupMenuDialog(groupId, group) {
+    const myRole = (group.members.find(m => m.id === 'user_self') || {}).role;
+    const canManageMembers = myRole === 'owner' || myRole === 'admin';
+
     const overlay = document.createElement('div');
     overlay.className = 'dialog-overlay';
 
@@ -2598,11 +2897,12 @@ document.addEventListener('DOMContentLoaded', () => {
           <span class="option-label">Edit Description</span>
           <span class="option-chevron">›</span>
         </button>
+        ${canManageMembers ? `
         <button class="menu-option" id="add-members-btn">
           <span class="option-icon">➕</span>
           <span class="option-label">Add Members</span>
           <span class="option-chevron">›</span>
-        </button>
+        </button>` : ''}
         <button class="menu-option leave-option" id="leave-group-btn">
           <span class="option-icon">🚪</span>
           <span class="option-label">Leave Group</span>
@@ -2628,10 +2928,13 @@ document.addEventListener('DOMContentLoaded', () => {
       showEditDescriptionDialog(groupId, group.description);
     });
 
-    document.getElementById('add-members-btn').addEventListener('click', () => {
-      overlay.remove();
-      showAddMembersSheet(groupId, group);
-    });
+    const addMembersBtn = document.getElementById('add-members-btn');
+    if (addMembersBtn) {
+      addMembersBtn.addEventListener('click', () => {
+        overlay.remove();
+        showAddMembersSheet(groupId, group);
+      });
+    }
 
     document.getElementById('leave-group-btn').addEventListener('click', () => {
       overlay.remove();
@@ -2647,21 +2950,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Show members list in a sheet/modal
   function showMembersSheet(groupId, group) {
+    const myRole = (group.members.find(m => m.id === 'user_self') || {}).role;
+    const canManageMembers = myRole === 'owner' || myRole === 'admin';
+
     const overlay = document.createElement('div');
     overlay.className = 'dialog-overlay';
 
     const dialog = document.createElement('div');
     dialog.className = 'dialog members-sheet-dialog';
 
-    const membersList = group.members.map(member => `
+    const membersList = group.members.map(member => {
+      const roleLabel = member.role === 'owner' ? 'Owner' : member.role === 'admin' ? 'Admin' : '';
+      return `
       <div class="members-sheet-item" data-member-id="${member.id}">
         <div class="member-avatar">${member.avatar || member.username.charAt(0).toUpperCase()}</div>
         <div class="member-info">
           <div class="member-name">${member.username}</div>
+          ${roleLabel ? `<div class="member-role-badge">${roleLabel}</div>` : ''}
         </div>
-        ${member.id !== 'user_self' ? `<button class="member-remove-btn" data-member-id="${member.id}">✕</button>` : ''}
+        ${(canManageMembers && member.id !== 'user_self') ? `<button class="member-remove-btn" data-member-id="${member.id}">✕</button>` : ''}
       </div>
-    `).join('');
+    `;
+    }).join('');
 
     dialog.innerHTML = `
       <div class="dialog-header">
@@ -2852,7 +3162,7 @@ document.addEventListener('DOMContentLoaded', () => {
           throw new Error('Failed to add members');
         }
 
-        group.members.push(...selectedMembers);
+        group.members.push(...selectedMembers.map(member => ({ ...member, role: 'member' })));
         group.memberCount = group.members.length;
 
         // Update conversation
@@ -2948,6 +3258,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const state = {
       groupName: '',
       groupDescription: '',
+      visibility: 'private',
       selectedMembers: [],
       searchQuery: '',
       avatarFile: null,
@@ -2985,6 +3296,14 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="validation-error" id="name-error"></div>
           </div>
           <input type="text" class="form-input" placeholder="Add a description (optional)" id="group-description-input" maxlength="250" />
+        </div>
+
+        <div class="form-section privacy-section">
+          <div class="section-header">Privacy</div>
+          <div class="privacy-toggle" id="privacy-toggle">
+            <button type="button" class="privacy-option active" data-visibility="private" id="privacy-private-btn">🔒 Private</button>
+            <button type="button" class="privacy-option" data-visibility="public" id="privacy-public-btn">🌐 Public</button>
+          </div>
         </div>
 
         <div class="form-section">
@@ -3131,6 +3450,20 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
+    // Privacy toggle handlers
+    const privacyPrivateBtn = document.getElementById('privacy-private-btn');
+    const privacyPublicBtn = document.getElementById('privacy-public-btn');
+    privacyPrivateBtn.addEventListener('click', () => {
+      state.visibility = 'private';
+      privacyPrivateBtn.classList.add('active');
+      privacyPublicBtn.classList.remove('active');
+    });
+    privacyPublicBtn.addEventListener('click', () => {
+      state.visibility = 'public';
+      privacyPublicBtn.classList.add('active');
+      privacyPrivateBtn.classList.remove('active');
+    });
+
     // Back button handler
     backButton.addEventListener('click', () => {
       window.location.hash = '/create';
@@ -3206,7 +3539,8 @@ document.addEventListener('DOMContentLoaded', () => {
         state.groupName,
         state.groupDescription,
         state.selectedMembers,
-        state.avatarPreview
+        state.avatarPreview,
+        state.visibility
       );
 
       // Navigate to the new group chat
@@ -3225,14 +3559,26 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const membersList = group.members.map(member => `
-      <div class="group-member-item" data-member-id="${member.id}">
-        <div class="member-avatar">${member.avatar || member.username.charAt(0).toUpperCase()}</div>
-        <div class="member-info">
-          <div class="member-name">${member.username}</div>
+    const myRole = (group.members.find(m => m.id === 'user_self') || {}).role;
+    const canManageMembers = myRole === 'owner' || myRole === 'admin';
+    const pendingRequestCount = (group.joinRequests || []).length;
+
+    const membersList = group.members.map(member => {
+      const roleLabel = member.role === 'owner' ? 'Owner' : member.role === 'admin' ? 'Admin' : '';
+      const showAdminToggle = myRole === 'owner' && member.id !== 'user_self' && member.role !== 'owner';
+      const adminToggleLabel = member.role === 'admin' ? 'Remove Admin' : 'Make Admin';
+
+      return `
+        <div class="group-member-item" data-member-id="${member.id}">
+          <div class="member-avatar">${member.avatar || member.username.charAt(0).toUpperCase()}</div>
+          <div class="member-info">
+            <div class="member-name">${member.username}</div>
+            ${roleLabel ? `<div class="member-role-badge">${roleLabel}</div>` : ''}
+          </div>
+          ${showAdminToggle ? `<button class="member-admin-toggle-btn" data-member-id="${member.id}">${adminToggleLabel}</button>` : ''}
         </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     pageContainer.innerHTML = `
       <div class="group-info-page">
@@ -3264,7 +3610,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
           <div class="members-section">
             <div class="section-title">Members (${group.memberCount})</div>
-            <button class="add-members-button" id="add-members-button">+ Add Members</button>
+            ${canManageMembers ? `<button class="add-members-button" id="add-members-button">+ Add Members</button>` : ''}
+            ${(group.visibility === 'private' && canManageMembers) ? `<button class="join-requests-button" id="join-requests-button">Join Requests${pendingRequestCount > 0 ? ` (${pendingRequestCount})` : ''}</button>` : ''}
             <div class="members-list" id="members-list">
               ${membersList}
             </div>
@@ -3296,23 +3643,84 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Add members
-    document.getElementById('add-members-button').addEventListener('click', () => {
-      window.location.hash = `/group/${groupId}/add-members`;
-    });
+    const addMembersButton = document.getElementById('add-members-button');
+    if (addMembersButton) {
+      addMembersButton.addEventListener('click', () => {
+        window.location.hash = `/group/${groupId}/add-members`;
+      });
+    }
+
+    // Join Requests
+    const joinRequestsButton = document.getElementById('join-requests-button');
+    if (joinRequestsButton) {
+      joinRequestsButton.addEventListener('click', () => {
+        window.location.hash = `/group/${groupId}/join-requests`;
+      });
+    }
 
     // Leave group
     document.getElementById('leave-group-button').addEventListener('click', () => {
       showLeaveGroupDialog(groupId, group.name);
     });
 
-    // Member long-press handlers
-    document.querySelectorAll('.group-member-item').forEach(item => {
-      item.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        const memberId = item.dataset.memberId;
-        showRemoveMemberConfirmation(groupId, memberId, group.members.find(m => m.id === memberId));
+    // Make Admin / Remove Admin (owner only)
+    document.querySelectorAll('.member-admin-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const memberId = btn.dataset.memberId;
+        toggleGroupAdmin(groupId, memberId);
       });
     });
+
+    // Member long-press handlers (owner/admin only)
+    if (canManageMembers) {
+      document.querySelectorAll('.group-member-item').forEach(item => {
+        item.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          const memberId = item.dataset.memberId;
+          showRemoveMemberConfirmation(groupId, memberId, group.members.find(m => m.id === memberId));
+        });
+      });
+    }
+  }
+
+  // Promote/demote a member between 'member' and 'admin' (owner only)
+  async function toggleGroupAdmin(groupId, memberId) {
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
+
+    const myRole = (group.members.find(m => m.id === 'user_self') || {}).role;
+    if (myRole !== 'owner') return;
+
+    const member = group.members.find(m => m.id === memberId);
+    if (!member || member.role === 'owner') return;
+
+    const newRole = member.role === 'admin' ? 'member' : 'admin';
+
+    try {
+      const response = await fetch(`/api/groups/${groupId}/members/${memberId}/role`, {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+          'x-usernode-token': localStorage.getItem('usernode-token')
+        },
+        body: JSON.stringify({ role: newRole })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update member role');
+      }
+
+      member.role = newRole;
+      renderGroupInfoPage(groupId);
+      showToast(
+        newRole === 'admin' ? `${member.username} is now an admin` : `${member.username} is no longer an admin`,
+        { type: 'success' }
+      );
+    } catch (error) {
+      console.error(error);
+      showToast('Failed to update member role', { type: 'error' });
+    }
   }
 
   // Show edit name dialog - stays on chat page
@@ -3753,7 +4161,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Add members to group
-        group.members.push(...selectedMembers);
+        group.members.push(...selectedMembers.map(member => ({ ...member, role: 'member' })));
         group.memberCount = group.members.length;
 
         window.location.hash = `/group/${groupId}/info`;
@@ -3918,6 +4326,134 @@ document.addEventListener('DOMContentLoaded', () => {
         overlay.remove();
       }
     });
+  }
+
+  // Render Join Requests page (owner/admin only)
+  function renderJoinRequestsPage(groupId) {
+    const group = groups.find(g => g.id === groupId);
+    if (!group) {
+      window.location.hash = '/messages';
+      return;
+    }
+
+    const myRole = (group.members.find(m => m.id === 'user_self') || {}).role;
+    if (myRole !== 'owner' && myRole !== 'admin') {
+      window.location.hash = `/group/${groupId}/info`;
+      return;
+    }
+
+    const joinRequests = group.joinRequests || [];
+    const requestsList = joinRequests.length > 0 ? joinRequests.map(req => `
+      <div class="join-request-item" data-request-user-id="${req.userId}">
+        <div class="member-avatar">${req.username.charAt(0).toUpperCase()}</div>
+        <div class="member-info">
+          <div class="member-name">${req.username}</div>
+        </div>
+        <div class="join-request-actions">
+          <button class="button-primary join-request-approve" data-request-user-id="${req.userId}">Approve</button>
+          <button class="button-secondary join-request-deny" data-request-user-id="${req.userId}">Deny</button>
+        </div>
+      </div>
+    `).join('') : '<div class="empty-state"><div class="empty-message">No pending requests</div></div>';
+
+    pageContainer.innerHTML = `
+      <div class="join-requests-page">
+        <div class="group-info-header">
+          <button class="back-button" aria-label="Back to group info">←</button>
+          <h1>Join Requests</h1>
+          <div style="width: 32px;"></div>
+        </div>
+        <div class="join-requests-list">
+          ${requestsList}
+        </div>
+      </div>
+    `;
+
+    document.querySelector('.back-button').addEventListener('click', () => {
+      window.location.hash = `/group/${groupId}/info`;
+    });
+
+    document.querySelectorAll('.join-request-approve').forEach(btn => {
+      btn.addEventListener('click', () => {
+        approveJoinRequest(groupId, btn.dataset.requestUserId);
+      });
+    });
+
+    document.querySelectorAll('.join-request-deny').forEach(btn => {
+      btn.addEventListener('click', () => {
+        denyJoinRequest(groupId, btn.dataset.requestUserId);
+      });
+    });
+  }
+
+  // Approve a pending join request - adds the requester as a member
+  async function approveJoinRequest(groupId, userId) {
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
+    const request = (group.joinRequests || []).find(r => r.userId === userId);
+    if (!request) return;
+
+    try {
+      const response = await fetch(`/api/groups/${groupId}/join-requests/${userId}/approve`, {
+        method: 'POST',
+        headers: {
+          'x-usernode-token': localStorage.getItem('usernode-token')
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to approve request');
+      }
+
+      group.members.push({ id: request.userId, username: request.username, role: 'member' });
+      group.memberCount = group.members.length;
+      group.joinRequests = group.joinRequests.filter(r => r.userId !== userId);
+
+      group.messages.push({
+        id: 'msg_' + Date.now(),
+        senderId: 'system',
+        senderName: 'System',
+        text: `${request.username} joined the group.`,
+        timestamp: Date.now(),
+        isOutgoing: false,
+        isSystemMessage: true
+      });
+
+      showToast(`${request.username} approved`, { type: 'success' });
+      renderJoinRequestsPage(groupId);
+    } catch (error) {
+      console.error(error);
+      showToast('Failed to approve request', { type: 'error' });
+    }
+  }
+
+  // Deny a pending join request - just clears it
+  async function denyJoinRequest(groupId, userId) {
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
+    const request = (group.joinRequests || []).find(r => r.userId === userId);
+    if (!request) return;
+
+    try {
+      const response = await fetch(`/api/groups/${groupId}/join-requests/${userId}/deny`, {
+        method: 'POST',
+        headers: {
+          'x-usernode-token': localStorage.getItem('usernode-token')
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to deny request');
+      }
+
+      group.joinRequests = group.joinRequests.filter(r => r.userId !== userId);
+
+      showToast(`Request from ${request.username} denied`, { type: 'success' });
+      renderJoinRequestsPage(groupId);
+    } catch (error) {
+      console.error(error);
+      showToast('Failed to deny request', { type: 'error' });
+    }
   }
 
   // Create a new channel
@@ -5049,6 +5585,20 @@ document.addEventListener('DOMContentLoaded', () => {
       const groupId = parts[1];
       const action = parts[2];
 
+      // Gate the group's chat/info/management screens to members only. Non-members
+      // (or unknown group IDs) are redirected to the info/detail screen instead.
+      const joinedGroup = groups.find(g => g.id === groupId);
+      const isMember = !!joinedGroup && joinedGroup.members.some(m => m.id === 'user_self');
+
+      if (!isMember) {
+        window.location.hash = `/discover/group/${groupId}`;
+        return;
+      }
+
+      // Add Members and Join Requests are restricted to owner/admin
+      const myRole = (joinedGroup.members.find(m => m.id === 'user_self') || {}).role;
+      const canManageMembers = myRole === 'owner' || myRole === 'admin';
+
       // Remove active from all nav tabs when on group screen
       navTabs.forEach(tab => tab.classList.remove('active'));
       // Hide bottom nav on group screen
@@ -5057,7 +5607,13 @@ document.addEventListener('DOMContentLoaded', () => {
       if (action === 'info') {
         renderGroupInfoPage(groupId);
       } else if (action === 'add-members') {
+        if (!canManageMembers) {
+          window.location.hash = `/group/${groupId}/info`;
+          return;
+        }
         renderAddMembersPage(groupId);
+      } else if (action === 'join-requests') {
+        renderJoinRequestsPage(groupId);
       } else {
         renderGroupConversationPage(groupId);
       }

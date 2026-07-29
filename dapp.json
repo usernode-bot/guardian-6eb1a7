@@ -163,6 +163,16 @@
       "expectSelector": "#search-members-input"
     },
     {
+      "name": "Create Group page shows privacy toggle",
+      "path": "/#/create-group",
+      "expectSelector": "#privacy-toggle"
+    },
+    {
+      "name": "Create Group page privacy toggle defaults to Private",
+      "path": "/#/create-group",
+      "expectSelector": "#privacy-private-btn.active"
+    },
+    {
       "name": "Group conversations appear in Messages list",
       "path": "/",
       "expectText": "Seeker Club"
