@@ -387,6 +387,11 @@ html, body {
   min-width: 0;
   overflow-wrap: anywhere;
   word-wrap: break-word;
+  transition: transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.message.swiping {
+  transition: none;
 }
 
 .message.has-avatar {
@@ -453,6 +458,39 @@ html, body {
   text-align: right;
 }
 
+.message-swipe-wrapper {
+  position: relative;
+  display: flex;
+  width: 100%;
+  touch-action: pan-y;
+}
+
+.message-swipe-wrapper.wrapper-incoming {
+  justify-content: flex-start;
+}
+
+.message-swipe-wrapper.wrapper-outgoing {
+  justify-content: flex-end;
+}
+
+.message-reply-icon {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%) scale(0.6);
+  opacity: 0;
+  font-size: 18px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.message-swipe-wrapper.wrapper-incoming .message-reply-icon {
+  left: 10px;
+}
+
+.message-swipe-wrapper.wrapper-outgoing .message-reply-icon {
+  right: 10px;
+}
+
 .message-avatar {
   display: flex;
   align-items: center;
@@ -491,6 +529,7 @@ html, body {
 
 .composer-container {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
@@ -715,10 +754,15 @@ html, body {
 
 /* Reply Preview Bar */
 .reply-preview-bar {
+  flex: 0 0 100%;
+  order: -1;
+  width: 100%;
+  box-sizing: border-box;
+  margin: -12px -16px 0;
   border-top: 1px solid #e0e0e0;
   border-bottom: 1px solid #e0e0e0;
   background-color: #f9f9f9;
-  padding: 8px 12px;
+  padding: 8px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;

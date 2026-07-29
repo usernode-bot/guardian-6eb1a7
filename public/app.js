@@ -61,7 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
         { id: 'msg_3', text: "Nice! Want to grab dinner?", timestamp: Date.now() - 4*60*1000, isOutgoing: false, hiddenFor: { user_self: true } },
         { id: 'msg_4', text: "Sure! When?", timestamp: Date.now() - 3.5*60*1000, isOutgoing: true },
         { id: 'msg_5', text: "How about 7pm?", timestamp: Date.now() - 3*60*1000, isOutgoing: false },
-        { id: 'msg_6', text: "That sounds great! Let's meet up soon.", timestamp: Date.now() - 2*60*1000, isOutgoing: true }
+        { id: 'msg_6', text: "That sounds great! Let's meet up soon.", timestamp: Date.now() - 2*60*1000, isOutgoing: true, replyTo: { messageId: 'msg_5', senderName: 'Alice Chen', previewText: 'How about 7pm?' } }
       ]
     },
     {
@@ -154,7 +154,7 @@ document.addEventListener('DOMContentLoaded', () => {
         { id: 'msg_3', senderId: 'user_self', text: 'Thanks for adding me!', timestamp: Date.now() - 8*60*1000, isOutgoing: true },
         { id: 'msg_4', senderId: 'user_charlie', senderName: 'Charlie', text: 'Great to have you here!', timestamp: Date.now() - 7*60*1000, isOutgoing: false, isDeleted: true, deletedByAdmin: true },
         { id: 'msg_5', senderId: 'user_alice', senderName: 'Alice', text: 'Let\'s catch up soon!', timestamp: Date.now() - 6*60*1000, isOutgoing: false },
-        { id: 'msg_6', senderId: 'user_self', text: 'Absolutely! Looking forward to it.', timestamp: Date.now() - 5*60*1000, isOutgoing: true }
+        { id: 'msg_6', senderId: 'user_self', text: 'Absolutely! Looking forward to it.', timestamp: Date.now() - 5*60*1000, isOutgoing: true, replyTo: { messageId: 'msg_5', senderName: 'Alice', previewText: "Let's catch up soon!" } }
       ]
     },
     {
@@ -1802,7 +1802,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const messagesList = conversation.messages.filter(msg => !(msg.hiddenFor && msg.hiddenFor.user_self)).map(msg => {
-      let messageHTML = `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming'}" data-message-id="${msg.id}">`;
+      let messageHTML = `<div class="message-swipe-wrapper ${msg.isOutgoing ? 'wrapper-outgoing' : 'wrapper-incoming'}" data-message-id="${msg.id}">`;
+      messageHTML += `<div class="message-reply-icon" aria-hidden="true">↩️</div>`;
+      messageHTML += `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming'}" data-message-id="${msg.id}">`;
 
       // Add quoted message section if this is a reply
       if (msg.replyTo) {
@@ -1821,6 +1823,8 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
         <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
       </div>`;
+
+      messageHTML += `</div>`;
 
       return messageHTML;
     }).join('');
@@ -1882,6 +1886,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Set up message long-press interactions
     setupMessageLongPress(conversation, 'dm');
+    setupMessageSwipeToReply(conversation, 'dm');
 
     // Set up send button and reply state management
     setupComposer(conversation, { isGroup: false });
@@ -2065,7 +2070,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
           if (action === 'reply') {
             if (targetMessage) {
-              const senderName = targetMessage.isOutgoing ? 'You' : conversation.username;
+              const senderName = targetMessage.isOutgoing
+                ? 'You'
+                : (threadType === 'group' ? targetMessage.senderName : conversation.username);
               const previewText = truncateText(targetMessage.text, 50);
               setReplyState(messageId, senderName, previewText);
             }
@@ -2118,18 +2125,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
     messageBubbles.forEach(bubble => {
       const messageId = bubble.dataset.messageId;
+      let mouseDownPos = null;
 
       // Mouse events
       bubble.addEventListener('mousedown', (e) => {
         if (menuState.lastEventWasTouch) return;
+        mouseDownPos = { x: e.clientX, y: e.clientY };
         menuState.touchStartTime = Date.now();
         menuState.longPressTimer = setTimeout(() => {
           showMenu(messageId, bubble);
         }, LONG_PRESS_DURATION);
       });
 
+      bubble.addEventListener('mousemove', (e) => {
+        if (!menuState.longPressTimer || !mouseDownPos) return;
+        const dx = e.clientX - mouseDownPos.x;
+        const dy = e.clientY - mouseDownPos.y;
+        if (Math.sqrt(dx * dx + dy * dy) > 8) {
+          clearTimeout(menuState.longPressTimer);
+          menuState.longPressTimer = null;
+        }
+      });
+
       bubble.addEventListener('mouseup', () => {
         if (menuState.lastEventWasTouch) return;
+        mouseDownPos = null;
         if (menuState.longPressTimer) {
           clearTimeout(menuState.longPressTimer);
           menuState.longPressTimer = null;
@@ -2171,6 +2191,184 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Prevent text selection during long-press
       bubble.style.userSelect = 'none';
+    });
+  }
+
+  // Swipe-to-reply gesture: incoming messages swipe right, outgoing messages swipe left.
+  function setupMessageSwipeToReply(thread, threadType) {
+    const AXIS_LOCK_DISTANCE = 8;
+    const SWIPE_MAX_OFFSET = 64;
+    const SWIPE_COMMIT_THRESHOLD = 40;
+    const SWIPE_FLICK_VELOCITY = 0.5; // px/ms
+
+    const wrappers = pageContainer.querySelectorAll('.message-swipe-wrapper');
+
+    wrappers.forEach(wrapper => {
+      const messageId = wrapper.dataset.messageId;
+      const messageEl = wrapper.querySelector('.message');
+      const iconEl = wrapper.querySelector('.message-reply-icon');
+      if (!messageEl) return;
+
+      function getMessage() {
+        return thread.messages.find(m => m.id === messageId);
+      }
+
+      function isSwipeable() {
+        const msg = getMessage();
+        return !!msg && !msg.isDeleted && !msg.isSystemMessage;
+      }
+
+      // Incoming messages only swipe right (+1), outgoing only swipe left (-1)
+      function directionSign() {
+        const msg = getMessage();
+        return msg && msg.isOutgoing ? -1 : 1;
+      }
+
+      function clampOffset(rawAbs, sign) {
+        const abs = Math.min(rawAbs, SWIPE_MAX_OFFSET * 1.4);
+        const eased = abs <= SWIPE_MAX_OFFSET
+          ? abs
+          : SWIPE_MAX_OFFSET + (abs - SWIPE_MAX_OFFSET) * 0.35;
+        return eased * sign;
+      }
+
+      function updateVisual(offset) {
+        const progress = Math.min(Math.abs(offset) / SWIPE_COMMIT_THRESHOLD, 1);
+        messageEl.style.transform = `translateX(${offset}px)`;
+        if (iconEl) {
+          iconEl.style.opacity = String(progress);
+          iconEl.style.transform = `translateY(-50%) scale(${0.6 + 0.4 * progress})`;
+        }
+      }
+
+      function resetVisual() {
+        messageEl.classList.remove('swiping');
+        messageEl.style.transform = '';
+        if (iconEl) {
+          iconEl.style.opacity = '';
+          iconEl.style.transform = '';
+        }
+      }
+
+      let state = null;
+
+      function beginDrag(x, y) {
+        if (!isSwipeable()) return null;
+        return {
+          startX: x,
+          startY: y,
+          offset: 0,
+          velocity: 0,
+          lastTime: Date.now(),
+          axisLocked: false,
+          horizontal: false
+        };
+      }
+
+      function handleMove(x, y, evt) {
+        if (!state) return;
+        const dx = x - state.startX;
+        const dy = y - state.startY;
+
+        if (!state.axisLocked) {
+          if (Math.abs(dx) < AXIS_LOCK_DISTANCE && Math.abs(dy) < AXIS_LOCK_DISTANCE) return;
+          state.axisLocked = true;
+          state.horizontal = Math.abs(dx) > Math.abs(dy);
+          if (!state.horizontal) {
+            state = null;
+            return;
+          }
+          messageEl.classList.add('swiping');
+        }
+        if (!state.horizontal) return;
+
+        const sign = directionSign();
+        const rawInAllowedDir = sign > 0 ? Math.max(dx, 0) : Math.max(-dx, 0);
+        const clamped = clampOffset(rawInAllowedDir, sign);
+
+        if (clamped !== 0 && evt && evt.cancelable) evt.preventDefault();
+
+        const now = Date.now();
+        const dt = now - state.lastTime;
+        if (dt > 0) state.velocity = (clamped - state.offset) / dt;
+        state.lastTime = now;
+        state.offset = clamped;
+
+        updateVisual(clamped);
+      }
+
+      function handleEnd() {
+        if (!state) return;
+        const wasHorizontal = state.horizontal;
+        const offset = state.offset;
+        const velocity = state.velocity;
+        state = null;
+
+        if (!wasHorizontal) return;
+
+        const committed = Math.abs(offset) >= SWIPE_COMMIT_THRESHOLD ||
+          Math.abs(velocity) >= SWIPE_FLICK_VELOCITY;
+
+        resetVisual();
+
+        if (committed) {
+          const msg = getMessage();
+          if (msg) {
+            const senderName = msg.isOutgoing
+              ? 'You'
+              : (threadType === 'group' ? msg.senderName : thread.username);
+            const previewText = truncateText(msg.text, 50);
+            setReplyState(msg.id, senderName, previewText);
+            if (navigator.vibrate) navigator.vibrate(10);
+            const composerInput = pageContainer.querySelector('.composer-input');
+            if (composerInput) composerInput.focus();
+          }
+        }
+      }
+
+      // Touch events
+      wrapper.addEventListener('touchstart', (e) => {
+        const touch = e.touches[0];
+        state = beginDrag(touch.clientX, touch.clientY);
+      }, { passive: true });
+
+      wrapper.addEventListener('touchmove', (e) => {
+        const touch = e.touches[0];
+        handleMove(touch.clientX, touch.clientY, e);
+      }, { passive: false });
+
+      wrapper.addEventListener('touchend', () => {
+        handleEnd();
+      });
+
+      wrapper.addEventListener('touchcancel', () => {
+        state = null;
+        resetVisual();
+      });
+
+      // Mouse events (desktop testing)
+      let mouseIsDown = false;
+      wrapper.addEventListener('mousedown', (e) => {
+        mouseIsDown = true;
+        state = beginDrag(e.clientX, e.clientY);
+      });
+
+      wrapper.addEventListener('mousemove', (e) => {
+        if (!mouseIsDown) return;
+        handleMove(e.clientX, e.clientY, e);
+      });
+
+      wrapper.addEventListener('mouseup', () => {
+        mouseIsDown = false;
+        handleEnd();
+      });
+
+      wrapper.addEventListener('mouseleave', () => {
+        if (mouseIsDown) {
+          mouseIsDown = false;
+          handleEnd();
+        }
+      });
     });
   }
 
@@ -2409,15 +2607,28 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const messagesList = group.messages.map(msg => {
-      let messageHTML = `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming has-avatar'}" data-message-id="${msg.id}">`;
+      let messageHTML = `<div class="message-swipe-wrapper ${msg.isOutgoing ? 'wrapper-outgoing' : 'wrapper-incoming'}" data-message-id="${msg.id}">`;
+      messageHTML += `<div class="message-reply-icon" aria-hidden="true">↩️</div>`;
+      messageHTML += `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming has-avatar'}" data-message-id="${msg.id}">`;
 
       const bubbleText = msg.isDeleted
         ? (msg.deletedByAdmin ? 'This message was deleted by an admin' : 'Message deleted')
         : msg.text;
       const bubbleClass = msg.isDeleted ? 'message-bubble deleted' : 'message-bubble';
 
+      const quoteHTML = msg.replyTo ? `
+        <div class="message-quote" data-quoted-message-id="${msg.replyTo.messageId}">
+          <div class="quote-border"></div>
+          <div class="quote-content">
+            <div class="quote-sender">${msg.replyTo.senderName}</div>
+            <div class="quote-text">${msg.replyTo.previewText}</div>
+          </div>
+        </div>
+      ` : '';
+
       if (msg.isOutgoing) {
         messageHTML += `
+          ${quoteHTML}
           <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
           <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
         </div>`;
@@ -2426,11 +2637,14 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="message-avatar">${msg.senderName ? msg.senderName.charAt(0).toUpperCase() : ''}</div>
           <div class="message-content">
             <div class="message-sender-name">${msg.senderName}</div>
+            ${quoteHTML}
             <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
             <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
           </div>
         </div>`;
       }
+
+      messageHTML += `</div>`;
 
       return messageHTML;
     }).join('');
@@ -2525,6 +2739,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Set up message long-press interactions
     setupMessageLongPress(group, 'group');
+    setupMessageSwipeToReply(group, 'group');
 
     // Set up send button and reply state management
     setupComposer(group, { isGroup: true });
