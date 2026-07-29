@@ -93,6 +93,11 @@
       "expectSelector": ".conversation-page .composer-container .composer-input"
     },
     {
+      "name": "Deleted group message renders as a placeholder",
+      "path": "/?shot=message-deleted#/group/group_1",
+      "expectSelector": ".message-bubble.deleted"
+    },
+    {
       "name": "Sent group message appears in the thread",
       "path": "/?shot=send-stay#/group/group_1",
       "expectText": "Shot send stay check"
@@ -100,7 +105,7 @@
     {
       "name": "New Message page loads",
       "path": "/#/create",
-      "expectText": "New Message"
+      "expectText": "Create Group"
     },
     {
       "name": "Search field displays on New Message page",
