@@ -5985,13 +5985,18 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Profile Screen Functions
+  // profileState only ever holds data that actually came back from
+  // /api/state (the verified JWT claims) — never a fabricated fallback.
+  // profileStatus drives what renderProfilePage() shows while that's
+  // pending, missing, or failed, so a fake identity never fills the gap.
   let profileState = {
-    username: 'johndoe',
+    username: null,
     bio: 'Building on Usernode',
     avatarUrl: null,
     avatarImageId: null,
-    walletAddress: '0x91FA987D4DC5A4E2DDB0F3E8C7B6A5D2C8'
+    walletAddress: null
   };
+  let profileStatus = 'loading'; // 'loading' | 'ready' | 'signed-out' | 'error'
 
   function getInitialsFromUsername(username) {
     const parts = username.trim().split(/\s+/);
@@ -6002,32 +6007,72 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function fetchUserData() {
+    profileStatus = 'loading';
     try {
       const token = localStorage.getItem('usernode-token');
       const response = await fetch('/api/state', {
         headers: token ? { 'x-usernode-token': token } : {}
       });
-      if (response.ok) {
-        const data = await response.json();
-        if (data.user) {
-          currentUser = { id: data.user.id, username: data.user.username || 'johndoe' };
-          profileState.username = data.user.username || 'johndoe';
-          if (data.user.usernode_pubkey) {
-            profileState.walletAddress = data.user.usernode_pubkey;
-          }
-        }
+      if (!response.ok) {
+        profileStatus = 'error';
+        return;
       }
+      const data = await response.json();
+      if (!data.user) {
+        profileStatus = 'signed-out';
+        return;
+      }
+      currentUser = { id: data.user.id, username: data.user.username };
+      profileState.username = data.user.username;
+      // usernode_pubkey is documented as nullable ("not linked yet") — leave
+      // walletAddress null rather than inventing a placeholder for that case.
+      profileState.walletAddress = data.user.usernode_pubkey || null;
+      profileStatus = 'ready';
     } catch (err) {
       console.error('Failed to fetch user data:', err);
+      profileStatus = 'error';
     }
   }
 
   function renderProfilePage() {
+    if (profileStatus === 'loading') {
+      pageContainer.innerHTML = `
+        <div class="profile-page">
+          <div class="messages-header">
+            <h1>Guardian</h1>
+          </div>
+          <div class="profile-content">
+            <div class="empty-state">Loading your profile…</div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    if (profileStatus === 'signed-out' || profileStatus === 'error') {
+      const message = profileStatus === 'signed-out'
+        ? "We couldn't verify your Usernode session. Please reopen Guardian from the app."
+        : "Something went wrong loading your profile. Please try again.";
+      pageContainer.innerHTML = `
+        <div class="profile-page">
+          <div class="messages-header">
+            <h1>Guardian</h1>
+          </div>
+          <div class="profile-content">
+            <div class="empty-state">${escapeHtml(message)}</div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
     const username = profileState.username;
     const bio = profileState.bio;
     const walletAddress = profileState.walletAddress;
-
-    const shortAddress = walletAddress.substring(0, 6) + '...' + walletAddress.substring(walletAddress.length - 4);
+    const hasWallet = typeof walletAddress === 'string' && walletAddress.length > 0;
+    const shortAddress = hasWallet
+      ? walletAddress.substring(0, 6) + '...' + walletAddress.substring(walletAddress.length - 4)
+      : '';
     const initials = getInitialsFromUsername(username);
 
     let avatarContent = initials;
@@ -6045,8 +6090,8 @@ document.addEventListener('DOMContentLoaded', () => {
           <!-- Profile Header -->
           <div class="profile-header-section">
             <div class="profile-avatar-large" id="profile-avatar-large">${avatarContent}</div>
-            <div class="profile-username">${username}</div>
-            <div class="profile-bio">${bio}</div>
+            <div class="profile-username">${escapeHtml(username)}</div>
+            <div class="profile-bio">${escapeHtml(bio)}</div>
           </div>
 
           <!-- Edit Bio Menu Item -->
@@ -6060,9 +6105,9 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="profile-wallet-card">
             <div class="wallet-info">
               <div class="wallet-label">Usernode Address</div>
-              <div class="wallet-address">${shortAddress}</div>
+              <div class="wallet-address">${hasWallet ? escapeHtml(shortAddress) : 'No wallet linked'}</div>
             </div>
-            <button class="wallet-copy-btn" id="wallet-copy-btn">📋</button>
+            <button class="wallet-copy-btn" id="wallet-copy-btn" ${hasWallet ? '' : 'disabled'}>📋</button>
           </div>
         </div>
       </div>
@@ -6099,10 +6144,24 @@ document.addEventListener('DOMContentLoaded', () => {
       window.location.hash = '/profile/edit-bio';
     });
 
-    // Wallet copy button
-    document.getElementById('wallet-copy-btn').addEventListener('click', () => {
-      console.log('Copy address placeholder');
-    });
+    // Wallet copy button - copies the full real address, not the shortened display string
+    if (hasWallet) {
+      const copyBtn = document.getElementById('wallet-copy-btn');
+      copyBtn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(walletAddress);
+          const originalContent = copyBtn.textContent;
+          copyBtn.textContent = '✅';
+          copyBtn.disabled = true;
+          setTimeout(() => {
+            copyBtn.textContent = originalContent;
+            copyBtn.disabled = false;
+          }, 1500);
+        } catch (err) {
+          console.error('Failed to copy wallet address:', err);
+        }
+      });
+    }
   }
 
   function renderProfileEditBioPage() {

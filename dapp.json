@@ -258,6 +258,16 @@
       "expectText": "Profile"
     },
     {
+      "name": "Profile page displays real username",
+      "path": "/#/profile",
+      "expectSelector": ".profile-username"
+    },
+    {
+      "name": "Profile page displays wallet card",
+      "path": "/#/profile",
+      "expectSelector": ".profile-wallet-card"
+    },
+    {
       "name": "Health check endpoint works",
       "path": "/health",
       "expectText": "ok"
