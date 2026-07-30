@@ -138,6 +138,41 @@
       "expectSelector": "[data-testid=\"create-channel-entry\"]"
     },
     {
+      "name": "Create menu shows the managed groups list",
+      "path": "/#/create",
+      "expectSelector": "[data-testid=\"managed-groups-list\"]"
+    },
+    {
+      "name": "Create menu shows the managed channels list",
+      "path": "/#/create",
+      "expectSelector": "[data-testid=\"managed-channels-list\"]"
+    },
+    {
+      "name": "Create menu lists a group the user owns",
+      "path": "/#/create",
+      "expectText": "Seeker Club"
+    },
+    {
+      "name": "Create menu lists a group the user only administers",
+      "path": "/#/create",
+      "expectText": "Guardian Mods"
+    },
+    {
+      "name": "Create menu lists a channel the user created",
+      "path": "/#/create",
+      "expectText": "Web3 Builders"
+    },
+    {
+      "name": "Managed group rows show an Owner/Admin badge",
+      "path": "/#/create",
+      "expectSelector": "[data-testid=\"managed-groups-list\"] .managed-role-badge"
+    },
+    {
+      "name": "Managed group list collapses behind a Show all expander",
+      "path": "/#/create",
+      "expectSelector": "[data-testid=\"managed-groups-list\"] .managed-show-all"
+    },
+    {
       "name": "Suggested Users section displays",
       "path": "/#/create",
       "expectText": "Suggested Users"
