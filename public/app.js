@@ -20,6 +20,9 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=message-deleted   forces group_1's seeded deleted messages         → placeholder must render
   //   ?shot=dm-menu           clicks the DM header's ⋮ button on load          → options menu must render
   //   ?shot=dm-cleared        clears conv_1's chat via the real Clear Chat fn  → list preview must read "No messages yet"
+  //   ?shot=create-group-public       selects Public on Create Group           → #privacy-public-btn must be active
+  //   ?shot=create-group-one-member   name + exactly ONE invitee               → Create Group must be enabled
+  //   ?shot=create-group-zero-members name only, then submits                  → "Select at least 1 member" must render
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -31,8 +34,43 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_MESSAGE_DELETED = SHOT === 'message-deleted';
   const SHOT_DM_MENU = SHOT === 'dm-menu';
   const SHOT_DM_CLEARED = SHOT === 'dm-cleared';
+  const SHOT_CREATE_GROUP_PUBLIC = SHOT === 'create-group-public';
+  const SHOT_CREATE_GROUP_ONE_MEMBER = SHOT === 'create-group-one-member';
+  const SHOT_CREATE_GROUP_ZERO_MEMBERS = SHOT === 'create-group-zero-members';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
+  const SHOT_CREATE_GROUP_NAME = 'Staging demo one-invite group';
+
+  // The signed-in Usernode user, hydrated from /api/state at boot. Server rows
+  // for this id are mapped onto the app's long-standing 'user_self' sentinel so
+  // every existing role check keeps working untouched.
+  let currentUser = null;
+
+  // Escape untrusted text before it goes into innerHTML. Group names, member
+  // usernames and descriptions now originate from OTHER users via the server,
+  // so interpolating them raw would be a stored-XSS hole.
+  function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function authHeaders(extra) {
+    const headers = Object.assign({}, extra || {});
+    const token = localStorage.getItem('usernode-token');
+    if (token) headers['x-usernode-token'] = token;
+    return headers;
+  }
+
+  // Helper copy shown under the Create Group privacy toggle.
+  const PRIVACY_HELP = {
+    private: 'Private — invite only. This group won’t be listed in Discover.',
+    public: 'Public — listed in Discover. Anyone can join with one tap.'
+  };
 
   // Page definitions
   const pages = {
@@ -404,6 +442,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   ];
 
+  // The hardcoded demo groups stay client-only: writing "Seeker Club" and
+  // "Tech Enthusiasts" into Postgres would put obviously-fake rows in the
+  // production database. Server-backed groups carry source: 'server' instead,
+  // and mutation helpers use this flag to decide whether to call the API.
+  groups.forEach(g => { g.source = 'local'; });
+  discoverGroups.forEach(g => { g.source = 'local'; });
+
   let discoverChannels = [
     {
       id: 'discover_channel_1',
@@ -627,7 +672,91 @@ document.addEventListener('DOMContentLoaded', () => {
     return name.charAt(0).toUpperCase();
   }
 
-  // Helper: create a new group and associated conversation
+  // Helper: build a system message for a freshly created/joined group thread
+  function groupSystemMessage(text, timestamp) {
+    return {
+      id: 'msg_' + timestamp,
+      senderId: 'system',
+      senderName: 'System',
+      text: text,
+      timestamp: timestamp,
+      isOutgoing: false,
+      isSystemMessage: true
+    };
+  }
+
+  // Map a server member row onto the app's identity model. Every role check in
+  // this file compares against the 'user_self' sentinel, so the signed-in user's
+  // own row has to become that sentinel rather than a raw platform id.
+  function mapServerMember(member) {
+    const isMe = currentUser && member.id === currentUser.id;
+    return {
+      id: isMe ? 'user_self' : member.id,
+      username: isMe ? 'You' : member.username,
+      avatar: generateDefaultAvatar(isMe ? 'You' : member.username),
+      role: member.role || 'member'
+    };
+  }
+
+  // Insert a server-returned group (plus its conversation row) into local state.
+  // Shared by the create-group flow and the boot-time hydration so both produce
+  // exactly the same shape.
+  function addServerGroupToState(serverGroup, systemMessageText) {
+    const timestamp = serverGroup.createdAt || Date.now();
+    const existing = groups.find(g => g.id === serverGroup.id);
+    const shaped = {
+      id: serverGroup.id,
+      name: serverGroup.name,
+      description: serverGroup.description || '',
+      avatar: serverGroup.avatar || generateDefaultAvatar(serverGroup.name),
+      visibility: serverGroup.visibility === 'public' ? 'public' : 'private',
+      creatorId: serverGroup.creatorId,
+      memberCount: serverGroup.memberCount,
+      members: (serverGroup.members || []).map(mapServerMember),
+      joinRequests: [],
+      createdAt: timestamp,
+      source: 'server',
+      // Messages are not persisted yet, so a server group's thread opens on the
+      // synthetic system message only.
+      messages: existing
+        ? existing.messages
+        : [groupSystemMessage(systemMessageText || 'Group created.', timestamp)]
+    };
+
+    if (existing) {
+      Object.assign(existing, shaped);
+    } else {
+      groups.push(shaped);
+    }
+
+    const lastMessage = shaped.messages[shaped.messages.length - 1];
+    const existingConv = conversations.find(c => c.groupId === serverGroup.id);
+    if (existingConv) {
+      existingConv.name = shaped.name;
+      existingConv.avatar = shaped.avatar;
+      existingConv.lastMessage = lastMessage ? lastMessage.text : '';
+    } else {
+      conversations.unshift({
+        id: 'conv_' + serverGroup.id,
+        type: 'group',
+        groupId: serverGroup.id,
+        name: shaped.name,
+        avatar: shaped.avatar,
+        lastMessage: lastMessage ? lastMessage.text : '',
+        timestamp: lastMessage ? lastMessage.timestamp : timestamp,
+        unreadCount: 0,
+        archived: false,
+        pinned: false
+      });
+    }
+
+    // A group you're now a member of must not linger in the Discover feed.
+    discoverGroups = discoverGroups.filter(g => g.id !== serverGroup.id);
+
+    return shaped;
+  }
+
+  // Helper: create a new group and associated conversation (local demo groups)
   function createGroup(groupName, groupDescription, selectedMembers, avatarData, visibility) {
     const groupId = generateGroupId();
     const timestamp = Date.now();
@@ -648,17 +777,8 @@ document.addEventListener('DOMContentLoaded', () => {
       ],
       joinRequests: [],
       createdAt: timestamp,
-      messages: [
-        {
-          id: 'msg_' + timestamp,
-          senderId: 'system',
-          senderName: 'System',
-          text: 'Group created.',
-          timestamp: timestamp,
-          isOutgoing: false,
-          isSystemMessage: true
-        }
-      ]
+      source: 'local',
+      messages: [groupSystemMessage('Group created.', timestamp)]
     };
 
     groups.push(newGroup);
@@ -678,6 +798,48 @@ document.addEventListener('DOMContentLoaded', () => {
 
     console.log('Group created:', newGroup);
     return groupId;
+  }
+
+  // Hydrate server-backed groups: the caller's own groups, and the public groups
+  // they haven't joined (the Discover feed). Non-fatal — the hardcoded demo
+  // fixtures still render if the network or the DB is unavailable.
+  async function hydrateServerGroups() {
+    try {
+      const [mineRes, discoverRes] = await Promise.all([
+        fetch('/api/groups?scope=mine', { headers: authHeaders() }),
+        fetch('/api/groups?scope=discover', { headers: authHeaders() })
+      ]);
+
+      if (mineRes.ok) {
+        const payload = await mineRes.json();
+        (payload.groups || []).forEach(g => addServerGroupToState(g));
+      }
+
+      if (discoverRes.ok) {
+        const payload = await discoverRes.json();
+        (payload.groups || []).forEach(g => {
+          if (groups.some(existing => existing.id === g.id)) return;
+          if (discoverGroups.some(existing => existing.id === g.id)) return;
+          discoverGroups.push({
+            id: g.id,
+            name: g.name,
+            description: g.description || '',
+            avatar: g.avatar || generateDefaultAvatar(g.name),
+            memberCount: g.memberCount,
+            visibility: 'public',
+            creatorId: g.creatorId,
+            members: [],
+            joinRequests: [],
+            isFeatured: false,
+            isNew: !!g.isNew,
+            createdAt: g.createdAt || Date.now(),
+            source: 'server'
+          });
+        });
+      }
+    } catch (error) {
+      console.warn('Could not load server groups:', error);
+    }
   }
 
   // Format relative timestamp for conversation list
@@ -797,13 +959,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         return `
           <div class="conversation-item" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
-            <div class="conversation-avatar">${item.avatar}</div>
+            <div class="conversation-avatar">${escapeHtml(item.avatar)}</div>
             <div class="conversation-content">
               <div class="conversation-header">
-                <span class="conversation-username">${displayName}</span>
+                <span class="conversation-username">${escapeHtml(displayName)}</span>
                 <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
               </div>
-              <p class="conversation-message">${item.lastMessage}</p>
+              <p class="conversation-message">${escapeHtml(item.lastMessage)}</p>
             </div>
             ${item.unreadCount > 0 ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>` : ''}
           </div>
@@ -897,9 +1059,32 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Join a group from discover (public groups only — private groups go through requestToJoinGroup)
-  function joinDiscoverGroup(groupId) {
+  async function joinDiscoverGroup(groupId) {
     const discoverGroup = discoverGroups.find(g => g.id === groupId);
     if (!discoverGroup || discoverGroup.visibility === 'private') return;
+
+    // Server-backed public groups join for real; only mutate local state once
+    // the server has actually recorded the membership.
+    if (discoverGroup.source === 'server') {
+      try {
+        const response = await fetch(`/api/groups/${groupId}/join`, {
+          method: 'POST',
+          headers: authHeaders({ 'content-type': 'application/json' })
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.error || 'Failed to join group');
+        }
+        const payload = await response.json();
+        addServerGroupToState(payload.group, 'You joined the group.');
+        renderDiscoverPage(activeDiscoverTab);
+        showToast('Joined group', { type: 'success' });
+      } catch (error) {
+        console.error(error);
+        showToast(error.message || 'Failed to join group', { type: 'error' });
+      }
+      return;
+    }
 
     const newGroup = {
       id: groupId,
@@ -915,17 +1100,8 @@ document.addEventListener('DOMContentLoaded', () => {
       ],
       joinRequests: [],
       createdAt: Date.now(),
-      messages: [
-        {
-          id: 'msg_' + Date.now(),
-          senderId: 'system',
-          senderName: 'System',
-          text: 'You joined the group.',
-          timestamp: Date.now(),
-          isOutgoing: false,
-          isSystemMessage: true
-        }
-      ]
+      source: 'local',
+      messages: [groupSystemMessage('You joined the group.', Date.now())]
     };
 
     groups.push(newGroup);
@@ -1210,10 +1386,40 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Render group detail screen
-  function renderGroupDetailScreen(groupId) {
+  async function renderGroupDetailScreen(groupId) {
     let group = groups.find(g => g.id === groupId);
     if (!group) {
       group = discoverGroups.find(g => g.id === groupId);
+    }
+    if (!group) {
+      // Not in local state — it may be a server-backed group reached by URL.
+      // A private group 404s here for non-members, so this never leaks one.
+      try {
+        const response = await fetch(`/api/groups/${groupId}`, { headers: authHeaders() });
+        if (response.ok) {
+          const payload = await response.json();
+          if (payload.group) {
+            group = {
+              id: payload.group.id,
+              name: payload.group.name,
+              description: payload.group.description || '',
+              avatar: payload.group.avatar || generateDefaultAvatar(payload.group.name),
+              memberCount: payload.group.memberCount,
+              visibility: payload.group.visibility,
+              creatorId: payload.group.creatorId,
+              members: [],
+              joinRequests: [],
+              createdAt: payload.group.createdAt,
+              source: 'server'
+            };
+            if (group.visibility === 'public' && !discoverGroups.some(g => g.id === group.id)) {
+              discoverGroups.push(Object.assign({ isFeatured: false, isNew: !!payload.group.isNew }, group));
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('Could not load group:', error);
+      }
     }
     if (!group) {
       window.location.hash = '/discover';
@@ -1242,10 +1448,10 @@ document.addEventListener('DOMContentLoaded', () => {
           <h1>Group Details</h1>
         </div>
         <div class="detail-content">
-          <div class="detail-avatar">${group.avatar}</div>
-          <h2>${group.name}</h2>
+          <div class="detail-avatar">${escapeHtml(group.avatar)}</div>
+          <h2>${escapeHtml(group.name)}</h2>
           <div class="detail-badge">${isPrivate ? '🔒 Private' : '🌐 Public'}</div>
-          <p class="detail-description">${group.description}</p>
+          <p class="detail-description">${escapeHtml(group.description)}</p>
           <div class="detail-stat">${group.memberCount} members</div>
           ${actionButtonHTML}
         </div>
@@ -1258,8 +1464,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const joinBtn = document.getElementById('join-button');
     if (joinBtn) {
-      joinBtn.addEventListener('click', () => {
-        joinDiscoverGroup(groupId);
+      joinBtn.addEventListener('click', async () => {
+        joinBtn.disabled = true;
+        await joinDiscoverGroup(groupId);
         window.location.hash = '/discover';
       });
     }
@@ -1361,13 +1568,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         return `
           <div class="conversation-item" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
-            <div class="conversation-avatar">${item.avatar}</div>
+            <div class="conversation-avatar">${escapeHtml(item.avatar)}</div>
             <div class="conversation-content">
               <div class="conversation-header">
-                <span class="conversation-username">${displayName}</span>
+                <span class="conversation-username">${escapeHtml(displayName)}</span>
                 <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
               </div>
-              <p class="conversation-message">${item.lastMessage}</p>
+              <p class="conversation-message">${escapeHtml(item.lastMessage)}</p>
             </div>
             ${item.unreadCount > 0 ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>` : ''}
           </div>
@@ -1386,11 +1593,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const requestsCount = requests.length;
     const requestsBadge = requestsCount > 0 ? `<span class="tab-badge">${requestsCount}</span>` : '';
 
+    // The Groups tab's empty state gets the same entry point, so "I have no
+    // groups yet" leads straight into creating one.
+    const emptyStateHTML = activeMessagesTab === 'groups'
+      ? `<div class="empty-state">
+           <div class="empty-icon">💬</div>
+           <div class="empty-message">${emptyMessage}</div>
+           <button class="empty-state-action" data-testid="new-group-empty">+ New Group</button>
+         </div>`
+      : `<div class="empty-state"><div class="empty-icon">💬</div><div class="empty-message">${emptyMessage}</div></div>`;
+
     pageContainer.innerHTML = `
       <div class="messages-page">
         <div class="messages-header">
           <h1>Guardian</h1>
-          <span class="search-icon">🔍</span>
+          <div class="messages-header-actions">
+            <button class="new-group-button un-touch-target" data-testid="new-group-entry" aria-label="Create a new group">+ New Group</button>
+            <span class="search-icon">🔍</span>
+          </div>
         </div>
         <div class="messages-search" id="messages-search" style="display: ${showMessagesSearch ? 'flex' : 'none'};">
           <input type="text" class="search-input" id="messages-search-input" placeholder="🔍 Search..." value="${searchQuery}" />
@@ -1404,7 +1624,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <button class="message-tab ${activeMessagesTab === 'requests' ? 'active' : ''}" data-tab="requests">Requests ${requestsBadge}</button>
         </div>
         <div class="conversations-list" id="conversations-list">
-          ${conversationsList || `<div class="empty-state"><div class="empty-icon">💬</div><div class="empty-message">${emptyMessage}</div></div>`}
+          ${conversationsList || emptyStateHTML}
         </div>
       </div>
     `;
@@ -1415,6 +1635,13 @@ document.addEventListener('DOMContentLoaded', () => {
         searchQuery = '';
         showMessagesSearch = false;
         renderMessagesPage(tab.dataset.tab);
+      });
+    });
+
+    // "+ New Group" entry points (header action + Groups-tab empty state)
+    document.querySelectorAll('[data-testid="new-group-entry"], [data-testid="new-group-empty"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        window.location.hash = '/create-group';
       });
     });
 
@@ -3161,17 +3388,18 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       try {
-        const response = await fetch(`/api/groups/${groupId}/members`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-usernode-token': localStorage.getItem('usernode-token')
-          },
-          body: JSON.stringify({ userIds: selectedMembers.map(u => u.id) })
-        });
+        // Fixture (demo) groups aren't in the database, so only server-backed
+        // groups make the real membership call — fixtures stay optimistic/local.
+        if (group.source === 'server') {
+          const response = await fetch(`/api/groups/${groupId}/members`, {
+            method: 'POST',
+            headers: authHeaders({ 'content-type': 'application/json' }),
+            body: JSON.stringify({ members: selectedMembers.map(u => ({ id: u.id, username: u.username })) })
+          });
 
-        if (!response.ok) {
-          throw new Error('Failed to add members');
+          if (!response.ok) {
+            throw new Error('Failed to add members');
+          }
         }
 
         group.members.push(...selectedMembers.map(member => ({ ...member, role: 'member' })));
@@ -3316,6 +3544,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <button type="button" class="privacy-option active" data-visibility="private" id="privacy-private-btn">🔒 Private</button>
             <button type="button" class="privacy-option" data-visibility="public" id="privacy-public-btn">🌐 Public</button>
           </div>
+          <div class="privacy-help" id="privacy-help">${PRIVACY_HELP.private}</div>
         </div>
 
         <div class="form-section">
@@ -3372,7 +3601,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Helper function to check if button should be disabled
     function updateButtonState() {
       const isNameFilled = state.groupName.trim().length > 0;
-      const isMembersSelected = state.selectedMembers.length >= 2;
+      const isMembersSelected = state.selectedMembers.length >= 1;
       const isDisabled = !(isNameFilled && isMembersSelected);
       createGroupButton.disabled = isDisabled;
     }
@@ -3465,15 +3694,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // Privacy toggle handlers
     const privacyPrivateBtn = document.getElementById('privacy-private-btn');
     const privacyPublicBtn = document.getElementById('privacy-public-btn');
+    const privacyHelp = document.getElementById('privacy-help');
     privacyPrivateBtn.addEventListener('click', () => {
       state.visibility = 'private';
       privacyPrivateBtn.classList.add('active');
       privacyPublicBtn.classList.remove('active');
+      privacyHelp.textContent = PRIVACY_HELP.private;
     });
     privacyPublicBtn.addEventListener('click', () => {
       state.visibility = 'public';
       privacyPublicBtn.classList.add('active');
       privacyPrivateBtn.classList.remove('active');
+      privacyHelp.textContent = PRIVACY_HELP.public;
     });
 
     // Back button handler
@@ -3530,7 +3762,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Create Group button handler
-    createGroupButton.addEventListener('click', () => {
+    async function submitCreateGroup() {
       nameError.innerHTML = '';
       membersError.innerHTML = '';
 
@@ -3541,26 +3773,70 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       // Validate members
-      if (state.selectedMembers.length < 2) {
-        membersError.innerHTML = 'Select at least 2 members.';
+      if (state.selectedMembers.length < 1) {
+        membersError.innerHTML = 'Select at least 1 member.';
         return;
       }
 
-      // Create the group
-      const groupId = createGroup(
-        state.groupName,
-        state.groupDescription,
-        state.selectedMembers,
-        state.avatarPreview,
-        state.visibility
-      );
+      createGroupButton.disabled = true;
+      const originalLabel = createGroupButton.textContent;
+      createGroupButton.textContent = 'Creating…';
 
-      // Navigate to the new group chat
-      window.location.hash = `/group/${groupId}`;
-    });
+      try {
+        const response = await fetch('/api/groups', {
+          method: 'POST',
+          headers: authHeaders({ 'content-type': 'application/json' }),
+          body: JSON.stringify({
+            name: state.groupName,
+            description: state.groupDescription,
+            avatar: state.avatarPreview,
+            visibility: state.visibility,
+            members: state.selectedMembers.map(u => ({ id: u.id, username: u.username }))
+          })
+        });
+
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          membersError.innerHTML = payload.error || 'Failed to create group.';
+          createGroupButton.textContent = originalLabel;
+          updateButtonState();
+          return;
+        }
+
+        const shaped = addServerGroupToState(payload.group);
+        window.location.hash = `/group/${shaped.id}`;
+      } catch (error) {
+        console.error('Failed to create group:', error);
+        membersError.innerHTML = 'Failed to create group. Please try again.';
+        createGroupButton.textContent = originalLabel;
+        updateButtonState();
+      }
+    }
+
+    createGroupButton.addEventListener('click', submitCreateGroup);
 
     // Initialize button state
     updateButtonState();
+
+    // Screenshot-state deep links: deterministic setup for otherwise-unreachable
+    // Create Group states, used for before/after screenshots and dapp.json tests.
+    if (SHOT_CREATE_GROUP_PUBLIC) {
+      privacyPublicBtn.click();
+    }
+    if (SHOT_CREATE_GROUP_ONE_MEMBER) {
+      groupNameInput.value = SHOT_CREATE_GROUP_NAME;
+      groupNameInput.dispatchEvent(new Event('input'));
+      const firstUser = document.querySelector('.suggested-user-item');
+      if (firstUser) firstUser.click();
+    }
+    if (SHOT_CREATE_GROUP_ZERO_MEMBERS) {
+      groupNameInput.value = SHOT_CREATE_GROUP_NAME;
+      groupNameInput.dispatchEvent(new Event('input'));
+      // The button is disabled with zero members, so a real click never fires —
+      // invoke the submit handler directly to surface the blocked-submit error.
+      submitCreateGroup();
+    }
   }
 
   // Render Group Info page
@@ -4159,17 +4435,18 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       try {
-        const response = await fetch(`/api/groups/${groupId}/members`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-usernode-token': localStorage.getItem('usernode-token')
-          },
-          body: JSON.stringify({ userIds: selectedMembers.map(u => u.id) })
-        });
+        // Fixture (demo) groups aren't in the database, so only server-backed
+        // groups make the real membership call — fixtures stay optimistic/local.
+        if (group.source === 'server') {
+          const response = await fetch(`/api/groups/${groupId}/members`, {
+            method: 'POST',
+            headers: authHeaders({ 'content-type': 'application/json' }),
+            body: JSON.stringify({ members: selectedMembers.map(u => ({ id: u.id, username: u.username })) })
+          });
 
-        if (!response.ok) {
-          throw new Error('Failed to add members');
+          if (!response.ok) {
+            throw new Error('Failed to add members');
+          }
         }
 
         // Add members to group
@@ -5401,6 +5678,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (response.ok) {
         const data = await response.json();
         if (data.user) {
+          currentUser = { id: data.user.id, username: data.user.username || 'johndoe' };
           profileState.username = data.user.username || 'johndoe';
           if (data.user.usernode_pubkey) {
             profileState.walletAddress = data.user.usernode_pubkey;
@@ -5686,6 +5964,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Listen for hash changes
   window.addEventListener('hashchange', handleNavigation);
 
-  // Initial render
-  handleNavigation();
+  // Initial render. Identity and server-backed groups are hydrated first so
+  // the first paint already knows who "You" is and which groups are real.
+  (async () => {
+    await fetchUserData();
+    await hydrateServerGroups();
+    handleNavigation();
+  })();
 });
