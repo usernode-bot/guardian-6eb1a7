@@ -138,6 +138,41 @@
       "expectSelector": "[data-testid=\"create-channel-entry\"]"
     },
     {
+      "name": "Create menu shows the managed groups list",
+      "path": "/#/create",
+      "expectSelector": "[data-testid=\"managed-groups-list\"]"
+    },
+    {
+      "name": "Create menu shows the managed channels list",
+      "path": "/#/create",
+      "expectSelector": "[data-testid=\"managed-channels-list\"]"
+    },
+    {
+      "name": "Create menu lists a group the user owns",
+      "path": "/#/create",
+      "expectText": "Seeker Club"
+    },
+    {
+      "name": "Create menu lists a group the user only administers",
+      "path": "/#/create",
+      "expectText": "Guardian Mods"
+    },
+    {
+      "name": "Create menu lists a channel the user created",
+      "path": "/#/create",
+      "expectText": "Web3 Builders"
+    },
+    {
+      "name": "Managed group rows show an Owner/Admin badge",
+      "path": "/#/create",
+      "expectSelector": "[data-testid=\"managed-groups-list\"] .managed-role-badge"
+    },
+    {
+      "name": "Managed group list collapses behind a Show all expander",
+      "path": "/#/create",
+      "expectSelector": "[data-testid=\"managed-groups-list\"] .managed-show-all"
+    },
+    {
       "name": "Suggested Users section displays",
       "path": "/#/create",
       "expectText": "Suggested Users"
@@ -281,6 +316,51 @@
       "name": "Channel detail screen loads",
       "path": "/#/discover/channel/discover_channel_1",
       "expectText": "Announcements"
+    },
+    {
+      "name": "New Group entry point on Messages list",
+      "path": "/",
+      "expectSelector": "[data-testid=\"new-group-entry\"]"
+    },
+    {
+      "name": "Create Group explains the public option",
+      "path": "/?shot=create-group-public#/create-group",
+      "expectText": "Anyone can join"
+    },
+    {
+      "name": "Public privacy option can be selected",
+      "path": "/?shot=create-group-public#/create-group",
+      "expectSelector": "#privacy-public-btn.active"
+    },
+    {
+      "name": "One invitee enables Create Group",
+      "path": "/?shot=create-group-one-member#/create-group",
+      "expectSelector": "#create-group-button:not([disabled])"
+    },
+    {
+      "name": "Zero invitees is blocked",
+      "path": "/?shot=create-group-zero-members#/create-group",
+      "expectText": "Select at least 1 member"
+    },
+    {
+      "name": "Blocked submit stays on Create Group",
+      "path": "/?shot=create-group-zero-members#/create-group",
+      "expectSelector": ".create-group-page #group-name-input"
+    },
+    {
+      "name": "Seeded public group is discoverable",
+      "path": "/#/discover",
+      "expectText": "Staging Demo Public Group"
+    },
+    {
+      "name": "Seeded public group detail loads",
+      "path": "/#/discover/group/group_staging_public_1",
+      "expectText": "Staging Demo Public Group"
+    },
+    {
+      "name": "Seeded public group offers Join",
+      "path": "/#/discover/group/group_staging_public_1",
+      "expectSelector": "#join-button"
     }
   ]
 }
