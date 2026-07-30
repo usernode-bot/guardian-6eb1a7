@@ -66,6 +66,12 @@ document.addEventListener('DOMContentLoaded', () => {
     return headers;
   }
 
+  // Helper copy shown under the Create Group privacy toggle.
+  const PRIVACY_HELP = {
+    private: 'Private — invite only. This group won’t be listed in Discover.',
+    public: 'Public — listed in Discover. Anyone can join with one tap.'
+  };
+
   // Page definitions
   const pages = {
     messages: { title: 'Messages', name: 'Messages' },
@@ -3382,17 +3388,18 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       try {
-        const response = await fetch(`/api/groups/${groupId}/members`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-usernode-token': localStorage.getItem('usernode-token')
-          },
-          body: JSON.stringify({ userIds: selectedMembers.map(u => u.id) })
-        });
+        // Fixture (demo) groups aren't in the database, so only server-backed
+        // groups make the real membership call — fixtures stay optimistic/local.
+        if (group.source === 'server') {
+          const response = await fetch(`/api/groups/${groupId}/members`, {
+            method: 'POST',
+            headers: authHeaders({ 'content-type': 'application/json' }),
+            body: JSON.stringify({ members: selectedMembers.map(u => ({ id: u.id, username: u.username })) })
+          });
 
-        if (!response.ok) {
-          throw new Error('Failed to add members');
+          if (!response.ok) {
+            throw new Error('Failed to add members');
+          }
         }
 
         group.members.push(...selectedMembers.map(member => ({ ...member, role: 'member' })));
@@ -3594,7 +3601,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Helper function to check if button should be disabled
     function updateButtonState() {
       const isNameFilled = state.groupName.trim().length > 0;
-      const isMembersSelected = state.selectedMembers.length >= 2;
+      const isMembersSelected = state.selectedMembers.length >= 1;
       const isDisabled = !(isNameFilled && isMembersSelected);
       createGroupButton.disabled = isDisabled;
     }
@@ -3687,15 +3694,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // Privacy toggle handlers
     const privacyPrivateBtn = document.getElementById('privacy-private-btn');
     const privacyPublicBtn = document.getElementById('privacy-public-btn');
+    const privacyHelp = document.getElementById('privacy-help');
     privacyPrivateBtn.addEventListener('click', () => {
       state.visibility = 'private';
       privacyPrivateBtn.classList.add('active');
       privacyPublicBtn.classList.remove('active');
+      privacyHelp.textContent = PRIVACY_HELP.private;
     });
     privacyPublicBtn.addEventListener('click', () => {
       state.visibility = 'public';
       privacyPublicBtn.classList.add('active');
       privacyPrivateBtn.classList.remove('active');
+      privacyHelp.textContent = PRIVACY_HELP.public;
     });
 
     // Back button handler
@@ -3752,7 +3762,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Create Group button handler
-    createGroupButton.addEventListener('click', () => {
+    async function submitCreateGroup() {
       nameError.innerHTML = '';
       membersError.innerHTML = '';
 
@@ -3763,26 +3773,70 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       // Validate members
-      if (state.selectedMembers.length < 2) {
-        membersError.innerHTML = 'Select at least 2 members.';
+      if (state.selectedMembers.length < 1) {
+        membersError.innerHTML = 'Select at least 1 member.';
         return;
       }
 
-      // Create the group
-      const groupId = createGroup(
-        state.groupName,
-        state.groupDescription,
-        state.selectedMembers,
-        state.avatarPreview,
-        state.visibility
-      );
+      createGroupButton.disabled = true;
+      const originalLabel = createGroupButton.textContent;
+      createGroupButton.textContent = 'Creating…';
 
-      // Navigate to the new group chat
-      window.location.hash = `/group/${groupId}`;
-    });
+      try {
+        const response = await fetch('/api/groups', {
+          method: 'POST',
+          headers: authHeaders({ 'content-type': 'application/json' }),
+          body: JSON.stringify({
+            name: state.groupName,
+            description: state.groupDescription,
+            avatar: state.avatarPreview,
+            visibility: state.visibility,
+            members: state.selectedMembers.map(u => ({ id: u.id, username: u.username }))
+          })
+        });
+
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          membersError.innerHTML = payload.error || 'Failed to create group.';
+          createGroupButton.textContent = originalLabel;
+          updateButtonState();
+          return;
+        }
+
+        const shaped = addServerGroupToState(payload.group);
+        window.location.hash = `/group/${shaped.id}`;
+      } catch (error) {
+        console.error('Failed to create group:', error);
+        membersError.innerHTML = 'Failed to create group. Please try again.';
+        createGroupButton.textContent = originalLabel;
+        updateButtonState();
+      }
+    }
+
+    createGroupButton.addEventListener('click', submitCreateGroup);
 
     // Initialize button state
     updateButtonState();
+
+    // Screenshot-state deep links: deterministic setup for otherwise-unreachable
+    // Create Group states, used for before/after screenshots and dapp.json tests.
+    if (SHOT_CREATE_GROUP_PUBLIC) {
+      privacyPublicBtn.click();
+    }
+    if (SHOT_CREATE_GROUP_ONE_MEMBER) {
+      groupNameInput.value = SHOT_CREATE_GROUP_NAME;
+      groupNameInput.dispatchEvent(new Event('input'));
+      const firstUser = document.querySelector('.suggested-user-item');
+      if (firstUser) firstUser.click();
+    }
+    if (SHOT_CREATE_GROUP_ZERO_MEMBERS) {
+      groupNameInput.value = SHOT_CREATE_GROUP_NAME;
+      groupNameInput.dispatchEvent(new Event('input'));
+      // The button is disabled with zero members, so a real click never fires —
+      // invoke the submit handler directly to surface the blocked-submit error.
+      submitCreateGroup();
+    }
   }
 
   // Render Group Info page
@@ -4381,17 +4435,18 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       try {
-        const response = await fetch(`/api/groups/${groupId}/members`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-usernode-token': localStorage.getItem('usernode-token')
-          },
-          body: JSON.stringify({ userIds: selectedMembers.map(u => u.id) })
-        });
+        // Fixture (demo) groups aren't in the database, so only server-backed
+        // groups make the real membership call — fixtures stay optimistic/local.
+        if (group.source === 'server') {
+          const response = await fetch(`/api/groups/${groupId}/members`, {
+            method: 'POST',
+            headers: authHeaders({ 'content-type': 'application/json' }),
+            body: JSON.stringify({ members: selectedMembers.map(u => ({ id: u.id, username: u.username })) })
+          });
 
-        if (!response.ok) {
-          throw new Error('Failed to add members');
+          if (!response.ok) {
+            throw new Error('Failed to add members');
+          }
         }
 
         // Add members to group
@@ -5623,6 +5678,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (response.ok) {
         const data = await response.json();
         if (data.user) {
+          currentUser = { id: data.user.id, username: data.user.username || 'johndoe' };
           profileState.username = data.user.username || 'johndoe';
           if (data.user.usernode_pubkey) {
             profileState.walletAddress = data.user.usernode_pubkey;
@@ -5908,6 +5964,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Listen for hash changes
   window.addEventListener('hashchange', handleNavigation);
 
-  // Initial render
-  handleNavigation();
+  // Initial render. Identity and server-backed groups are hydrated first so
+  // the first paint already knows who "You" is and which groups are real.
+  (async () => {
+    await fetchUserData();
+    await hydrateServerGroups();
+    handleNavigation();
+  })();
 });
