@@ -2451,6 +2451,64 @@ html, body {
   transform: scale(1.15);
 }
 
+/* ---- Message reactions (DM/group bubbles) ------------------------------ */
+/* Long-pressing a message bubble opens the same picker as a channel post
+   (.message-reaction-picker below); chips render the result underneath the
+   bubble the same way .post-reaction-chips renders under a post. */
+
+.message-reaction-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 12px 0 12px;
+}
+
+.message-reaction-chips:empty {
+  display: none;
+}
+
+.message.outgoing .message-reaction-chips {
+  justify-content: flex-end;
+}
+
+.message-reaction-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  background-color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  color: #444;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.message-reaction-chip:active {
+  background-color: #ececf0;
+}
+
+.message-reaction-chip.is-mine {
+  background-color: #e5f0ff;
+  border-color: #007AFF;
+  color: #0056b3;
+}
+
+/* Fixed-positioned (top/left set in JS) since a message bubble scrolls out
+   from under an absolutely-positioned picker the way a post card can't. */
+.message-reaction-picker {
+  z-index: 30;
+  display: flex;
+  gap: 2px;
+  padding: 6px;
+  background-color: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 24px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  animation: reaction-picker-in 0.14s ease-out;
+}
+
 .channel-empty-state {
   text-align: center;
   padding: 48px 24px;

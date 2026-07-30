@@ -35,6 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_DM_CLEARED = SHOT === 'dm-cleared';
   const SHOT_POST_REACTIONS = SHOT === 'post-reactions';
   const SHOT_FORWARD_SHEET = SHOT === 'forward-sheet';
+  const SHOT_MESSAGE_REACTIONS = SHOT === 'message-reactions';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
 
@@ -1922,6 +1923,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       messageHTML += `
         <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
+        <div class="message-reaction-chips" data-message-id="${msg.id}">${messageReactionChipsHTML(msg)}</div>
         <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
       </div>`;
 
@@ -2150,6 +2152,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const LONG_PRESS_DURATION = 350;
     const MENU_ITEMS = [
       { icon: '↩️', label: 'Reply', action: 'reply' },
+      { icon: '😊', label: 'React', action: 'react' },
       { icon: '📋', label: 'Copy', action: 'copy' },
       { icon: '🗑️', label: 'Delete', action: 'delete' }
     ];
@@ -2162,6 +2165,78 @@ document.addEventListener('DOMContentLoaded', () => {
       lastEventWasTouch: false,
       scrollHandler: null
     };
+
+    // Reaction picker for message bubbles — same emoji set and look as the
+    // channel-post picker, but fixed-positioned next to the pressed bubble
+    // (a bubble isn't a stable anchor the way a post card is, since the
+    // thread can scroll under it) instead of anchored inside it.
+    let messageReactionPickerHandlers = null;
+
+    function closeMessageReactionPicker() {
+      const existing = document.querySelector('.message-reaction-picker');
+      if (existing) existing.remove();
+      if (messageReactionPickerHandlers) {
+        document.removeEventListener('click', messageReactionPickerHandlers.onDocClick, true);
+        document.removeEventListener('keydown', messageReactionPickerHandlers.onKeyDown);
+        messageReactionPickerHandlers = null;
+      }
+    }
+
+    function openMessageReactionPicker(messageId, bubbleElement) {
+      closeMessageReactionPicker();
+      const conversationPage = document.querySelector('.conversation-page');
+      if (!conversationPage || !bubbleElement) return;
+
+      const picker = document.createElement('div');
+      picker.className = 'message-reaction-picker';
+      picker.setAttribute('role', 'menu');
+      picker.innerHTML = POST_REACTIONS.map(emoji => `
+        <button class="reaction-picker-option" data-message-id="${messageId}" data-emoji="${emoji}" role="menuitem" aria-label="React with ${emoji}">${emoji}</button>
+      `).join('');
+      conversationPage.appendChild(picker);
+
+      const bubbleRect = bubbleElement.getBoundingClientRect();
+      const pickerRect = picker.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const viewportWidth = window.innerWidth;
+
+      let top = bubbleRect.top - pickerRect.height - 10;
+      if (top < 10) top = bubbleRect.bottom + 10;
+      if (top + pickerRect.height > viewportHeight - 10) top = viewportHeight - pickerRect.height - 10;
+
+      let left = bubbleRect.left + bubbleRect.width / 2 - pickerRect.width / 2;
+      if (left < 10) left = 10;
+      if (left + pickerRect.width > viewportWidth - 10) left = viewportWidth - pickerRect.width - 10;
+
+      picker.style.position = 'fixed';
+      picker.style.top = Math.max(10, top) + 'px';
+      picker.style.left = Math.max(10, left) + 'px';
+
+      picker.querySelectorAll('.reaction-picker-option').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          toggleMessageReaction(conversation, messageId, btn.dataset.emoji);
+          refreshMessageReactions(conversation, messageId);
+          closeMessageReactionPicker();
+        });
+      });
+
+      const onDocClick = (e) => {
+        if (e.target.closest('.message-reaction-picker')) return;
+        closeMessageReactionPicker();
+      };
+      const onKeyDown = (e) => {
+        if (e.key === 'Escape') closeMessageReactionPicker();
+      };
+      messageReactionPickerHandlers = { onDocClick, onKeyDown };
+      // Registered async so the click/menu-tap that opened the picker doesn't
+      // immediately close it via the same event bubbling to document.
+      setTimeout(() => {
+        if (!messageReactionPickerHandlers) return;
+        document.addEventListener('click', onDocClick, true);
+        document.addEventListener('keydown', onKeyDown);
+      }, 0);
+    }
 
     function dismissMenu() {
       if (!menuState.isMenuOpen) return;
@@ -2298,6 +2373,10 @@ document.addEventListener('DOMContentLoaded', () => {
               const previewText = truncateText(targetMessage.text, 50);
               setReplyState(messageId, senderName, previewText);
             }
+          } else if (action === 'react') {
+            if (targetMessage) {
+              openMessageReactionPicker(messageId, bubbleElement);
+            }
           } else if (action === 'copy') {
             if (targetMessage) {
               navigator.clipboard.writeText(targetMessage.text).then(() => {
@@ -2414,6 +2493,32 @@ document.addEventListener('DOMContentLoaded', () => {
       // Prevent text selection during long-press
       bubble.style.userSelect = 'none';
     });
+
+    // Tapping an already-attached chip toggles it directly — no need to
+    // long-press again once a reaction is visible on the bubble.
+    const messagesContainer = document.querySelector('.messages-container');
+    if (messagesContainer) {
+      messagesContainer.addEventListener('click', (e) => {
+        const chip = e.target.closest('.message-reaction-chip');
+        if (!chip) return;
+        e.stopPropagation();
+        toggleMessageReaction(conversation, chip.dataset.messageId, chip.dataset.emoji);
+        refreshMessageReactions(conversation, chip.dataset.messageId);
+      });
+    }
+
+    // Screenshot-state: put a reaction on the first message and open the
+    // picker via the real long-press menu action, exercising both the
+    // persisted-chip path and the picker UI, not just the render function.
+    if (SHOT_MESSAGE_REACTIONS) {
+      const firstBubble = document.querySelector('.message-bubble');
+      if (firstBubble) {
+        const firstMessageId = firstBubble.dataset.messageId;
+        toggleMessageReaction(conversation, firstMessageId, POST_REACTIONS[0]);
+        refreshMessageReactions(conversation, firstMessageId);
+        openMessageReactionPicker(firstMessageId, firstBubble);
+      }
+    }
   }
 
   // Swipe-to-reply gesture: incoming messages swipe right, outgoing messages swipe left.
@@ -2851,11 +2956,17 @@ document.addEventListener('DOMContentLoaded', () => {
       // A deleted message keeps no attribution — there's nothing left to attribute.
       const forwardHTML = (msg.forwardedFrom && !msg.isDeleted) ? forwardAttributionHTML(msg.forwardedFrom) : '';
 
+      // Deleted messages carry no reactions either — nothing left to react to.
+      // (Container always renders, like .post-reaction-chips, so a later
+      // refreshMessageReactions() call always has an element to patch.)
+      const reactionChipsRow = msg.isDeleted ? '' : `<div class="message-reaction-chips" data-message-id="${msg.id}">${messageReactionChipsHTML(msg)}</div>`;
+
       if (msg.isOutgoing) {
         messageHTML += `
           ${quoteHTML}
           ${forwardHTML}
           <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
+          ${reactionChipsRow}
           <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
         </div>`;
       } else {
@@ -2866,6 +2977,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ${quoteHTML}
             ${forwardHTML}
             <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
+            ${reactionChipsRow}
             <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
           </div>
         </div>`;
@@ -4833,6 +4945,47 @@ document.addEventListener('DOMContentLoaded', () => {
     if (actions) actions.innerHTML = postActionsHTML(post);
   }
 
+  // Message-level reactions reuse POST_REACTIONS/reactionCount/userReacted so
+  // long-pressing a chat bubble feels like the same feature as reacting to a
+  // post, not a parallel system with its own emoji set.
+  function toggleMessageReaction(thread, messageId, emoji) {
+    const msg = thread && thread.messages && thread.messages.find(m => m.id === messageId);
+    if (!msg) return;
+
+    if (!msg.reactions) msg.reactions = {};
+    if (!msg.reactions[emoji]) msg.reactions[emoji] = {};
+
+    if (msg.reactions[emoji]['user_self']) {
+      delete msg.reactions[emoji]['user_self'];
+    } else {
+      msg.reactions[emoji]['user_self'] = true;
+    }
+
+    if (Object.keys(msg.reactions[emoji]).length === 0) {
+      delete msg.reactions[emoji];
+    }
+  }
+
+  function messageReactionChipsHTML(msg) {
+    return POST_REACTIONS.filter(emoji => reactionCount(msg, emoji) > 0).map(emoji => {
+      const mine = userReacted(msg, emoji);
+      return `
+        <button class="message-reaction-chip ${mine ? 'is-mine' : ''}" data-message-id="${msg.id}" data-emoji="${emoji}" aria-pressed="${mine ? 'true' : 'false'}" title="React with ${emoji}">
+          <span class="chip-emoji">${emoji}</span><span class="chip-count">${reactionCount(msg, emoji)}</span>
+        </button>
+      `;
+    }).join('');
+  }
+
+  // Patch one message's reaction chip strip in place (mirrors refreshPostReactions)
+  // so reacting never disturbs scroll position or an open picker/context menu.
+  function refreshMessageReactions(thread, messageId) {
+    const msg = thread && thread.messages && thread.messages.find(m => m.id === messageId);
+    if (!msg) return;
+    const chipsContainer = document.querySelector(`.message-reaction-chips[data-message-id="${messageId}"]`);
+    if (chipsContainer) chipsContainer.innerHTML = messageReactionChipsHTML(msg);
+  }
+
   // Render Channel View page
   function renderChannelView(channelId) {
     const channel = channels.find(c => c.id === channelId);
@@ -5012,6 +5165,75 @@ document.addEventListener('DOMContentLoaded', () => {
           showPostMenu(channelId, menuBtn.dataset.postId, isOwner);
           return;
         }
+      });
+
+      // Long-press a post card to open the same reaction picker as the 😊
+      // button — mirrors setupMessageLongPress's hold-to-act gesture used on
+      // DM/group bubbles, so the whole app reacts to a hold the same way.
+      const POST_LONG_PRESS_DURATION = 350;
+      feed.querySelectorAll('.post-card').forEach(card => {
+        const cardPostId = card.dataset.postId;
+        let longPressTimer = null;
+        let startPos = null;
+        let lastWasTouch = false;
+
+        const isOnOwnControl = (target) => !!target.closest('.post-actions, .reaction-picker, .post-reaction-chips');
+
+        const startPress = (x, y) => {
+          startPos = { x, y };
+          longPressTimer = setTimeout(() => {
+            longPressTimer = null;
+            // Releasing the hold fires a trailing 'click' on this same card
+            // a moment later. openReactionPicker's own outside-click dismiss
+            // listener would read that as "clicked outside" and instantly
+            // close what the hold just opened — swallow exactly that one
+            // click first (registered ahead of the picker's own listener,
+            // so it runs first) so the picker survives the release.
+            const swallowReleaseClick = (e) => {
+              e.stopPropagation();
+              e.stopImmediatePropagation();
+              document.removeEventListener('click', swallowReleaseClick, true);
+            };
+            document.addEventListener('click', swallowReleaseClick, true);
+            setTimeout(() => document.removeEventListener('click', swallowReleaseClick, true), 1000);
+            openReactionPicker(cardPostId);
+          }, POST_LONG_PRESS_DURATION);
+        };
+        const cancelPress = () => {
+          if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+          }
+        };
+        const trackMove = (x, y) => {
+          if (!longPressTimer || !startPos) return;
+          const dx = x - startPos.x;
+          const dy = y - startPos.y;
+          if (Math.sqrt(dx * dx + dy * dy) > 8) cancelPress();
+        };
+
+        card.addEventListener('mousedown', (e) => {
+          if (lastWasTouch || isOnOwnControl(e.target)) return;
+          startPress(e.clientX, e.clientY);
+        });
+        card.addEventListener('mousemove', (e) => trackMove(e.clientX, e.clientY));
+        card.addEventListener('mouseup', cancelPress);
+        card.addEventListener('mouseleave', cancelPress);
+
+        card.addEventListener('touchstart', (e) => {
+          lastWasTouch = true;
+          if (isOnOwnControl(e.target)) return;
+          const touch = e.touches[0];
+          if (touch) startPress(touch.clientX, touch.clientY);
+        });
+        card.addEventListener('touchmove', (e) => {
+          const touch = e.touches[0];
+          if (touch) trackMove(touch.clientX, touch.clientY);
+        });
+        card.addEventListener('touchend', () => {
+          cancelPress();
+          setTimeout(() => { lastWasTouch = false; }, 100);
+        });
       });
     }
 

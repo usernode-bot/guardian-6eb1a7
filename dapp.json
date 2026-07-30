@@ -346,6 +346,21 @@
       "name": "Forwarded group message shows attribution",
       "path": "/#/group/group_1",
       "expectSelector": ".forward-attribution"
+    },
+    {
+      "name": "Long-pressing a DM message reacts and opens the picker",
+      "path": "/?shot=message-reactions#/conversation/conv_2",
+      "expectSelector": ".message-reaction-chip"
+    },
+    {
+      "name": "Message reaction picker reuses the post picker's options",
+      "path": "/?shot=message-reactions#/conversation/conv_2",
+      "expectSelector": ".message-reaction-picker .reaction-picker-option"
+    },
+    {
+      "name": "Long-pressing a group message reacts and opens the picker",
+      "path": "/?shot=message-reactions#/group/group_1",
+      "expectSelector": ".message-reaction-chip"
     }
   ]
 }
