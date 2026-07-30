@@ -196,15 +196,10 @@ document.addEventListener('DOMContentLoaded', () => {
       suggestedUsers = DEMO_SUGGESTED_USERS;
       return suggestedUsers;
     }
-    try {
-      const response = await fetch('/api/users/suggested', { headers: authHeaders() });
-      if (!response.ok) throw new Error('Failed to fetch suggested users');
-      const data = await response.json();
-      suggestedUsers = (data.users || []).filter(u => u.id !== currentUsernodeUserId);
-    } catch (err) {
-      console.error('Failed to fetch suggested users:', err);
-      suggestedUsers = [];
-    }
+    const response = await fetch('/api/users/suggested', { headers: authHeaders() });
+    if (!response.ok) throw new Error('Failed to fetch suggested users');
+    const data = await response.json();
+    suggestedUsers = (data.users || []).filter(u => u.id !== currentUsernodeUserId);
     return suggestedUsers;
   }
 
@@ -3218,6 +3213,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (searchInput.value.trim() === '') {
         displayUsers(excludeExistingMembers(users), 'No users available.');
       }
+    }).catch(err => {
+      console.error('Failed to fetch suggested users:', err);
+      if (searchInput.value.trim() === '') {
+        usersListEl.innerHTML = '<div class="empty-state">Couldn\'t load users. Try again.</div>';
+      }
     });
 
     let searchRequestId = 0;
@@ -3356,6 +3356,11 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchSuggestedUsers().then(users => {
       if (searchInput.value.trim() === '') {
         renderUsers(users, 'No suggested users.');
+      }
+    }).catch(err => {
+      console.error('Failed to fetch suggested users:', err);
+      if (searchInput.value.trim() === '') {
+        usersListEl.innerHTML = '<div class="empty-state">Couldn\'t load users. Try again.</div>';
       }
     });
 
@@ -3642,6 +3647,11 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchSuggestedUsers().then(users => {
       if (state.searchQuery.trim() === '') {
         displayUsers(users, 'No suggested users.');
+      }
+    }).catch(err => {
+      console.error('Failed to fetch suggested users:', err);
+      if (state.searchQuery.trim() === '') {
+        suggestedUsersList.innerHTML = '<div class="empty-state">Couldn\'t load users. Try again.</div>';
       }
     });
 
@@ -4246,6 +4256,11 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchSuggestedUsers().then(users => {
       if (searchInput.value.trim() === '') {
         displayUsers(excludeExistingMembers(users), 'No users available.');
+      }
+    }).catch(err => {
+      console.error('Failed to fetch suggested users:', err);
+      if (searchInput.value.trim() === '') {
+        suggestedList.innerHTML = '<div class="empty-state">Couldn\'t load users. Try again.</div>';
       }
     });
 
