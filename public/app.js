@@ -2836,12 +2836,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const headerInfo = document.getElementById(`group-header-info-${groupId}`);
     if (headerInfo) {
       headerInfo.style.cursor = 'pointer';
+      // Admins/owners get a quick edit shortcut on tap; everyone else is
+      // taken to the Group Info screen (view-only for them, and where
+      // Share Group lives) instead of the edit dialog directly opening.
+      const isHeaderAdmin = isCurrentUserGroupAdmin(group);
       // Tap on group name to edit
       const headerUsername = headerInfo.querySelector('.header-username');
       if (headerUsername) {
         headerUsername.addEventListener('click', (e) => {
           e.stopPropagation();
-          showEditNameDialog(groupId, group.name);
+          if (isHeaderAdmin) {
+            showEditNameDialog(groupId, group.name);
+          } else {
+            window.location.hash = `/group/${groupId}/info`;
+          }
         });
       }
       // Tap on avatar to change photo
@@ -2850,7 +2858,11 @@ document.addEventListener('DOMContentLoaded', () => {
         avatar.style.cursor = 'pointer';
         avatar.addEventListener('click', (e) => {
           e.stopPropagation();
-          showAvatarPickerDialog(groupId, group);
+          if (isHeaderAdmin) {
+            showAvatarPickerDialog(groupId, group);
+          } else {
+            window.location.hash = `/group/${groupId}/info`;
+          }
         });
       }
     }
@@ -2912,9 +2924,9 @@ document.addEventListener('DOMContentLoaded', () => {
           <span class="option-label">Members (${group.memberCount})</span>
           <span class="option-chevron">›</span>
         </button>
-        <button class="menu-option" id="edit-description-btn">
-          <span class="option-icon">📝</span>
-          <span class="option-label">Edit Description</span>
+        <button class="menu-option" id="group-info-btn">
+          <span class="option-icon">ℹ️</span>
+          <span class="option-label">Group Info</span>
           <span class="option-chevron">›</span>
         </button>
         ${canManageMembers ? `
@@ -2943,9 +2955,9 @@ document.addEventListener('DOMContentLoaded', () => {
       showMembersSheet(groupId, group);
     });
 
-    document.getElementById('edit-description-btn').addEventListener('click', () => {
+    document.getElementById('group-info-btn').addEventListener('click', () => {
       overlay.remove();
-      showEditDescriptionDialog(groupId, group.description);
+      window.location.hash = `/group/${groupId}/info`;
     });
 
     const addMembersBtn = document.getElementById('add-members-btn');
