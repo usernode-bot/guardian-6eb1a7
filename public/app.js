@@ -734,6 +734,12 @@ document.addEventListener('DOMContentLoaded', () => {
   let showMessagesSearch = false;
   let searchTimeout = null;
 
+  // Tracks the hash we navigated FROM, so a group/channel chat page opened
+  // from the Create menu's managed lists can send its back button there
+  // instead of always defaulting to the Messages list.
+  let previousNavigationHash = '';
+  let groupChannelBackTarget = '/messages';
+
   // Helper: generate unique group ID
   function generateGroupId() {
     return 'group_' + Date.now();
@@ -3091,9 +3097,10 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
     `;
 
-    // Add back button handler
+    // Add back button handler. Returns to the Create menu when this chat was
+    // opened from its managed-groups list, otherwise falls back to Messages.
     document.querySelector('.back-button').addEventListener('click', () => {
-      window.location.hash = '/messages';
+      window.location.hash = groupChannelBackTarget;
     });
 
     // Add interactive header controls for group management
@@ -5004,9 +5011,10 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
     `;
 
-    // Back button handler
+    // Back button handler. Returns to the Create menu when this channel was
+    // opened from its managed-channels list, otherwise falls back to Messages.
     document.querySelector('.back-button').addEventListener('click', () => {
-      window.location.hash = '/messages';
+      window.location.hash = groupChannelBackTarget;
     });
 
     // Menu button handler
@@ -5866,6 +5874,8 @@ document.addEventListener('DOMContentLoaded', () => {
   function handleNavigation() {
     const hash = window.location.hash.slice(1) || 'messages';
     const path = hash.startsWith('/') ? hash.slice(1) : hash;
+    const priorHash = previousNavigationHash;
+    previousNavigationHash = hash;
 
     // Parse conversation routes like "conversation/conv_1"
     if (path.startsWith('conversation/')) {
@@ -5910,6 +5920,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } else if (action === 'join-requests') {
         renderJoinRequestsPage(groupId);
       } else {
+        groupChannelBackTarget = (priorHash === '/create') ? '/create' : '/messages';
         renderGroupConversationPage(groupId);
       }
     } else if (path.startsWith('channel/')) {
@@ -5919,6 +5930,7 @@ document.addEventListener('DOMContentLoaded', () => {
       navTabs.forEach(tab => tab.classList.remove('active'));
       // Hide bottom nav on channel screen
       bottomNav.style.display = 'none';
+      groupChannelBackTarget = (priorHash === '/create') ? '/create' : '/messages';
       renderChannelView(channelId);
     } else if (path === 'create-group') {
       // Hide bottom nav on create group screen
