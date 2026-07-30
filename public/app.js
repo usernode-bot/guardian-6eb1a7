@@ -5548,7 +5548,7 @@ document.addEventListener('DOMContentLoaded', () => {
     pageContainer.innerHTML = `
       <div class="create-channel-page">
         <div class="create-channel-header">
-          <button class="back-button" aria-label="Back to messages">←</button>
+          <button class="back-button" aria-label="Back to new message">←</button>
           <h1>Create Channel</h1>
         </div>
 
@@ -5604,7 +5604,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     backButton.addEventListener('click', () => {
-      window.location.hash = '/messages';
+      window.location.hash = '/create';
     });
 
     avatarPlaceholder.addEventListener('click', () => {
