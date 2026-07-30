@@ -18,6 +18,11 @@
       "expectSelector": ".unread-badge"
     },
     {
+      "name": "Pinned conversation shows pin icon in Messages list",
+      "path": "/",
+      "expectSelector": ".conversation-pin-icon"
+    },
+    {
       "name": "Bottom navigation renders",
       "path": "/",
       "expectSelector": "#bottom-nav"
@@ -41,6 +46,11 @@
       "name": "Composer appears on conversation screen",
       "path": "/#/conversation/conv_1",
       "expectSelector": ".composer-input"
+    },
+    {
+      "name": "Pinned message shows pin badge",
+      "path": "/#/conversation/conv_1",
+      "expectSelector": ".message-pin-badge"
     },
     {
       "name": "Scroll-to-latest FAB renders in direct message view",

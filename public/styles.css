@@ -175,10 +175,27 @@ html, body {
   gap: 8px;
 }
 
+.conversation-username-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
 .conversation-username {
   font-weight: 500;
   color: #222;
   font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Small pin icon shown on a pinned conversation's row in the Messages list */
+.conversation-pin-icon {
+  font-size: 10px;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .conversation-timestamp {
@@ -519,6 +536,32 @@ html, body {
   color: #007aff;
   padding: 4px 0 2px 0;
   font-weight: 500;
+}
+
+/* Small pin badge shown above a pinned message's bubble */
+.message-pin-badge {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 3px;
+  margin-bottom: 3px;
+  padding: 2px 7px;
+  border-radius: 8px;
+  background-color: rgba(0, 122, 255, 0.1);
+  color: #007aff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.2px;
+}
+
+.message.outgoing .message-pin-badge {
+  align-self: flex-end;
+}
+
+.message-pin-icon {
+  font-size: 9px;
+  line-height: 1;
 }
 
 .header-member-count {

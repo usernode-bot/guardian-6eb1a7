@@ -96,12 +96,12 @@ document.addEventListener('DOMContentLoaded', () => {
       unreadCount: 2,
       onlineStatus: true,
       archived: false,
-      pinned: false,
+      pinned: true,
       mutedByUsers: {},
       messages: [
         { id: 'msg_1', text: "Hey! How's it going?", timestamp: Date.now() - 5*60*1000, isOutgoing: false },
         { id: 'msg_2', text: "Great! Just finished work", timestamp: Date.now() - 4.5*60*1000, isOutgoing: true },
-        { id: 'msg_3', text: "Nice! Want to grab dinner?", timestamp: Date.now() - 4*60*1000, isOutgoing: false, hiddenFor: { user_self: true } },
+        { id: 'msg_3', text: "Nice! Want to grab dinner?", timestamp: Date.now() - 4*60*1000, isOutgoing: false, isPinned: true },
         { id: 'msg_4', text: "Sure! When?", timestamp: Date.now() - 3.5*60*1000, isOutgoing: true },
         { id: 'msg_5', text: "How about 7pm?", timestamp: Date.now() - 3*60*1000, isOutgoing: false },
         { id: 'msg_6', text: "That sounds great! Let's meet up soon.", timestamp: Date.now() - 2*60*1000, isOutgoing: true, replyTo: { messageId: 'msg_5', senderName: 'Alice Chen', previewText: 'How about 7pm?' } }
@@ -997,6 +997,12 @@ document.addEventListener('DOMContentLoaded', () => {
     return date.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   }
 
+  // Small pin badge shown above a pinned message's bubble
+  function renderPinBadge(msg) {
+    if (!msg.isPinned) return '';
+    return `<div class="message-pin-badge"><span class="message-pin-icon">📌</span>Pinned</div>`;
+  }
+
   // Truncate text to 50 characters with ellipsis
   function truncateText(text, length = 50) {
     if (text.length > length) {
@@ -1086,11 +1092,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const badgeColor = item.type === 'channel' ? '#FF6B6B' : '#007AFF';
 
         return `
-          <div class="conversation-item" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
+          <div class="conversation-item ${item.pinned ? 'pinned' : ''}" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
             <div class="conversation-avatar">${escapeHtml(item.avatar)}</div>
             <div class="conversation-content">
               <div class="conversation-header">
-                <span class="conversation-username">${escapeHtml(displayName)}</span>
+                <span class="conversation-username-row">
+                  ${item.pinned ? '<span class="conversation-pin-icon">📌</span>' : ''}
+                  <span class="conversation-username">${escapeHtml(displayName)}</span>
+                </span>
                 <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
               </div>
               <p class="conversation-message">${escapeHtml(item.lastMessage)}</p>
@@ -1695,11 +1704,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const badgeColor = item.type === 'channel' ? '#FF6B6B' : '#007AFF';
 
         return `
-          <div class="conversation-item" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
+          <div class="conversation-item ${item.pinned ? 'pinned' : ''}" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
             <div class="conversation-avatar">${escapeHtml(item.avatar)}</div>
             <div class="conversation-content">
               <div class="conversation-header">
-                <span class="conversation-username">${escapeHtml(displayName)}</span>
+                <span class="conversation-username-row">
+                  ${item.pinned ? '<span class="conversation-pin-icon">📌</span>' : ''}
+                  <span class="conversation-username">${escapeHtml(displayName)}</span>
+                </span>
                 <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
               </div>
               <p class="conversation-message">${escapeHtml(item.lastMessage)}</p>
@@ -2190,6 +2202,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       messageHTML += `
+        ${renderPinBadge(msg)}
         <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
         <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
       </div>`;
@@ -2568,6 +2581,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const LONG_PRESS_DURATION = 350;
     const MENU_ITEMS = [
       { icon: '↩️', label: 'Reply', action: 'reply' },
+      { icon: '📌', label: 'Pin', action: 'pin' },
       { icon: '📋', label: 'Copy', action: 'copy' },
       { icon: '🗑️', label: 'Delete', action: 'delete' }
     ];
@@ -2645,12 +2659,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const contextMenu = document.createElement('div');
       contextMenu.className = 'context-menu';
-      const menuButtons = visibleMenuItems.map(item => `
-        <button class="menu-item" aria-label="${item.label}" data-action="${item.action}">
+      const menuButtons = visibleMenuItems.map(item => {
+        const label = (item.action === 'pin' && menuTargetMessage?.isPinned) ? 'Unpin' : item.label;
+        return `
+        <button class="menu-item" aria-label="${label}" data-action="${item.action}">
           <span class="menu-icon">${item.icon}</span>
-          <span class="menu-label">${item.label}</span>
+          <span class="menu-label">${label}</span>
         </button>
-      `).join('');
+      `;
+      }).join('');
       contextMenu.innerHTML = menuButtons;
       conversationPage.appendChild(contextMenu);
 
@@ -2751,6 +2768,26 @@ document.addEventListener('DOMContentLoaded', () => {
               });
             } else {
               showToast('You can only delete your own messages', { type: 'error' });
+            }
+          }
+
+          // Handle pin action - toggle pin state and update the badge in place
+          if (action === 'pin') {
+            const targetMessage = conversation.messages.find(m => m.id === messageId);
+            if (targetMessage) {
+              targetMessage.isPinned = !targetMessage.isPinned;
+              const parent = bubbleElement.parentNode;
+              const existingBadge = parent.querySelector('.message-pin-badge');
+              if (targetMessage.isPinned) {
+                if (!existingBadge) {
+                  const badge = document.createElement('div');
+                  badge.className = 'message-pin-badge';
+                  badge.innerHTML = '<span class="message-pin-icon">📌</span>Pinned';
+                  parent.insertBefore(badge, bubbleElement);
+                }
+              } else if (existingBadge) {
+                existingBadge.remove();
+              }
             }
           }
 
@@ -3269,6 +3306,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (msg.isOutgoing) {
         messageHTML += `
           ${quoteHTML}
+          ${renderPinBadge(msg)}
           <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
           <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
         </div>`;
@@ -3278,6 +3316,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="message-content">
             <div class="message-sender-name">${msg.senderName}</div>
             ${quoteHTML}
+            ${renderPinBadge(msg)}
             <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
             <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
           </div>
@@ -5599,6 +5638,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (msg.isOutgoing) {
         messageHTML += `
+          ${renderPinBadge(msg)}
           <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
           <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
         </div>`;
@@ -5606,6 +5646,7 @@ document.addEventListener('DOMContentLoaded', () => {
         messageHTML += `
           <div class="message-avatar">${msg.senderName ? msg.senderName.charAt(0).toUpperCase() : ''}</div>
           <div class="message-content">
+            ${renderPinBadge(msg)}
             <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
             <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
           </div>
