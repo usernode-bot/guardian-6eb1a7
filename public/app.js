@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
       unreadCount: 2,
       onlineStatus: true,
       archived: false,
-      pinned: false,
+      pinned: true,
       messages: [
         { id: 'msg_1', text: "Hey! How's it going?", timestamp: Date.now() - 5*60*1000, isOutgoing: false },
         { id: 'msg_2', text: "Great! Just finished work", timestamp: Date.now() - 4.5*60*1000, isOutgoing: true },
@@ -683,11 +683,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const badgeColor = item.type === 'channel' ? '#FF6B6B' : '#007AFF';
 
         return `
-          <div class="conversation-item" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
+          <div class="conversation-item ${item.pinned ? 'pinned' : ''}" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
             <div class="conversation-avatar">${item.avatar}</div>
             <div class="conversation-content">
               <div class="conversation-header">
-                <span class="conversation-username">${displayName}</span>
+                <span class="conversation-username-row">
+                  ${item.pinned ? '<span class="conversation-pin-icon">📌</span>' : ''}
+                  <span class="conversation-username">${displayName}</span>
+                </span>
                 <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
               </div>
               <p class="conversation-message">${item.lastMessage}</p>
@@ -1172,11 +1175,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const badgeColor = item.type === 'channel' ? '#FF6B6B' : '#007AFF';
 
         return `
-          <div class="conversation-item" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
+          <div class="conversation-item ${item.pinned ? 'pinned' : ''}" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
             <div class="conversation-avatar">${item.avatar}</div>
             <div class="conversation-content">
               <div class="conversation-header">
-                <span class="conversation-username">${displayName}</span>
+                <span class="conversation-username-row">
+                  ${item.pinned ? '<span class="conversation-pin-icon">📌</span>' : ''}
+                  <span class="conversation-username">${displayName}</span>
+                </span>
                 <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
               </div>
               <p class="conversation-message">${item.lastMessage}</p>

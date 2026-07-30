@@ -18,6 +18,11 @@
       "expectSelector": ".unread-badge"
     },
     {
+      "name": "Pinned conversation shows pin icon in Messages list",
+      "path": "/",
+      "expectSelector": ".conversation-pin-icon"
+    },
+    {
       "name": "Bottom navigation renders",
       "path": "/",
       "expectSelector": "#bottom-nav"

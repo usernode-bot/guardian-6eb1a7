@@ -175,10 +175,27 @@ html, body {
   gap: 8px;
 }
 
+.conversation-username-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
 .conversation-username {
   font-weight: 500;
   color: #222;
   font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Small pin icon shown on a pinned conversation's row in the Messages list */
+.conversation-pin-icon {
+  font-size: 10px;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .conversation-timestamp {
