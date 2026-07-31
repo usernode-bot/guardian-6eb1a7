@@ -353,6 +353,11 @@
       "expectSelector": ".post-forward-button"
     },
     {
+      "name": "Post action row keeps the overflow menu button",
+      "path": "/#/channel/channel_1",
+      "expectSelector": ".post-actions .post-menu-button"
+    },
+    {
       "name": "Channel header shows follower count",
       "path": "/#/channel/channel_1",
       "expectText": "followers"
@@ -368,9 +373,24 @@
       "expectSelector": ".channel-footer .composer-input"
     },
     {
-      "name": "Reaction picker opens from the react button",
+      "name": "Reaction picker opens from a long-press on the post card",
       "path": "/?shot=post-reactions#/channel/channel_1",
       "expectSelector": ".reaction-picker-option"
+    },
+    {
+      "name": "Post overflow menu offers Forward and Copy text",
+      "path": "/?shot=post-menu#/channel/channel_1",
+      "expectText": "Copy text"
+    },
+    {
+      "name": "Owner post menu offers Edit Post",
+      "path": "/?shot=post-menu#/channel/channel_2",
+      "expectText": "Edit Post"
+    },
+    {
+      "name": "Edit Post dialog opens prefilled with the post text",
+      "path": "/?shot=post-edit#/channel/channel_2",
+      "expectSelector": ".edit-post-dialog .edit-post-input"
     },
     {
       "name": "Forward sheet opens with selectable targets",

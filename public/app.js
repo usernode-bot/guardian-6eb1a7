@@ -20,8 +20,10 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=message-deleted   forces group_1's seeded deleted messages         → placeholder must render
   //   ?shot=dm-menu           clicks the DM header's ⋮ button on load          → options menu must render
   //   ?shot=dm-cleared        clears conv_1's chat via the real Clear Chat fn  → list preview must read "No messages yet"
-  //   ?shot=post-reactions    clicks the first post's 😊+ react button          → reaction picker must render
+  //   ?shot=post-reactions    long-presses the first post card                  → reaction picker must render
   //   ?shot=forward-sheet     opens the Forward sheet for the first post       → target rows + enabled Send must render
+  //   ?shot=post-menu         opens the first post's ⋯ menu                    → Forward / Copy text (+ owner items) must render
+  //   ?shot=post-edit         opens Edit Post on the first post (owner only)   → dialog prefilled with the post text must render
   //   ?shot=create-group-public       selects Public on Create Group           → #privacy-public-btn must be active
   //   ?shot=create-group-one-member   name + exactly ONE invitee               → Create Group must be enabled
   //   ?shot=create-group-zero-members name only, then submits                  → "Select at least 1 member" must render
@@ -39,6 +41,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_POST_REACTIONS = SHOT === 'post-reactions';
   const SHOT_FORWARD_SHEET = SHOT === 'forward-sheet';
   const SHOT_MESSAGE_REACTIONS = SHOT === 'message-reactions';
+  const SHOT_POST_MENU = SHOT === 'post-menu';
+  const SHOT_POST_EDIT = SHOT === 'post-edit';
   const SHOT_CREATE_GROUP_PUBLIC = SHOT === 'create-group-public';
   const SHOT_CREATE_GROUP_ONE_MEMBER = SHOT === 'create-group-one-member';
   const SHOT_CREATE_GROUP_ZERO_MEMBERS = SHOT === 'create-group-zero-members';
@@ -5497,18 +5501,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }).join('');
   }
 
-  // The action row for one post: heart + count, emoji picker opener, forward, ⋯.
+  // The action row for one post: forward and the ⋯ overflow menu, nothing else.
+  // Reacting is a hold gesture on the card itself (see the long-press wiring in
+  // renderChannelView) and the chip strip above this row, so no tap-target for
+  // liking or picking an emoji lives here.
   function postActionsHTML(post) {
-    const likeCount = reactionCount(post, LIKE_EMOJI);
-    const userLiked = userReacted(post, LIKE_EMOJI);
     return `
-      <button class="post-like-button ${userLiked ? 'liked' : ''}" data-post-id="${post.id}" aria-pressed="${userLiked ? 'true' : 'false'}" title="Like">
-        <span class="like-icon">${LIKE_EMOJI}</span>
-        ${likeCount > 0 ? `<span class="like-count">${likeCount}</span>` : ''}
-      </button>
-      <button class="post-react-button" data-post-id="${post.id}" title="Add reaction" aria-label="Add reaction">
-        <span aria-hidden="true">😊</span><span class="react-plus" aria-hidden="true">+</span>
-      </button>
       <button class="post-forward-button" data-post-id="${post.id}" title="Forward" aria-label="Forward post">
         <span aria-hidden="true">↗</span>
       </button>
@@ -5544,11 +5542,25 @@ document.addEventListener('DOMContentLoaded', () => {
     const card = pageContainer.querySelector(`.post-card[data-post-id="${postId}"]`);
     if (!card) return;
 
+    // Only the chip strip reflects reaction state now — the action row is a
+    // fixed Forward + ⋯ pair, so it never needs repainting.
     const chips = card.querySelector('.post-reaction-chips');
     if (chips) chips.innerHTML = postReactionChipsHTML(post);
+  }
 
-    const actions = card.querySelector('.post-actions');
-    if (actions) actions.innerHTML = postActionsHTML(post);
+  // Patch one card's text after an in-place edit, same in-place philosophy as
+  // refreshPostReactions: no full re-render, no lost scroll position.
+  function refreshPostContent(channelId, postId) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel) return;
+    const post = channel.posts.find(p => p.id === postId);
+    if (!post) return;
+
+    const card = pageContainer.querySelector(`.post-card[data-post-id="${postId}"]`);
+    if (!card) return;
+
+    const content = card.querySelector('.post-content');
+    if (content) content.innerHTML = post.text;
   }
 
   // Message-level reactions reuse POST_REACTIONS/reactionCount/userReacted so
@@ -5706,7 +5718,7 @@ document.addEventListener('DOMContentLoaded', () => {
       openPickerPostId = postId;
 
       const onDocClick = (e) => {
-        if (e.target.closest('.reaction-picker') || e.target.closest('.post-react-button')) return;
+        if (e.target.closest('.reaction-picker')) return;
         closeReactionPicker();
       };
       const onKeyDown = (e) => {
@@ -5732,14 +5744,6 @@ document.addEventListener('DOMContentLoaded', () => {
           return;
         }
 
-        const likeBtn = e.target.closest('.post-like-button');
-        if (likeBtn) {
-          e.stopPropagation();
-          togglePostReaction(channelId, likeBtn.dataset.postId, LIKE_EMOJI);
-          refreshPostReactions(channelId, likeBtn.dataset.postId);
-          return;
-        }
-
         const pickerOption = e.target.closest('.reaction-picker-option');
         if (pickerOption) {
           e.stopPropagation();
@@ -5747,13 +5751,6 @@ document.addEventListener('DOMContentLoaded', () => {
           togglePostReaction(channelId, postId, pickerOption.dataset.emoji);
           closeReactionPicker();
           refreshPostReactions(channelId, postId);
-          return;
-        }
-
-        const reactBtn = e.target.closest('.post-react-button');
-        if (reactBtn) {
-          e.stopPropagation();
-          openReactionPicker(reactBtn.dataset.postId);
           return;
         }
 
@@ -5774,9 +5771,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
 
-      // Long-press a post card to open the same reaction picker as the 😊
-      // button — mirrors setupMessageLongPress's hold-to-act gesture used on
-      // DM/group bubbles, so the whole app reacts to a hold the same way.
+      // Long-press a post card to open the reaction picker. This is now the ONLY
+      // way to add a reaction (the action row holds just Forward and ⋯), and it
+      // mirrors setupMessageLongPress's hold-to-act gesture on DM/group bubbles,
+      // so the whole app reacts to a hold the same way.
       const POST_LONG_PRESS_DURATION = 350;
       feed.querySelectorAll('.post-card').forEach(card => {
         const cardPostId = card.dataset.postId;
@@ -5871,11 +5869,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Screenshot-state: drive the REAL controls so the deep links exercise the
     // actual listener wiring above, not just the rendering functions.
+    // Reacting is hold-only now, and a hold isn't expressible as a URL — so this
+    // one enters the state the gesture would, by calling the same opener the
+    // long-press timer calls.
     if (SHOT_POST_REACTIONS) {
-      feed?.querySelector('.post-card .post-react-button')?.click();
+      const firstCard = feed?.querySelector('.post-card');
+      if (firstCard) openReactionPicker(firstCard.dataset.postId);
     }
     if (SHOT_FORWARD_SHEET) {
       feed?.querySelector('.post-card .post-forward-button')?.click();
+    }
+    if (SHOT_POST_MENU) {
+      feed?.querySelector('.post-card .post-menu-button')?.click();
+    }
+    if (SHOT_POST_EDIT) {
+      feed?.querySelector('.post-card .post-menu-button')?.click();
+      document.getElementById('edit-post-btn')?.click();
     }
   }
 
@@ -5984,7 +5993,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const dialog = document.createElement('div');
     dialog.className = 'dialog';
     // Forward and Copy text are available to every viewer; only the channel
-    // owner sees Delete Post.
+    // owner sees Edit Post and Delete Post.
     dialog.innerHTML = `
       <div class="dialog-content group-menu-content">
         <button class="menu-option" id="forward-post-btn">
@@ -5996,6 +6005,10 @@ document.addEventListener('DOMContentLoaded', () => {
           <span class="option-label">Copy text</span>
         </button>
         ${isOwner ? `
+          <button class="menu-option" id="edit-post-btn">
+            <span class="option-icon">✏️</span>
+            <span class="option-label">Edit Post</span>
+          </button>
           <button class="menu-option" id="delete-post-btn">
             <span class="option-icon">🗑️</span>
             <span class="option-label">Delete Post</span>
@@ -6030,6 +6043,14 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
+    const editBtn = document.getElementById('edit-post-btn');
+    if (editBtn) {
+      editBtn.addEventListener('click', () => {
+        overlay.remove();
+        showEditPostDialog(channelId, postId);
+      });
+    }
+
     const deleteBtn = document.getElementById('delete-post-btn');
     if (deleteBtn) {
       deleteBtn.addEventListener('click', () => {
@@ -6039,6 +6060,65 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast('Post deleted', { type: 'success' });
       });
     }
+  }
+
+  // Edit an existing post's text in place. Owner-only — the caller (showPostMenu)
+  // only renders the entry point when `isOwner`, and this re-checks the channel's
+  // creator so the dialog can't be driven onto someone else's channel.
+  function showEditPostDialog(channelId, postId) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel || channel.creatorId !== 'user_self') return;
+    const post = channel.posts.find(p => p.id === postId);
+    if (!post) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog edit-post-dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Edit Post</h2>
+        <button class="close-dialog-button" id="edit-post-close">✕</button>
+      </div>
+      <div class="dialog-content">
+        <textarea class="edit-post-input" id="edit-post-input" rows="6" placeholder="Post text">${post.text}</textarea>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="edit-post-cancel">Cancel</button>
+        <button class="button-primary" id="edit-post-save">Save</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const input = document.getElementById('edit-post-input');
+    const saveBtn = document.getElementById('edit-post-save');
+
+    const syncSaveState = () => {
+      saveBtn.disabled = !input.value.trim();
+    };
+    syncSaveState();
+    input.addEventListener('input', syncSaveState);
+    input.focus();
+
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close();
+    });
+    document.getElementById('edit-post-close').addEventListener('click', close);
+    document.getElementById('edit-post-cancel').addEventListener('click', close);
+
+    saveBtn.addEventListener('click', () => {
+      const text = input.value.trim();
+      if (!text) return;
+      post.text = text;
+      post.editedAt = Date.now();
+      close();
+      refreshPostContent(channelId, postId);
+      showToast('Post updated', { type: 'success' });
+    });
   }
 
   // Where a post can be forwarded: 1:1 DMs and the groups the user is actually a

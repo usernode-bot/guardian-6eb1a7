@@ -2407,8 +2407,6 @@ html, body {
   color: #555;
 }
 
-.post-like-button,
-.post-react-button,
 .post-forward-button,
 .post-menu-button {
   background: none;
@@ -2425,42 +2423,66 @@ html, body {
   transition: color 0.2s, background-color 0.2s;
 }
 
-.post-like-button:active,
-.post-react-button:active,
 .post-forward-button:active,
 .post-menu-button:active {
   background-color: #f0f0f0;
   color: #007AFF;
 }
 
-.post-like-button.liked {
-  color: #FF2D55;
-}
-
-.like-icon {
-  font-size: 16px;
-}
-
-.like-count {
-  font-size: 13px;
-  color: inherit;
-  font-weight: 600;
-}
-
-.react-plus {
-  font-size: 12px;
-  font-weight: 700;
-  color: #888;
-}
-
 .post-forward-button {
   font-size: 16px;
 }
 
-/* Pushes ⋯ to the far edge so the reaction controls group together. */
+/* Pushes ⋯ to the far edge so the row reads as Forward … More. */
 .post-menu-button {
   margin-left: auto;
   font-size: 18px;
+}
+
+/* Edit Post — a plain text editor over the standard bottom-sheet dialog shell.
+   Same scoped header/close treatment as .forward-sheet-dialog, since
+   .dialog-header is shared app-wide and most sheets have no close button. */
+.edit-post-dialog .dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.edit-post-dialog .close-dialog-button {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  color: #888;
+}
+
+.edit-post-dialog .close-dialog-button:active {
+  background-color: #f0f0f0;
+}
+
+.edit-post-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.45;
+  color: #222;
+  resize: vertical;
+  min-height: 120px;
+}
+
+.edit-post-input:focus {
+  outline: none;
+  border-color: #007AFF;
 }
 
 /* Anchored to the card (position: relative) so it opens next to the post it
