@@ -10,6 +10,14 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('usernode-token', token);
   }
 
+  // Shared-group deep link. A copied "Share Group" link is `<origin>/?group=<id>`
+  // (a real query param, since HTTP requests never see the URL fragment) --
+  // translate it into this app's own hash route before the router runs.
+  const sharedGroupId = urlParams.get('group');
+  if (sharedGroupId) {
+    window.location.hash = `/group/${sharedGroupId}`;
+  }
+
   // Screenshot-state deep links. Each boots a long, deterministic thread so
   // interaction-gated UI is reachable from a plain URL. Pure UI state — nothing
   // is persisted, and none of it is gated on the environment.
@@ -46,6 +54,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_CREATE_GROUP_PUBLIC = SHOT === 'create-group-public';
   const SHOT_CREATE_GROUP_ONE_MEMBER = SHOT === 'create-group-one-member';
   const SHOT_CREATE_GROUP_ZERO_MEMBERS = SHOT === 'create-group-zero-members';
+  const SHOT_ADMIN_TOGGLE = SHOT === 'admin-toggle';
+  let shotAdminToggleFired = false;
+  const SHOT_DESC_EDIT = SHOT === 'desc-edit';
+  let shotDescEditFired = false;
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
   const SHOT_CREATE_GROUP_NAME = 'Staging demo one-invite group';
@@ -3581,12 +3593,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const headerInfo = document.getElementById(`group-header-info-${groupId}`);
     if (headerInfo) {
       headerInfo.style.cursor = 'pointer';
+      // Admins/owners get a quick edit shortcut on tap; everyone else is
+      // taken to the Group Info screen (view-only for them, and where
+      // Share Group lives) instead of the edit dialog directly opening.
+      const isHeaderAdmin = isCurrentUserGroupAdmin(group);
       // Tap on group name to edit
       const headerUsername = headerInfo.querySelector('.header-username');
       if (headerUsername) {
         headerUsername.addEventListener('click', (e) => {
           e.stopPropagation();
-          showEditNameDialog(groupId, group.name);
+          if (isHeaderAdmin) {
+            showEditNameDialog(groupId, group.name);
+          } else {
+            window.location.hash = `/group/${groupId}/info`;
+          }
         });
       }
       // Tap on avatar to change photo
@@ -3595,7 +3615,11 @@ document.addEventListener('DOMContentLoaded', () => {
         avatar.style.cursor = 'pointer';
         avatar.addEventListener('click', (e) => {
           e.stopPropagation();
-          showAvatarPickerDialog(groupId, group);
+          if (isHeaderAdmin) {
+            showAvatarPickerDialog(groupId, group);
+          } else {
+            window.location.hash = `/group/${groupId}/info`;
+          }
         });
       }
     }
@@ -3658,9 +3682,9 @@ document.addEventListener('DOMContentLoaded', () => {
           <span class="option-label">Members (${group.memberCount})</span>
           <span class="option-chevron">›</span>
         </button>
-        <button class="menu-option" id="edit-description-btn">
-          <span class="option-icon">📝</span>
-          <span class="option-label">Edit Description</span>
+        <button class="menu-option" id="group-info-btn">
+          <span class="option-icon">ℹ️</span>
+          <span class="option-label">Group Info</span>
           <span class="option-chevron">›</span>
         </button>
         ${canManageMembers ? `
@@ -3689,9 +3713,9 @@ document.addEventListener('DOMContentLoaded', () => {
       showMembersSheet(groupId, group);
     });
 
-    document.getElementById('edit-description-btn').addEventListener('click', () => {
+    document.getElementById('group-info-btn').addEventListener('click', () => {
       overlay.remove();
-      showEditDescriptionDialog(groupId, group.description);
+      window.location.hash = `/group/${groupId}/info`;
     });
 
     const addMembersBtn = document.getElementById('add-members-btn');
@@ -4387,6 +4411,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const myRole = (group.members.find(m => m.id === 'user_self') || {}).role;
     const canManageMembers = myRole === 'owner' || myRole === 'admin';
+    const isAdmin = isCurrentUserGroupAdmin(group);
     const pendingRequestCount = (group.joinRequests || []).length;
 
     const membersList = group.members.map(member => {
@@ -4417,22 +4442,24 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="group-info-content">
           <div class="group-avatar-section">
             <div class="group-avatar-large" id="group-avatar-large">${group.avatar}</div>
-            <button class="edit-avatar-button" id="edit-avatar-button">Change Photo</button>
+            ${isAdmin ? `<button class="edit-avatar-button" id="edit-avatar-button">Change Photo</button>` : ''}
           </div>
 
           <div class="group-details-section">
             <div class="detail-item">
               <div class="detail-label">Group Name</div>
               <div class="detail-value" id="group-name-value">${group.name}</div>
-              <button class="detail-edit-button" id="edit-name-button">Edit</button>
+              ${isAdmin ? `<button class="detail-edit-button" id="edit-name-button">Edit</button>` : ''}
             </div>
 
             <div class="detail-item">
               <div class="detail-label">Description</div>
               <div class="detail-value" id="group-description-value">${group.description || 'No description'}</div>
-              <button class="detail-edit-button" id="edit-description-button">Edit</button>
+              ${isAdmin ? `<button class="detail-edit-button" id="edit-description-button">Edit</button>` : ''}
             </div>
           </div>
+
+          <button class="share-group-button" id="share-group-button">Share Group</button>
 
           <div class="members-section">
             <div class="section-title">Members (${group.memberCount})</div>
@@ -4453,19 +4480,76 @@ document.addEventListener('DOMContentLoaded', () => {
       window.location.hash = `/group/${groupId}`;
     });
 
-    // Edit name
-    document.getElementById('edit-name-button').addEventListener('click', () => {
-      showEditNameDialog(groupId, group.name);
-    });
+    // Edit name (admin/owner only)
+    const editNameButton = document.getElementById('edit-name-button');
+    if (editNameButton) {
+      editNameButton.addEventListener('click', () => {
+        showEditNameDialog(groupId, group.name);
+      });
+    }
 
-    // Edit description
-    document.getElementById('edit-description-button').addEventListener('click', () => {
-      showEditDescriptionDialog(groupId, group.description);
-    });
+    // Edit description (admin/owner only)
+    const editDescriptionButton = document.getElementById('edit-description-button');
+    if (editDescriptionButton) {
+      editDescriptionButton.addEventListener('click', () => {
+        showEditDescriptionDialog(groupId, group.description);
+      });
+    }
 
-    // Change avatar
-    document.getElementById('edit-avatar-button').addEventListener('click', () => {
-      showAvatarPickerDialog(groupId, group);
+    // Change avatar (admin/owner only)
+    const editAvatarButton = document.getElementById('edit-avatar-button');
+    if (editAvatarButton) {
+      editAvatarButton.addEventListener('click', () => {
+        showAvatarPickerDialog(groupId, group);
+      });
+    }
+
+    // Share Group (all members)
+    document.getElementById('share-group-button').addEventListener('click', () => {
+      const link = `${window.location.origin}/?group=${groupId}`;
+
+      const copyFallback = () => {
+        const textarea = document.createElement('textarea');
+        textarea.value = link;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+
+        let copied = false;
+        try {
+          copied = document.execCommand('copy');
+        } catch (err) {
+          copied = false;
+        }
+        document.body.removeChild(textarea);
+
+        if (copied) {
+          showToast('Link copied to clipboard', { type: 'success' });
+        } else {
+          // Clipboard access is unavailable (e.g. embedded iframe without
+          // clipboard-write permission) - fall back to a native prompt so
+          // the user can still copy the link manually instead of hitting
+          // a dead-end error.
+          window.prompt('Copy this link to share the group:', link);
+        }
+      };
+
+      if (navigator.share) {
+        navigator.share({
+          title: group.name,
+          url: link
+        }).catch(err => console.log('Share cancelled or failed'));
+      } else if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(link).then(() => {
+          showToast('Link copied to clipboard', { type: 'success' });
+        }).catch(() => {
+          copyFallback();
+        });
+      } else {
+        copyFallback();
+      }
     });
 
     // Add members
@@ -4508,6 +4592,25 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       });
     }
+
+    if (SHOT_ADMIN_TOGGLE && !shotAdminToggleFired) {
+      shotAdminToggleFired = true;
+      const toggleBtn = document.querySelector('.member-admin-toggle-btn[data-member-id="user_bob"]');
+      if (toggleBtn) toggleBtn.click();
+    }
+
+    if (SHOT_DESC_EDIT && !shotDescEditFired) {
+      shotDescEditFired = true;
+      const editBtn = document.getElementById('edit-description-button');
+      if (editBtn) {
+        editBtn.click();
+        const textarea = document.getElementById('edit-desc-input');
+        if (textarea) {
+          textarea.value = 'Shot desc edit check';
+          document.getElementById('save-edit-desc').click();
+        }
+      }
+    }
   }
 
   // Promote/demote a member between 'member' and 'admin' (owner only)
@@ -4524,17 +4627,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const newRole = member.role === 'admin' ? 'member' : 'admin';
 
     try {
-      const response = await fetch(`/api/groups/${groupId}/members/${memberId}/role`, {
-        method: 'PUT',
-        headers: {
-          'content-type': 'application/json',
-          'x-usernode-token': localStorage.getItem('usernode-token')
-        },
-        body: JSON.stringify({ role: newRole })
-      });
+      if (group.source === 'server') {
+        const response = await fetch(`/api/groups/${groupId}/members/${memberId}/role`, {
+          method: 'PUT',
+          headers: {
+            'content-type': 'application/json',
+            'x-usernode-token': localStorage.getItem('usernode-token')
+          },
+          body: JSON.stringify({ role: newRole })
+        });
 
-      if (!response.ok) {
-        throw new Error('Failed to update member role');
+        if (!response.ok) {
+          throw new Error('Failed to update member role');
+        }
       }
 
       member.role = newRole;
@@ -4599,38 +4704,46 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       try {
-        const response = await fetch(`/api/groups/${groupId}/name`, {
-          method: 'PUT',
-          headers: {
-            'content-type': 'application/json',
-            'x-usernode-token': localStorage.getItem('usernode-token')
-          },
-          body: JSON.stringify({ name: newName })
-        });
+        if (group.source === 'server') {
+          const response = await fetch(`/api/groups/${groupId}/name`, {
+            method: 'PUT',
+            headers: {
+              'content-type': 'application/json',
+              'x-usernode-token': localStorage.getItem('usernode-token')
+            },
+            body: JSON.stringify({ name: newName })
+          });
 
-        if (!response.ok) {
-          const error = await response.json();
-          errorEl.textContent = error.error || 'Failed to update group name';
-          return;
+          if (!response.ok) {
+            const error = await response.json();
+            errorEl.textContent = error.error || 'Failed to update group name';
+            return;
+          }
         }
 
         group.name = newName;
 
-        // Update Messages list
+        // Update Messages list data
         const conversation = conversations.find(c => c.groupId === groupId);
         if (conversation) {
           conversation.name = newName;
         }
 
-        // Update header immediately without navigation
-        const headerUsername = document.querySelector('.header-username');
-        if (headerUsername) {
-          headerUsername.textContent = newName;
-        }
-
         overlay.remove();
         showToast('Group name updated', { type: 'success' });
-        renderMessagesPage(); // Update messages list
+
+        if (document.querySelector('.group-info-page')) {
+          renderGroupInfoPage(groupId);
+        } else {
+          // Update header immediately without navigation
+          const headerUsername = document.querySelector('.header-username');
+          if (headerUsername) {
+            headerUsername.textContent = newName;
+          }
+        }
+        if (document.querySelector('.messages-page')) {
+          renderMessagesPage(); // Update messages list preview
+        }
       } catch (error) {
         errorEl.textContent = 'Failed to update group name';
         console.error(error);
@@ -4691,23 +4804,29 @@ document.addEventListener('DOMContentLoaded', () => {
       const newDesc = textarea.value.trim();
 
       try {
-        const response = await fetch(`/api/groups/${groupId}/description`, {
-          method: 'PUT',
-          headers: {
-            'content-type': 'application/json',
-            'x-usernode-token': localStorage.getItem('usernode-token')
-          },
-          body: JSON.stringify({ description: newDesc })
-        });
+        if (group.source === 'server') {
+          const response = await fetch(`/api/groups/${groupId}/description`, {
+            method: 'PUT',
+            headers: {
+              'content-type': 'application/json',
+              'x-usernode-token': localStorage.getItem('usernode-token')
+            },
+            body: JSON.stringify({ description: newDesc })
+          });
 
-        if (!response.ok) {
-          throw new Error('Failed to update description');
+          if (!response.ok) {
+            throw new Error('Failed to update description');
+          }
         }
 
         group.description = newDesc;
 
         overlay.remove();
         showToast('Description updated', { type: 'success' });
+
+        if (document.querySelector('.group-info-page')) {
+          renderGroupInfoPage(groupId);
+        }
       } catch (error) {
         document.getElementById('edit-desc-error').textContent = 'Failed to update description';
         console.error(error);
@@ -4787,37 +4906,46 @@ document.addEventListener('DOMContentLoaded', () => {
         const base64 = event.target.result;
 
         try {
-          const response = await fetch(`/api/groups/${groupId}/avatar`, {
-            method: 'PUT',
-            headers: {
-              'content-type': 'application/json',
-              'x-usernode-token': localStorage.getItem('usernode-token')
-            },
-            body: JSON.stringify({ avatar: base64 })
-          });
+          const group = groups.find(g => g.id === groupId);
 
-          if (!response.ok) {
-            throw new Error('Failed to update avatar');
+          if (group.source === 'server') {
+            const response = await fetch(`/api/groups/${groupId}/avatar`, {
+              method: 'PUT',
+              headers: {
+                'content-type': 'application/json',
+                'x-usernode-token': localStorage.getItem('usernode-token')
+              },
+              body: JSON.stringify({ avatar: base64 })
+            });
+
+            if (!response.ok) {
+              throw new Error('Failed to update avatar');
+            }
           }
 
-          const group = groups.find(g => g.id === groupId);
           group.avatar = base64;
 
-          // Update Messages list
+          // Update Messages list data
           const conversation = conversations.find(c => c.groupId === groupId);
           if (conversation) {
             conversation.avatar = base64;
           }
 
-          // Update header avatar immediately
-          const headerAvatar = document.querySelector('.conversation-avatar-header');
-          if (headerAvatar) {
-            headerAvatar.innerHTML = base64.includes('data:') ? `<img src="${base64}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />` : base64;
-          }
-
           overlay.remove();
           showToast('Photo updated', { type: 'success' });
-          renderMessagesPage(); // Update messages list
+
+          if (document.querySelector('.group-info-page')) {
+            renderGroupInfoPage(groupId);
+          } else {
+            // Update header avatar immediately without navigation
+            const headerAvatar = document.querySelector('.conversation-avatar-header');
+            if (headerAvatar) {
+              headerAvatar.innerHTML = base64.includes('data:') ? `<img src="${base64}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />` : base64;
+            }
+          }
+          if (document.querySelector('.messages-page')) {
+            renderMessagesPage(); // Update messages list preview
+          }
         } catch (error) {
           errorEl.textContent = 'Failed to update photo';
           console.error(error);
@@ -5035,18 +5163,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('confirm-remove').addEventListener('click', async () => {
       try {
-        const response = await fetch(`/api/groups/${groupId}/members/${memberId}`, {
-          method: 'DELETE',
-          headers: {
-            'x-usernode-token': localStorage.getItem('usernode-token')
-          }
-        });
+        const group = groups.find(g => g.id === groupId);
 
-        if (!response.ok) {
-          throw new Error('Failed to remove member');
+        if (group.source === 'server') {
+          const response = await fetch(`/api/groups/${groupId}/members/${memberId}`, {
+            method: 'DELETE',
+            headers: {
+              'x-usernode-token': localStorage.getItem('usernode-token')
+            }
+          });
+
+          if (!response.ok) {
+            throw new Error('Failed to remove member');
+          }
         }
 
-        const group = groups.find(g => g.id === groupId);
         group.members = group.members.filter(m => m.id !== memberId);
         group.memberCount = group.members.length;
 
@@ -5112,18 +5243,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('confirm-leave').addEventListener('click', async () => {
       try {
-        const response = await fetch(`/api/groups/${groupId}/leave`, {
-          method: 'POST',
-          headers: {
-            'x-usernode-token': localStorage.getItem('usernode-token')
-          }
-        });
+        const group = groups.find(g => g.id === groupId);
 
-        if (!response.ok) {
-          throw new Error('Failed to leave group');
+        if (group.source === 'server') {
+          const response = await fetch(`/api/groups/${groupId}/leave`, {
+            method: 'POST',
+            headers: {
+              'x-usernode-token': localStorage.getItem('usernode-token')
+            }
+          });
+
+          if (!response.ok) {
+            throw new Error('Failed to leave group');
+          }
         }
 
-        const group = groups.find(g => g.id === groupId);
         group.members = group.members.filter(m => m.id !== 'user_self');
         group.memberCount = group.members.length;
         group.isLeftByUser = true;

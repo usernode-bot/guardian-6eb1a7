@@ -1608,6 +1608,24 @@ html, body {
   background-color: #ff2420;
 }
 
+.share-group-button {
+  width: calc(100% - 32px);
+  margin: 12px 16px;
+  padding: 12px;
+  background-color: #007aff;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.share-group-button:active {
+  background-color: #0062cc;
+}
+
 /* Dialog Overlay */
 .dialog-overlay {
   position: fixed;
@@ -3131,16 +3149,16 @@ html, body {
   gap: 12px;
 }
 
-.detail-item {
+.channel-details-section .detail-item {
   padding: 12px 0;
   border-bottom: 1px solid #f0f0f0;
 }
 
-.detail-item:last-child {
+.channel-details-section .detail-item:last-child {
   border-bottom: none;
 }
 
-.detail-label {
+.channel-details-section .detail-label {
   font-size: 12px;
   color: #999;
   font-weight: 600;
@@ -3148,7 +3166,7 @@ html, body {
   margin-bottom: 4px;
 }
 
-.detail-value {
+.channel-details-section .detail-value {
   font-size: 16px;
   color: #333;
   font-weight: 500;
