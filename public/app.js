@@ -7061,8 +7061,8 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
 
         <div class="edit-bio-content">
-          <textarea id="bio-textarea" class="bio-textarea" maxlength="500" placeholder="Write your bio...">${currentBio}</textarea>
-          <div class="char-count"><span id="bio-char-count">${currentBio.length}</span>/500</div>
+          <textarea id="bio-textarea" class="bio-textarea" maxlength="50" placeholder="Write your bio...">${currentBio}</textarea>
+          <div class="char-count"><span id="bio-char-count">${currentBio.length}</span>/50</div>
         </div>
 
         <div class="edit-bio-footer">
