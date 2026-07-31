@@ -471,9 +471,19 @@
       "expectSelector": ".message-reaction-chip"
     },
     {
-      "name": "New Group entry point on Messages list",
+      "name": "Messages header keeps its search control after removing + New Group",
       "path": "/",
-      "expectSelector": "[data-testid=\"new-group-entry\"]"
+      "expectSelector": ".messages-header .messages-header-actions .search-icon"
+    },
+    {
+      "name": "Messages header renders the app title alongside search",
+      "path": "/",
+      "expectSelector": ".messages-header h1"
+    },
+    {
+      "name": "Group creation is still reachable from the Create menu",
+      "path": "/#/create",
+      "expectSelector": ".create-group-card"
     },
     {
       "name": "Create Group explains the public option",
