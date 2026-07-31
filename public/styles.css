@@ -2251,47 +2251,95 @@ html, body {
   background-color: #0056b3;
 }
 
-.follower-status {
-  text-align: center;
-  padding: 16px;
-}
+/* ---- Channel feed ------------------------------------------------------- */
 
-.follow-button {
-  padding: 8px 24px;
-  border: 1px solid #ccc;
-  background-color: #fff;
-  border-radius: 20px;
+/* The follow affordance now lives as a pill in the header, so the feed owns the
+   whole scroll area and non-owners get no bottom strip at all. */
+.channel-follow-pill {
+  flex-shrink: 0;
+  padding: 6px 16px;
+  margin-right: 4px;
+  border: none;
+  background-color: #007AFF;
+  color: #fff;
+  border-radius: 16px;
   cursor: pointer;
   font-size: 14px;
   font-weight: 600;
-  transition: all 0.2s;
+  transition: background-color 0.2s;
 }
 
-.follow-button:active {
-  background-color: #f0f0f0;
+.channel-follow-pill:active {
+  background-color: #0056b3;
 }
 
-.follow-button.following {
-  border-color: #007AFF;
-  color: #007AFF;
+.channel-feed {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background-color: #f2f2f7;
+  padding: 12px;
+  padding-bottom: 88px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.post-item {
-  padding: 16px 12px;
-  border-bottom: 1px solid #e0e0e0;
+.channel-page .channel-footer {
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+.post-card {
+  position: relative;
   background-color: #fff;
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
-.post-timestamp {
+.post-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.post-card-avatar {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background-color: #007AFF;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.post-card-channel {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #111;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.post-card-time {
+  flex-shrink: 0;
   font-size: 12px;
   color: #999;
-  margin-bottom: 8px;
 }
 
 .post-content {
   font-size: 15px;
-  line-height: 1.4;
-  margin-bottom: 12px;
+  line-height: 1.45;
+  color: #111;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-wrap: break-word;
@@ -2299,45 +2347,424 @@ html, body {
   max-width: 100%;
 }
 
+/* ---- Reactions --------------------------------------------------------- */
+
+.post-reaction-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+/* Empty chip strip must not add vertical space above the action row. */
+.post-reaction-chips:empty {
+  display: none;
+}
+
+.post-reaction-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border: 1px solid #e0e0e0;
+  border-radius: 14px;
+  background-color: #f6f6f8;
+  cursor: pointer;
+  font-size: 13px;
+  color: #444;
+  min-height: 28px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.post-reaction-chip:active {
+  background-color: #ececf0;
+}
+
+/* The user's own reactions read as selected at a glance. */
+.post-reaction-chip.is-mine {
+  background-color: #e5f0ff;
+  border-color: #007AFF;
+  color: #0056b3;
+}
+
+.chip-emoji {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.chip-count {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* One control only — ⋯ — so the row is a right-aligned single slot. Forward
+   lives inside that menu and reacting is a hold on the card. */
 .post-actions {
   display: flex;
-  gap: 16px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 10px;
+  padding-top: 6px;
+  border-top: 1px solid #f0f0f0;
   font-size: 13px;
   color: #555;
 }
 
-.post-like-button,
-.post-share-button,
 .post-menu-button {
   background: none;
   border: none;
-  padding: 0;
+  padding: 4px 10px;
+  min-height: 32px;
+  min-width: 44px;
+  border-radius: 8px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 14px;
+  justify-content: center;
+  font-size: 20px;
+  line-height: 1;
   color: #555;
-  transition: color 0.2s;
+  transition: color 0.2s, background-color 0.2s;
 }
 
-.post-like-button:active,
-.post-share-button:active,
 .post-menu-button:active {
+  background-color: #f0f0f0;
   color: #007AFF;
 }
 
-.post-like-button.liked {
-  color: #FF2D55;
+/* Edit Post — a plain text editor over the standard bottom-sheet dialog shell.
+   Same scoped header/close treatment as .forward-sheet-dialog, since
+   .dialog-header is shared app-wide and most sheets have no close button. */
+.edit-post-dialog .dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.like-icon {
+.edit-post-dialog .close-dialog-button {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  color: #888;
+}
+
+.edit-post-dialog .close-dialog-button:active {
+  background-color: #f0f0f0;
+}
+
+.edit-post-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.45;
+  color: #222;
+  resize: vertical;
+  min-height: 120px;
+}
+
+.edit-post-input:focus {
+  outline: none;
+  border-color: #007AFF;
+}
+
+/* Anchored to the card (position: relative) so it opens next to the post it
+   belongs to rather than floating over the page. Sits at the card's bottom
+   edge — over the thin ⋯ action row rather than over the post text, so you can
+   still read what you're reacting to while the picker is open. */
+.reaction-picker {
+  position: absolute;
+  right: 8px;
+  bottom: 4px;
+  z-index: 20;
+  display: flex;
+  gap: 2px;
+  padding: 6px;
+  background-color: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 24px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  animation: reaction-picker-in 0.14s ease-out;
+}
+
+@keyframes reaction-picker-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* touch-action: manipulation opts these out of the browser's double-tap-zoom
+   detection, which is the other place a per-tap delay comes from. The JS
+   reacts on touchstart; this keeps the visual feedback just as prompt. */
+.reaction-picker-option {
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.15s, transform 0.15s;
+}
+
+.reaction-picker-option:active {
+  background-color: #f0f0f0;
+  transform: scale(1.15);
+}
+
+/* ---- Message reactions (DM/group bubbles) ------------------------------ */
+/* Long-pressing a message bubble opens the same picker as a channel post
+   (.message-reaction-picker below); chips render the result underneath the
+   bubble the same way .post-reaction-chips renders under a post. */
+
+.message-reaction-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 12px 0 12px;
+}
+
+.message-reaction-chips:empty {
+  display: none;
+}
+
+.message.outgoing .message-reaction-chips {
+  justify-content: flex-end;
+}
+
+.message-reaction-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  background-color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  color: #444;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.message-reaction-chip:active {
+  background-color: #ececf0;
+}
+
+.message-reaction-chip.is-mine {
+  background-color: #e5f0ff;
+  border-color: #007AFF;
+  color: #0056b3;
+}
+
+/* Fixed-positioned (top/left set in JS) since a message bubble scrolls out
+   from under an absolutely-positioned picker the way a post card can't. */
+.message-reaction-picker {
+  z-index: 30;
+  display: flex;
+  gap: 2px;
+  padding: 6px;
+  background-color: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 24px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  animation: reaction-picker-in 0.14s ease-out;
+}
+
+.channel-empty-state {
+  text-align: center;
+  padding: 48px 24px;
+  color: #888;
+}
+
+.channel-empty-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+}
+
+.channel-empty-title {
   font-size: 16px;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 4px;
 }
 
-.like-count {
+.channel-empty-hint {
+  font-size: 14px;
+  color: #999;
+}
+
+/* ---- Forward ----------------------------------------------------------- */
+
+.forward-sheet-dialog {
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scoped rather than global: .dialog-header is shared by every sheet in the app
+   and they don't all carry a close button. */
+.forward-sheet-dialog .dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.forward-sheet-dialog .close-dialog-button {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  color: #888;
+}
+
+.forward-sheet-dialog .close-dialog-button:active {
+  background-color: #f0f0f0;
+}
+
+.forward-sheet-dialog .dialog-content {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.forward-post-preview {
+  background-color: #f6f6f8;
+  border-left: 3px solid #007AFF;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.forward-preview-channel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #007AFF;
+  margin-bottom: 2px;
+}
+
+.forward-preview-text {
   font-size: 13px;
   color: #555;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.forward-targets-list {
+  max-height: 34vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.forward-section-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #999;
+  padding: 10px 2px 6px;
+}
+
+.forward-target-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 2px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background-color 0.15s;
+}
+
+.forward-target-item:active {
+  background-color: #f0f0f0;
+}
+
+.forward-target-item .user-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.forward-target-item .user-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #111;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.forward-target-item .user-subtitle {
+  font-size: 12px;
+  color: #999;
+}
+
+.forward-note-input {
+  resize: none;
+  min-height: 44px;
+}
+
+/* Sits above the bubble, outside it, so incoming and outgoing bubbles keep
+   their own colours untouched. */
+.forward-attribution {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px 2px;
+  font-size: 12px;
+  font-style: italic;
+  color: #8a8a8a;
+  cursor: pointer;
+}
+
+.message.outgoing .forward-attribution {
+  justify-content: flex-end;
+  color: #7fa8d8;
+}
+
+.message.incoming .forward-attribution {
+  color: #8a8a8a;
+}
+
+.forward-attribution-icon {
+  font-style: normal;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reaction-picker {
+    animation: none;
+  }
+
+  .reaction-picker-option:active {
+    transform: none;
+  }
 }
 
 .visibility-label {
