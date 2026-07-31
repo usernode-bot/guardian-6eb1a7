@@ -5,7 +5,7 @@ const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET;
+const USERNODE_JWT_PUBLIC_KEY = process.env.USERNODE_JWT_PUBLIC_KEY;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 
 // Database connection
@@ -25,9 +25,16 @@ const PUBLIC_PREFIXES = ['/explorer-api/', '/api/conversations'];
 
 app.use((req, res, next) => {
   const token = req.query.token || req.headers['x-usernode-token'];
-  if (token && JWT_SECRET) {
+  if (token && USERNODE_JWT_PUBLIC_KEY) {
     try {
-      req.user = jwt.verify(token, JWT_SECRET);
+      const payload = jwt.verify(token, USERNODE_JWT_PUBLIC_KEY, {
+        algorithms: ['RS256'],
+        issuer: 'usernode',
+        audience: 'usernode:app:' + process.env.USERNODE_APP_ID
+      });
+      if (payload.pur === 'iframe') {
+        req.user = payload;
+      }
     } catch (err) {
       // Token verification failed, continue without user
     }
