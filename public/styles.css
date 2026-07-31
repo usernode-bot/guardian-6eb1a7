@@ -115,6 +115,12 @@ html, body {
   margin: 0;
 }
 
+.messages-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .search-icon {
   font-size: 20px;
   cursor: pointer;

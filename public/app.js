@@ -1748,8 +1748,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="messages-header">
           <h1>Guardian</h1>
           <div class="messages-header-actions">
-            <button class="new-group-button un-touch-target" data-testid="new-group-entry" aria-label="Create a new group">+ New Group</button>
-            <span class="search-icon">🔍</span>
+            <span class="search-icon un-touch-target">🔍</span>
           </div>
         </div>
         <div class="messages-search" id="messages-search" style="display: ${showMessagesSearch ? 'flex' : 'none'};">
@@ -1778,8 +1777,9 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
 
-    // "+ New Group" entry points (header action + Groups-tab empty state)
-    document.querySelectorAll('[data-testid="new-group-entry"], [data-testid="new-group-empty"]').forEach(btn => {
+    // "+ New Group" entry point (Groups-tab empty state; the header action was
+    // removed — group creation still lives in the Create menu at /#/create)
+    document.querySelectorAll('[data-testid="new-group-empty"]').forEach(btn => {
       btn.addEventListener('click', () => {
         window.location.hash = '/create-group';
       });
