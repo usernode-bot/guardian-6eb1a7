@@ -28,6 +28,10 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=message-deleted   forces group_1's seeded deleted messages         → placeholder must render
   //   ?shot=dm-menu           clicks the DM header's ⋮ button on load          → options menu must render
   //   ?shot=dm-cleared        clears conv_1's chat via the real Clear Chat fn  → list preview must read "No messages yet"
+  //   ?shot=post-reactions    long-presses the first post card                  → reaction picker must render
+  //   ?shot=forward-sheet     ⋯ menu → Forward on the first post              → target rows + enabled Send must render
+  //   ?shot=post-menu         opens the first post's ⋯ menu                    → Forward / Copy text (+ owner items) must render
+  //   ?shot=post-edit         opens Edit Post on the first post (owner only)   → dialog prefilled with the post text must render
   //   ?shot=create-group-public       selects Public on Create Group           → #privacy-public-btn must be active
   //   ?shot=create-group-one-member   name + exactly ONE invitee               → Create Group must be enabled
   //   ?shot=create-group-zero-members name only, then submits                  → "Select at least 1 member" must render
@@ -42,6 +46,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_MESSAGE_DELETED = SHOT === 'message-deleted';
   const SHOT_DM_MENU = SHOT === 'dm-menu';
   const SHOT_DM_CLEARED = SHOT === 'dm-cleared';
+  const SHOT_POST_REACTIONS = SHOT === 'post-reactions';
+  const SHOT_FORWARD_SHEET = SHOT === 'forward-sheet';
+  const SHOT_MESSAGE_REACTIONS = SHOT === 'message-reactions';
+  const SHOT_POST_MENU = SHOT === 'post-menu';
+  const SHOT_POST_EDIT = SHOT === 'post-edit';
   const SHOT_CREATE_GROUP_PUBLIC = SHOT === 'create-group-public';
   const SHOT_CREATE_GROUP_ONE_MEMBER = SHOT === 'create-group-one-member';
   const SHOT_CREATE_GROUP_ZERO_MEMBERS = SHOT === 'create-group-zero-members';
@@ -124,8 +133,8 @@ document.addEventListener('DOMContentLoaded', () => {
       type: 'direct',
       username: 'Bob Wilson',
       avatar: 'BW',
-      lastMessage: 'Did you see the latest updates?',
-      timestamp: Date.now() - 60 * 60 * 1000, // 1 hour ago
+      lastMessage: '↗ Mainnet Beta is Live 🚀',
+      timestamp: Date.now() - 30 * 60 * 1000, // 30 minutes ago
       unreadCount: 0,
       onlineStatus: false,
       archived: false,
@@ -134,7 +143,14 @@ document.addEventListener('DOMContentLoaded', () => {
       messages: [
         { id: 'msg_1', text: "Check out the new features", timestamp: Date.now() - 2*60*60*1000, isOutgoing: false },
         { id: 'msg_2', text: "Looking good!", timestamp: Date.now() - 1.5*60*60*1000, isOutgoing: true },
-        { id: 'msg_3', text: "Did you see the latest updates?", timestamp: Date.now() - 60*60*1000, isOutgoing: false }
+        { id: 'msg_3', text: "Did you see the latest updates?", timestamp: Date.now() - 60*60*1000, isOutgoing: false },
+        {
+          id: 'msg_4',
+          text: 'Mainnet Beta is Live 🚀\n\nExciting times ahead as we launch the next phase of development!',
+          timestamp: Date.now() - 30*60*1000,
+          isOutgoing: true,
+          forwardedFrom: { channelId: 'channel_1', channelName: 'Solana Indonesia', channelAvatar: 'SI', postId: 'post_1' }
+        }
       ]
     },
     {
@@ -212,7 +228,15 @@ document.addEventListener('DOMContentLoaded', () => {
         { id: 'msg_3', senderId: 'user_self', text: 'Thanks for adding me!', timestamp: Date.now() - 8*60*1000, isOutgoing: true },
         { id: 'msg_4', senderId: 'user_charlie', senderName: 'Charlie', text: 'Great to have you here!', timestamp: Date.now() - 7*60*1000, isOutgoing: false, isDeleted: true, deletedByAdmin: true },
         { id: 'msg_5', senderId: 'user_alice', senderName: 'Alice', text: 'Let\'s catch up soon!', timestamp: Date.now() - 6*60*1000, isOutgoing: false },
-        { id: 'msg_6', senderId: 'user_self', text: 'Absolutely! Looking forward to it.', timestamp: Date.now() - 5*60*1000, isOutgoing: true, replyTo: { messageId: 'msg_5', senderName: 'Alice', previewText: "Let's catch up soon!" } }
+        { id: 'msg_6', senderId: 'user_self', text: 'Absolutely! Looking forward to it.', timestamp: Date.now() - 5*60*1000, isOutgoing: true, replyTo: { messageId: 'msg_5', senderName: 'Alice', previewText: "Let's catch up soon!" } },
+        {
+          id: 'msg_7',
+          senderId: 'user_self',
+          text: 'Mainnet Beta is Live 🚀\n\nExciting times ahead as we launch the next phase of development!',
+          timestamp: Date.now() - 4*60*1000,
+          isOutgoing: true,
+          forwardedFrom: { channelId: 'channel_1', channelName: 'Solana Indonesia', channelAvatar: 'SI', postId: 'post_1' }
+        }
       ]
     },
     {
@@ -306,8 +330,8 @@ document.addEventListener('DOMContentLoaded', () => {
       groupId: 'group_1',
       name: 'Seeker Club',
       avatar: 'SC',
-      lastMessage: 'Let\'s catch up soon!',
-      timestamp: Date.now() - 5*60*1000,
+      lastMessage: '↗ Mainnet Beta is Live 🚀',
+      timestamp: Date.now() - 4*60*1000,
       unreadCount: 0,
       archived: false,
       pinned: false
@@ -667,7 +691,11 @@ document.addEventListener('DOMContentLoaded', () => {
           authorId: 'user_4',
           text: 'Mainnet Beta is Live 🚀\n\nExciting times ahead as we launch the next phase of development!',
           timestamp: Date.now() - 2 * 60 * 1000,
-          likes: { 'user_self': true, 'user_1': true, 'user_2': true },
+          reactions: {
+            '❤️': { 'user_self': true, 'user_1': true, 'user_2': true },
+            '👍': { 'user_1': true, 'user_2': true },
+            '🎉': { 'user_3': true }
+          },
           isPinned: false
         },
         {
@@ -676,7 +704,7 @@ document.addEventListener('DOMContentLoaded', () => {
           authorId: 'user_4',
           text: 'Monthly Update: Progress Report\n\nWe\'ve completed major milestones this month. Check the roadmap for details.',
           timestamp: Date.now() - 24 * 60 * 60 * 1000,
-          likes: { 'user_1': true },
+          reactions: { '😂': { 'user_1': true } },
           isPinned: false
         }
       ]
@@ -699,7 +727,7 @@ document.addEventListener('DOMContentLoaded', () => {
           authorId: 'user_self',
           text: 'Welcome to Web3 Builders! 👨‍💻\n\nThis is a space to share projects, learn together, and build the future of web3.',
           timestamp: Date.now() - 60 * 60 * 1000,
-          likes: {},
+          reactions: {},
           isPinned: false
         }
       ]
@@ -722,7 +750,7 @@ document.addEventListener('DOMContentLoaded', () => {
           authorId: 'user_8',
           text: 'Tip of the day: Golden Ratio in UI Design\n\nUsing the golden ratio can create more aesthetically pleasing layouts.',
           timestamp: Date.now() - 12 * 60 * 60 * 1000,
-          likes: { 'user_1': true, 'user_2': true },
+          reactions: { '❤️': { 'user_1': true, 'user_2': true } },
           isPinned: false
         }
       ]
@@ -743,6 +771,41 @@ document.addEventListener('DOMContentLoaded', () => {
       posts: []
     }
   ];
+
+  // The fixed reaction set offered on channel posts. Single source of truth for
+  // BOTH the picker order and the chip order, so chips never reshuffle as counts
+  // change. Index 0 ('❤️') is what the primary like button toggles.
+  const POST_REACTIONS = ['❤️', '👍', '😂', '🎉', '😮', '😢'];
+  const LIKE_EMOJI = POST_REACTIONS[0];
+
+  // Reactions live at post.reactions = { emoji: { userId: true } }. Posts used to
+  // carry a flat `likes` map instead; fold any that survive into the heart bucket
+  // so a stray seed (or a merge from another branch) can't break rendering.
+  function normalizePostReactions() {
+    channels.forEach(channel => {
+      (channel.posts || []).forEach(post => {
+        if (!post.reactions || typeof post.reactions !== 'object') post.reactions = {};
+        if (post.likes && typeof post.likes === 'object') {
+          post.reactions[LIKE_EMOJI] = Object.assign({}, post.reactions[LIKE_EMOJI], post.likes);
+          delete post.likes;
+        }
+        // Drop any emoji bucket that ended up empty so no zero-count chip renders.
+        Object.keys(post.reactions).forEach(emoji => {
+          if (Object.keys(post.reactions[emoji] || {}).length === 0) delete post.reactions[emoji];
+        });
+      });
+    });
+  }
+  normalizePostReactions();
+
+  // Count / membership helpers for a post's reaction map.
+  function reactionCount(post, emoji) {
+    return Object.keys((post.reactions && post.reactions[emoji]) || {}).length;
+  }
+
+  function userReacted(post, emoji) {
+    return !!(post.reactions && post.reactions[emoji] && post.reactions[emoji]['user_self']);
+  }
 
   // Add channel conversations to the conversations list
   conversations = conversations.concat([
@@ -2187,6 +2250,28 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(updateVisibility, 700);
   }
 
+  // Attribution line shown above a forwarded message's bubble, outside it, so the
+  // bubble keeps looking like an ordinary message in both colour schemes.
+  function forwardAttributionHTML(forwardedFrom) {
+    return `
+      <div class="forward-attribution" data-channel-id="${forwardedFrom.channelId}" role="link" tabindex="0" title="Open ${forwardedFrom.channelName}">
+        <span class="forward-attribution-icon" aria-hidden="true">↗</span>
+        <span class="forward-attribution-text">Forwarded from ${forwardedFrom.channelName}</span>
+      </div>
+    `;
+  }
+
+  // Tapping the attribution jumps to the source channel.
+  function setupForwardAttributionLinks(container) {
+    if (!container) return;
+    container.addEventListener('click', (e) => {
+      const attribution = e.target.closest('.forward-attribution');
+      if (!attribution) return;
+      e.stopPropagation();
+      window.location.hash = '/channel/' + attribution.dataset.channelId;
+    });
+  }
+
   function renderConversationPage(conversationId, renderOptions) {
     const fromSend = !!(renderOptions && renderOptions.fromSend);
     const conversation = conversations.find(c => c.id === conversationId);
@@ -2213,9 +2298,16 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
       }
 
+      // Forwarded posts carry their origin channel above the bubble, tappable
+      // to jump to the source channel.
+      if (msg.forwardedFrom) {
+        messageHTML += forwardAttributionHTML(msg.forwardedFrom);
+      }
+
       messageHTML += `
         ${renderPinBadge(msg)}
         <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
+        <div class="message-reaction-chips" data-message-id="${msg.id}">${messageReactionChipsHTML(msg)}</div>
         <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
       </div>`;
 
@@ -2291,6 +2383,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Set up message long-press interactions
     setupMessageLongPress(conversation, 'dm');
     setupMessageSwipeToReply(conversation, 'dm');
+    setupForwardAttributionLinks(conversationRoot);
 
     // Set up send button and reply state management
     setupComposer(conversation, { isGroup: false });
@@ -2593,6 +2686,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const LONG_PRESS_DURATION = 350;
     const MENU_ITEMS = [
       { icon: '↩️', label: 'Reply', action: 'reply' },
+      { icon: '😊', label: 'React', action: 'react' },
       { icon: '📌', label: 'Pin', action: 'pin' },
       { icon: '📋', label: 'Copy', action: 'copy' },
       { icon: '🗑️', label: 'Delete', action: 'delete' }
@@ -2606,6 +2700,78 @@ document.addEventListener('DOMContentLoaded', () => {
       lastEventWasTouch: false,
       scrollHandler: null
     };
+
+    // Reaction picker for message bubbles — same emoji set and look as the
+    // channel-post picker, but fixed-positioned next to the pressed bubble
+    // (a bubble isn't a stable anchor the way a post card is, since the
+    // thread can scroll under it) instead of anchored inside it.
+    let messageReactionPickerHandlers = null;
+
+    function closeMessageReactionPicker() {
+      const existing = document.querySelector('.message-reaction-picker');
+      if (existing) existing.remove();
+      if (messageReactionPickerHandlers) {
+        document.removeEventListener('click', messageReactionPickerHandlers.onDocClick, true);
+        document.removeEventListener('keydown', messageReactionPickerHandlers.onKeyDown);
+        messageReactionPickerHandlers = null;
+      }
+    }
+
+    function openMessageReactionPicker(messageId, bubbleElement) {
+      closeMessageReactionPicker();
+      const conversationPage = document.querySelector('.conversation-page');
+      if (!conversationPage || !bubbleElement) return;
+
+      const picker = document.createElement('div');
+      picker.className = 'message-reaction-picker';
+      picker.setAttribute('role', 'menu');
+      picker.innerHTML = POST_REACTIONS.map(emoji => `
+        <button class="reaction-picker-option" data-message-id="${messageId}" data-emoji="${emoji}" role="menuitem" aria-label="React with ${emoji}">${emoji}</button>
+      `).join('');
+      conversationPage.appendChild(picker);
+
+      const bubbleRect = bubbleElement.getBoundingClientRect();
+      const pickerRect = picker.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const viewportWidth = window.innerWidth;
+
+      let top = bubbleRect.top - pickerRect.height - 10;
+      if (top < 10) top = bubbleRect.bottom + 10;
+      if (top + pickerRect.height > viewportHeight - 10) top = viewportHeight - pickerRect.height - 10;
+
+      let left = bubbleRect.left + bubbleRect.width / 2 - pickerRect.width / 2;
+      if (left < 10) left = 10;
+      if (left + pickerRect.width > viewportWidth - 10) left = viewportWidth - pickerRect.width - 10;
+
+      picker.style.position = 'fixed';
+      picker.style.top = Math.max(10, top) + 'px';
+      picker.style.left = Math.max(10, left) + 'px';
+
+      picker.querySelectorAll('.reaction-picker-option').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          toggleMessageReaction(conversation, messageId, btn.dataset.emoji);
+          refreshMessageReactions(conversation, messageId);
+          closeMessageReactionPicker();
+        });
+      });
+
+      const onDocClick = (e) => {
+        if (e.target.closest('.message-reaction-picker')) return;
+        closeMessageReactionPicker();
+      };
+      const onKeyDown = (e) => {
+        if (e.key === 'Escape') closeMessageReactionPicker();
+      };
+      messageReactionPickerHandlers = { onDocClick, onKeyDown };
+      // Registered async so the click/menu-tap that opened the picker doesn't
+      // immediately close it via the same event bubbling to document.
+      setTimeout(() => {
+        if (!messageReactionPickerHandlers) return;
+        document.addEventListener('click', onDocClick, true);
+        document.addEventListener('keydown', onKeyDown);
+      }, 0);
+    }
 
     function dismissMenu() {
       if (!menuState.isMenuOpen) return;
@@ -2745,6 +2911,10 @@ document.addEventListener('DOMContentLoaded', () => {
               const previewText = truncateText(targetMessage.text, 50);
               setReplyState(messageId, senderName, previewText);
             }
+          } else if (action === 'react') {
+            if (targetMessage) {
+              openMessageReactionPicker(messageId, bubbleElement);
+            }
           } else if (action === 'copy') {
             if (targetMessage) {
               navigator.clipboard.writeText(targetMessage.text).then(() => {
@@ -2881,6 +3051,32 @@ document.addEventListener('DOMContentLoaded', () => {
       // Prevent text selection during long-press
       bubble.style.userSelect = 'none';
     });
+
+    // Tapping an already-attached chip toggles it directly — no need to
+    // long-press again once a reaction is visible on the bubble.
+    const messagesContainer = document.querySelector('.messages-container');
+    if (messagesContainer) {
+      messagesContainer.addEventListener('click', (e) => {
+        const chip = e.target.closest('.message-reaction-chip');
+        if (!chip) return;
+        e.stopPropagation();
+        toggleMessageReaction(conversation, chip.dataset.messageId, chip.dataset.emoji);
+        refreshMessageReactions(conversation, chip.dataset.messageId);
+      });
+    }
+
+    // Screenshot-state: put a reaction on the first message and open the
+    // picker via the real long-press menu action, exercising both the
+    // persisted-chip path and the picker UI, not just the render function.
+    if (SHOT_MESSAGE_REACTIONS) {
+      const firstBubble = document.querySelector('.message-bubble');
+      if (firstBubble) {
+        const firstMessageId = firstBubble.dataset.messageId;
+        toggleMessageReaction(conversation, firstMessageId, POST_REACTIONS[0]);
+        refreshMessageReactions(conversation, firstMessageId);
+        openMessageReactionPicker(firstMessageId, firstBubble);
+      }
+    }
   }
 
   // Swipe-to-reply gesture: incoming messages swipe right, outgoing messages swipe left.
@@ -3315,11 +3511,21 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       ` : '';
 
+      // A deleted message keeps no attribution — there's nothing left to attribute.
+      const forwardHTML = (msg.forwardedFrom && !msg.isDeleted) ? forwardAttributionHTML(msg.forwardedFrom) : '';
+
+      // Deleted messages carry no reactions either — nothing left to react to.
+      // (Container always renders, like .post-reaction-chips, so a later
+      // refreshMessageReactions() call always has an element to patch.)
+      const reactionChipsRow = msg.isDeleted ? '' : `<div class="message-reaction-chips" data-message-id="${msg.id}">${messageReactionChipsHTML(msg)}</div>`;
+
       if (msg.isOutgoing) {
         messageHTML += `
           ${quoteHTML}
+          ${forwardHTML}
           ${renderPinBadge(msg)}
           <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
+          ${reactionChipsRow}
           <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
         </div>`;
       } else {
@@ -3328,8 +3534,10 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="message-content">
             <div class="message-sender-name">${msg.senderName}</div>
             ${quoteHTML}
+            ${forwardHTML}
             ${renderPinBadge(msg)}
             <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
+            ${reactionChipsRow}
             <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
           </div>
         </div>`;
@@ -3444,6 +3652,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Set up message long-press interactions
     setupMessageLongPress(group, 'group');
     setupMessageSwipeToReply(group, 'group');
+    setupForwardAttributionLinks(groupRoot);
 
     // Set up send button and reply state management
     setupComposer(group, { isGroup: true });
@@ -5264,7 +5473,7 @@ document.addEventListener('DOMContentLoaded', () => {
       text: text,
       imageData: imageData || null,
       timestamp: timestamp,
-      likes: {},
+      reactions: {},
       isPinned: false
     };
 
@@ -5330,18 +5539,29 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Toggle like on a post
-  function toggleLikePost(postId, channelId) {
+  // Toggle one emoji reaction on a post for the current user. Each emoji toggles
+  // INDEPENDENTLY — a user can hold ❤️ and 🎉 on the same post at once — so the
+  // heart button and the emoji picker never clobber each other's state.
+  // Available to every viewer, follower or owner alike: no permission gate.
+  function togglePostReaction(channelId, postId, emoji) {
     const channel = channels.find(c => c.id === channelId);
     if (!channel) return;
 
     const post = channel.posts.find(p => p.id === postId);
     if (!post) return;
 
-    if (post.likes['user_self']) {
-      delete post.likes['user_self'];
+    if (!post.reactions) post.reactions = {};
+    if (!post.reactions[emoji]) post.reactions[emoji] = {};
+
+    if (post.reactions[emoji]['user_self']) {
+      delete post.reactions[emoji]['user_self'];
     } else {
-      post.likes['user_self'] = true;
+      post.reactions[emoji]['user_self'] = true;
+    }
+
+    // A bucket that dropped to zero must not leave a "0" chip behind.
+    if (Object.keys(post.reactions[emoji]).length === 0) {
+      delete post.reactions[emoji];
     }
   }
 
@@ -5389,6 +5609,132 @@ document.addEventListener('DOMContentLoaded', () => {
     conversations = conversations.filter(c => !(c.type === 'channel' && c.channelId === channelId));
   }
 
+  // Compact follower counts for the channel header: 12500 → "12.5K", 2000 → "2K".
+  function formatFollowerCount(count) {
+    const n = Number(count) || 0;
+    if (n < 1000) return String(n);
+    if (n < 1000000) {
+      const thousands = n / 1000;
+      const rounded = Math.round(thousands * 10) / 10;
+      return (rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1)) + 'K';
+    }
+    const millions = Math.round((n / 1000000) * 10) / 10;
+    return (millions % 1 === 0 ? millions.toFixed(0) : millions.toFixed(1)) + 'M';
+  }
+
+  // The reaction chip strip for one post. Chips follow POST_REACTIONS order so
+  // they hold still as counts change; an emoji with no reactions gets no chip.
+  function postReactionChipsHTML(post) {
+    return POST_REACTIONS.filter(emoji => reactionCount(post, emoji) > 0).map(emoji => {
+      const mine = userReacted(post, emoji);
+      return `
+        <button class="post-reaction-chip ${mine ? 'is-mine' : ''}" data-post-id="${post.id}" data-emoji="${emoji}" aria-pressed="${mine ? 'true' : 'false'}" title="React with ${emoji}">
+          <span class="chip-emoji">${emoji}</span><span class="chip-count">${reactionCount(post, emoji)}</span>
+        </button>
+      `;
+    }).join('');
+  }
+
+  // The action row for one post: the ⋯ overflow menu and nothing else. Reacting
+  // is a hold gesture on the card itself (see the long-press wiring in
+  // renderChannelView) plus the chip strip above this row, and Forward lives
+  // inside the ⋯ menu — so the row carries exactly one tap target.
+  function postActionsHTML(post) {
+    return `
+      <button class="post-menu-button" data-post-id="${post.id}" title="More options" aria-label="More options">⋯</button>
+    `;
+  }
+
+  // One post card: channel identity + relative time, the text, chips, actions.
+  function postCardHTML(channel, post) {
+    return `
+      <article class="post-card" data-post-id="${post.id}">
+        <div class="post-card-head">
+          <div class="post-card-avatar">${channel.avatar}</div>
+          <div class="post-card-channel">${channel.name}</div>
+          <div class="post-card-time">${formatTimestamp(post.timestamp)}</div>
+        </div>
+        <div class="post-content">${post.text}</div>
+        <div class="post-reaction-chips">${postReactionChipsHTML(post)}</div>
+        <div class="post-actions">${postActionsHTML(post)}</div>
+      </article>
+    `;
+  }
+
+  // Patch ONE card's reaction UI in place. A full renderChannelView() here would
+  // rebuild the page and throw away scroll position on every tap, so reactions
+  // deliberately never re-render the feed.
+  function refreshPostReactions(channelId, postId) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel) return;
+    const post = channel.posts.find(p => p.id === postId);
+    if (!post) return;
+
+    const card = pageContainer.querySelector(`.post-card[data-post-id="${postId}"]`);
+    if (!card) return;
+
+    // Only the chip strip reflects reaction state now — the action row is a
+    // fixed Forward + ⋯ pair, so it never needs repainting.
+    const chips = card.querySelector('.post-reaction-chips');
+    if (chips) chips.innerHTML = postReactionChipsHTML(post);
+  }
+
+  // Patch one card's text after an in-place edit, same in-place philosophy as
+  // refreshPostReactions: no full re-render, no lost scroll position.
+  function refreshPostContent(channelId, postId) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel) return;
+    const post = channel.posts.find(p => p.id === postId);
+    if (!post) return;
+
+    const card = pageContainer.querySelector(`.post-card[data-post-id="${postId}"]`);
+    if (!card) return;
+
+    const content = card.querySelector('.post-content');
+    if (content) content.innerHTML = post.text;
+  }
+
+  // Message-level reactions reuse POST_REACTIONS/reactionCount/userReacted so
+  // long-pressing a chat bubble feels like the same feature as reacting to a
+  // post, not a parallel system with its own emoji set.
+  function toggleMessageReaction(thread, messageId, emoji) {
+    const msg = thread && thread.messages && thread.messages.find(m => m.id === messageId);
+    if (!msg) return;
+
+    if (!msg.reactions) msg.reactions = {};
+    if (!msg.reactions[emoji]) msg.reactions[emoji] = {};
+
+    if (msg.reactions[emoji]['user_self']) {
+      delete msg.reactions[emoji]['user_self'];
+    } else {
+      msg.reactions[emoji]['user_self'] = true;
+    }
+
+    if (Object.keys(msg.reactions[emoji]).length === 0) {
+      delete msg.reactions[emoji];
+    }
+  }
+
+  function messageReactionChipsHTML(msg) {
+    return POST_REACTIONS.filter(emoji => reactionCount(msg, emoji) > 0).map(emoji => {
+      const mine = userReacted(msg, emoji);
+      return `
+        <button class="message-reaction-chip ${mine ? 'is-mine' : ''}" data-message-id="${msg.id}" data-emoji="${emoji}" aria-pressed="${mine ? 'true' : 'false'}" title="React with ${emoji}">
+          <span class="chip-emoji">${emoji}</span><span class="chip-count">${reactionCount(msg, emoji)}</span>
+        </button>
+      `;
+    }).join('');
+  }
+
+  // Patch one message's reaction chip strip in place (mirrors refreshPostReactions)
+  // so reacting never disturbs scroll position or an open picker/context menu.
+  function refreshMessageReactions(thread, messageId) {
+    const msg = thread && thread.messages && thread.messages.find(m => m.id === messageId);
+    if (!msg) return;
+    const chipsContainer = document.querySelector(`.message-reaction-chips[data-message-id="${messageId}"]`);
+    if (chipsContainer) chipsContainer.innerHTML = messageReactionChipsHTML(msg);
+  }
+
   // Render Channel View page
   function renderChannelView(channelId) {
     const channel = channels.find(c => c.id === channelId);
@@ -5398,49 +5744,37 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const isOwner = channel.creatorId === 'user_self';
-    const isFollowing = channel.followers['user_self'];
-    const isMuted = channel.mutedByUsers['user_self'];
+    const isFollowing = !!channel.followers['user_self'];
 
-    // Render posts in reverse chronological order
-    const postsList = channel.posts.map(post => {
-      const likeCount = Object.keys(post.likes).length;
-      const userLiked = post.likes['user_self'];
-      return `
-        <div class="post-item" data-post-id="${post.id}">
-          <div class="post-timestamp">${formatMessageTime(post.timestamp)}</div>
-          <div class="post-content">${post.text}</div>
-          <div class="post-actions">
-            <button class="post-like-button ${userLiked ? 'liked' : ''}" data-post-id="${post.id}" title="Like">
-              <span class="like-icon">❤️</span>
-              <span class="like-count">${likeCount}</span>
-            </button>
-            <button class="post-share-button" data-post-id="${post.id}" title="Share">
-              <span>🔁</span>
-            </button>
-            <button class="post-menu-button" data-post-id="${post.id}" title="More options">⋯</button>
-          </div>
-        </div>
-      `;
-    }).join('');
+    // channel.posts is newest-first (publishPost unshifts), so the natural
+    // top-of-list position already shows the latest post — no scrolling needed.
+    const postsList = channel.posts.map(post => postCardHTML(channel, post)).join('');
 
     pageContainer.innerHTML = `
-      <div class="conversation-page">
+      <div class="conversation-page channel-page">
         <div class="conversation-page-header">
           <button class="back-button" aria-label="Back to messages">←</button>
           <div class="conversation-header-info group-header-info" id="channel-header-info-${channelId}">
             <div class="conversation-avatar-header">${channel.avatar}</div>
             <div class="header-text">
               <div class="header-username">${channel.name}</div>
-              <div class="header-member-count">${channel.followerCount.toLocaleString()} Followers</div>
+              <div class="header-member-count">${formatFollowerCount(channel.followerCount)} followers</div>
             </div>
           </div>
+          ${(!isFollowing && !isOwner) ? `<button class="channel-follow-pill" aria-label="Follow channel">Follow</button>` : ''}
           <button class="menu-button" aria-label="More options">⋮</button>
         </div>
-        <div class="messages-container">
-          ${postsList || '<div class="empty-state">No posts yet</div>'}
+        <div class="channel-feed">
+          ${postsList || `
+            <div class="empty-state channel-empty-state">
+              <div class="channel-empty-icon" aria-hidden="true">📭</div>
+              <div class="channel-empty-title">No posts yet</div>
+              <div class="channel-empty-hint">${isOwner ? 'Publish your first post below.' : 'Check back soon for updates.'}</div>
+            </div>
+          `}
         </div>
-        <div class="channel-footer">
-          ${isOwner ? `
+        ${isOwner ? `
+          <div class="channel-footer">
             <div class="composer-container">
               <textarea class="composer-input" placeholder="What's happening?" rows="1"></textarea>
               <div class="composer-actions">
@@ -5448,16 +5782,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <button class="publish-button" aria-label="Publish">Publish</button>
               </div>
             </div>
-          ` : `
-            <div class="follower-status">
-              ${isFollowing ? `
-                <button class="follow-button following">✓ Following</button>
-              ` : `
-                <button class="follow-button">Follow</button>
-              `}
-            </div>
-          `}
-        </div>
+          </div>
+        ` : ''}
       </div>
     `;
 
@@ -5475,76 +5801,187 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    // Follow/Unfollow button handler
-    const followButton = document.querySelector('.follow-button');
-    if (followButton) {
-      followButton.addEventListener('click', () => {
-        if (isFollowing) {
-          unfollowChannel(channelId);
-          showToast('Unfollowed channel', { type: 'success' });
-        } else {
-          followChannel(channelId);
-          showToast('Following channel', { type: 'success' });
-        }
+    // Header Follow pill — the bottom "Following" strip is gone; Unfollow still
+    // lives in the ⋮ menu, so followers need no pill at all.
+    const followPill = document.querySelector('.channel-follow-pill');
+    if (followPill) {
+      followPill.addEventListener('click', () => {
+        followChannel(channelId);
+        showToast('Following channel', { type: 'success' });
         renderChannelView(channelId);
       });
     }
 
-    // Attach event handlers to messages container using event delegation
-    const messagesContainer = document.querySelector('.messages-container');
+    const feed = document.querySelector('.channel-feed');
 
-    if (messagesContainer) {
-      // Share button handler (event delegation)
-      messagesContainer.addEventListener('click', (e) => {
-        const shareBtn = e.target.closest('.post-share-button');
-        if (shareBtn) {
+    // Emoji picker state — at most one open at a time, scoped to this render.
+    let openPickerPostId = null;
+    let pickerDismissHandlers = null;
+
+    function closeReactionPicker() {
+      const existing = feed && feed.querySelector('.reaction-picker');
+      if (existing) existing.remove();
+      openPickerPostId = null;
+      if (pickerDismissHandlers) {
+        document.removeEventListener('click', pickerDismissHandlers.onDocClick, true);
+        document.removeEventListener('keydown', pickerDismissHandlers.onKeyDown);
+        pickerDismissHandlers = null;
+      }
+    }
+
+    // Commit one emoji from the picker. Shared by the touch and the mouse paths
+    // so both do exactly the same thing in the same order.
+    function commitPickerReaction(postId, emoji) {
+      togglePostReaction(channelId, postId, emoji);
+      closeReactionPicker();
+      refreshPostReactions(channelId, postId);
+    }
+
+    function openReactionPicker(postId) {
+      if (openPickerPostId === postId) {
+        closeReactionPicker();
+        return;
+      }
+      closeReactionPicker();
+
+      const card = feed && feed.querySelector(`.post-card[data-post-id="${postId}"]`);
+      if (!card) return;
+
+      const picker = document.createElement('div');
+      picker.className = 'reaction-picker';
+      picker.setAttribute('role', 'menu');
+      picker.innerHTML = POST_REACTIONS.map(emoji => `
+        <button class="reaction-picker-option" data-post-id="${postId}" data-emoji="${emoji}" role="menuitem" aria-label="React with ${emoji}">${emoji}</button>
+      `).join('');
+      card.appendChild(picker);
+      openPickerPostId = postId;
+
+      // React on touchstart, not on the click that a browser only synthesises
+      // after touchend (and after its own tap-delay heuristics). Waiting for
+      // that click is what made picking an emoji feel laggy, and any browser
+      // that decided the touch was part of a scroll swallowed it outright, so
+      // some taps did nothing at all. preventDefault() suppresses the trailing
+      // click so the mouse path below can't double-toggle.
+      picker.addEventListener('touchstart', (e) => {
+        const option = e.target.closest('.reaction-picker-option');
+        if (!option) return;
+        e.preventDefault();
+        e.stopPropagation();
+        commitPickerReaction(option.dataset.postId, option.dataset.emoji);
+      }, { passive: false });
+
+      const onDocClick = (e) => {
+        // Ignore clicks anywhere on the card that owns this picker. Releasing
+        // the long-press that opened it fires a trailing click right there, and
+        // treating that as "clicked outside" would slam the picker shut the
+        // instant the finger lifted.
+        if (e.target.closest(`.post-card[data-post-id="${postId}"]`)) return;
+        closeReactionPicker();
+      };
+      const onKeyDown = (e) => {
+        if (e.key === 'Escape') closeReactionPicker();
+      };
+      pickerDismissHandlers = { onDocClick, onKeyDown };
+      // Registered async so the click that opened the picker doesn't close it.
+      setTimeout(() => {
+        if (!pickerDismissHandlers) return;
+        document.addEventListener('click', onDocClick, true);
+        document.addEventListener('keydown', onKeyDown);
+      }, 0);
+    }
+
+    // One delegated listener for every post-level action.
+    if (feed) {
+      feed.addEventListener('click', (e) => {
+        const chip = e.target.closest('.post-reaction-chip');
+        if (chip) {
           e.stopPropagation();
-          const postId = shareBtn.dataset.postId;
-          console.log('Share button clicked for post:', postId);
-          const post = channel.posts.find(p => p.id === postId);
-          if (post) {
-            const shareText = `Check out this post from ${channel.name}:\n\n"${post.text}"`;
-            if (navigator.share) {
-              navigator.share({
-                title: channel.name,
-                text: shareText
-              }).catch(err => console.log('Share cancelled or failed'));
-            } else {
-              // Fallback: copy to clipboard
-              navigator.clipboard.writeText(shareText).then(() => {
-                showToast('Post link copied to clipboard', { type: 'success' });
-              }).catch(() => {
-                showToast('Failed to copy link', { type: 'error' });
-              });
-            }
-          }
-          return false;
+          togglePostReaction(channelId, chip.dataset.postId, chip.dataset.emoji);
+          refreshPostReactions(channelId, chip.dataset.postId);
+          return;
         }
-      });
 
-      // Post menu button handler (event delegation)
-      messagesContainer.addEventListener('click', (e) => {
+        const pickerOption = e.target.closest('.reaction-picker-option');
+        if (pickerOption) {
+          e.stopPropagation();
+          commitPickerReaction(pickerOption.dataset.postId, pickerOption.dataset.emoji);
+          return;
+        }
+
         const menuBtn = e.target.closest('.post-menu-button');
         if (menuBtn) {
           e.stopPropagation();
-          const postId = menuBtn.dataset.postId;
-          console.log('Menu button clicked for post:', postId);
-          showPostMenu(channelId, postId, isOwner);
-          return false;
+          closeReactionPicker();
+          showPostMenu(channelId, menuBtn.dataset.postId, isOwner);
+          return;
         }
       });
 
-      // Like button handler (event delegation)
-      messagesContainer.addEventListener('click', (e) => {
-        const likeBtn = e.target.closest('.post-like-button');
-        if (likeBtn) {
-          e.stopPropagation();
-          const postId = likeBtn.dataset.postId;
-          console.log('Like button clicked for post:', postId);
-          toggleLikePost(postId, channelId);
-          renderChannelView(channelId);
-          return false;
-        }
+      // Long-press a post card to open the reaction picker. This is now the ONLY
+      // way to add a reaction (the action row holds just Forward and ⋯), and it
+      // mirrors setupMessageLongPress's hold-to-act gesture on DM/group bubbles,
+      // so the whole app reacts to a hold the same way.
+      // Shorter than the 350ms used on chat bubbles: reacting to a post is now
+      // hold-only, so the hold is the whole interaction and it needs to feel
+      // immediate. The 8px move threshold below still keeps a scroll from
+      // reading as a hold.
+      const POST_LONG_PRESS_DURATION = 280;
+      feed.querySelectorAll('.post-card').forEach(card => {
+        const cardPostId = card.dataset.postId;
+        let longPressTimer = null;
+        let startPos = null;
+        let lastWasTouch = false;
+
+        const isOnOwnControl = (target) => !!target.closest('.post-actions, .reaction-picker, .post-reaction-chips');
+
+        const startPress = (x, y) => {
+          startPos = { x, y };
+          longPressTimer = setTimeout(() => {
+            longPressTimer = null;
+            // The trailing click from releasing the hold is handled by
+            // openReactionPicker's dismiss listener, which ignores clicks on
+            // the card that owns the picker. Nothing is swallowed at document
+            // level here: an armed one-shot click-eater would go on to eat the
+            // user's NEXT real tap (an emoji, the ⋯ button) whenever the
+            // release click never arrived.
+            openReactionPicker(cardPostId);
+          }, POST_LONG_PRESS_DURATION);
+        };
+        const cancelPress = () => {
+          if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+          }
+        };
+        const trackMove = (x, y) => {
+          if (!longPressTimer || !startPos) return;
+          const dx = x - startPos.x;
+          const dy = y - startPos.y;
+          if (Math.sqrt(dx * dx + dy * dy) > 8) cancelPress();
+        };
+
+        card.addEventListener('mousedown', (e) => {
+          if (lastWasTouch || isOnOwnControl(e.target)) return;
+          startPress(e.clientX, e.clientY);
+        });
+        card.addEventListener('mousemove', (e) => trackMove(e.clientX, e.clientY));
+        card.addEventListener('mouseup', cancelPress);
+        card.addEventListener('mouseleave', cancelPress);
+
+        card.addEventListener('touchstart', (e) => {
+          lastWasTouch = true;
+          if (isOnOwnControl(e.target)) return;
+          const touch = e.touches[0];
+          if (touch) startPress(touch.clientX, touch.clientY);
+        });
+        card.addEventListener('touchmove', (e) => {
+          const touch = e.touches[0];
+          if (touch) trackMove(touch.clientX, touch.clientY);
+        });
+        card.addEventListener('touchend', () => {
+          cancelPress();
+          setTimeout(() => { lastWasTouch = false; }, 100);
+        });
       });
     }
 
@@ -5573,13 +6010,28 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    // Scroll to latest post
-    setTimeout(() => {
-      const messagesContainer = document.querySelector('.messages-container');
-      if (messagesContainer) {
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-      }
-    }, 0);
+    // Screenshot-state: drive the REAL controls so the deep links exercise the
+    // actual listener wiring above, not just the rendering functions.
+    // Reacting is hold-only now, and a hold isn't expressible as a URL — so this
+    // one enters the state the gesture would, by calling the same opener the
+    // long-press timer calls.
+    if (SHOT_POST_REACTIONS) {
+      const firstCard = feed?.querySelector('.post-card');
+      if (firstCard) openReactionPicker(firstCard.dataset.postId);
+    }
+    // Forward moved into the ⋯ menu, so the deep link now walks the same two
+    // taps a user does: open the menu, then pick Forward.
+    if (SHOT_FORWARD_SHEET) {
+      feed?.querySelector('.post-card .post-menu-button')?.click();
+      document.getElementById('forward-post-btn')?.click();
+    }
+    if (SHOT_POST_MENU) {
+      feed?.querySelector('.post-card .post-menu-button')?.click();
+    }
+    if (SHOT_POST_EDIT) {
+      feed?.querySelector('.post-card .post-menu-button')?.click();
+      document.getElementById('edit-post-btn')?.click();
+    }
   }
 
   // Show channel menu
@@ -5677,19 +6129,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Show post menu
   function showPostMenu(channelId, postId, isOwner) {
-    if (!isOwner) return;
+    const channel = channels.find(c => c.id === channelId);
+    const post = channel && channel.posts.find(p => p.id === postId);
+    if (!post) return;
 
     const overlay = document.createElement('div');
     overlay.className = 'dialog-overlay';
 
     const dialog = document.createElement('div');
     dialog.className = 'dialog';
+    // Forward and Copy text are available to every viewer; only the channel
+    // owner sees Edit Post and Delete Post.
     dialog.innerHTML = `
       <div class="dialog-content group-menu-content">
-        <button class="menu-option" id="delete-post-btn">
-          <span class="option-icon">🗑️</span>
-          <span class="option-label">Delete Post</span>
+        <button class="menu-option" id="forward-post-btn">
+          <span class="option-icon">↗</span>
+          <span class="option-label">Forward</span>
         </button>
+        <button class="menu-option" id="copy-post-btn">
+          <span class="option-icon">📋</span>
+          <span class="option-label">Copy text</span>
+        </button>
+        ${isOwner ? `
+          <button class="menu-option" id="edit-post-btn">
+            <span class="option-icon">✏️</span>
+            <span class="option-label">Edit Post</span>
+          </button>
+          <button class="menu-option" id="delete-post-btn">
+            <span class="option-icon">🗑️</span>
+            <span class="option-label">Delete Post</span>
+          </button>
+        ` : ''}
       </div>
     `;
 
@@ -5700,12 +6170,352 @@ document.addEventListener('DOMContentLoaded', () => {
       if (e.target === overlay) overlay.remove();
     });
 
-    document.getElementById('delete-post-btn').addEventListener('click', () => {
+    document.getElementById('forward-post-btn').addEventListener('click', () => {
       overlay.remove();
-      deletePost(channelId, postId);
-      renderChannelView(channelId);
-      showToast('Post deleted', { type: 'success' });
+      showForwardSheet(channelId, postId);
     });
+
+    document.getElementById('copy-post-btn').addEventListener('click', () => {
+      overlay.remove();
+      const copy = navigator.clipboard && navigator.clipboard.writeText(post.text);
+      if (copy && typeof copy.then === 'function') {
+        copy.then(() => {
+          showToast('Post text copied', { type: 'success' });
+        }).catch(() => {
+          showToast('Failed to copy text', { type: 'error' });
+        });
+      } else {
+        showToast('Failed to copy text', { type: 'error' });
+      }
+    });
+
+    const editBtn = document.getElementById('edit-post-btn');
+    if (editBtn) {
+      editBtn.addEventListener('click', () => {
+        overlay.remove();
+        showEditPostDialog(channelId, postId);
+      });
+    }
+
+    const deleteBtn = document.getElementById('delete-post-btn');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', () => {
+        overlay.remove();
+        deletePost(channelId, postId);
+        renderChannelView(channelId);
+        showToast('Post deleted', { type: 'success' });
+      });
+    }
+  }
+
+  // Edit an existing post's text in place. Owner-only — the caller (showPostMenu)
+  // only renders the entry point when `isOwner`, and this re-checks the channel's
+  // creator so the dialog can't be driven onto someone else's channel.
+  function showEditPostDialog(channelId, postId) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel || channel.creatorId !== 'user_self') return;
+    const post = channel.posts.find(p => p.id === postId);
+    if (!post) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog edit-post-dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Edit Post</h2>
+        <button class="close-dialog-button" id="edit-post-close">✕</button>
+      </div>
+      <div class="dialog-content">
+        <textarea class="edit-post-input" id="edit-post-input" rows="6" placeholder="Post text">${post.text}</textarea>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="edit-post-cancel">Cancel</button>
+        <button class="button-primary" id="edit-post-save">Save</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const input = document.getElementById('edit-post-input');
+    const saveBtn = document.getElementById('edit-post-save');
+
+    const syncSaveState = () => {
+      saveBtn.disabled = !input.value.trim();
+    };
+    syncSaveState();
+    input.addEventListener('input', syncSaveState);
+    input.focus();
+
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close();
+    });
+    document.getElementById('edit-post-close').addEventListener('click', close);
+    document.getElementById('edit-post-cancel').addEventListener('click', close);
+
+    saveBtn.addEventListener('click', () => {
+      const text = input.value.trim();
+      if (!text) return;
+      post.text = text;
+      post.editedAt = Date.now();
+      close();
+      refreshPostContent(channelId, postId);
+      showToast('Post updated', { type: 'success' });
+    });
+  }
+
+  // Where a post can be forwarded: 1:1 DMs and the groups the user is actually a
+  // member of. Channel rows live in `conversations` too (type 'channel') and are
+  // deliberately excluded — you follow a channel, you don't chat into it.
+  function getForwardTargets() {
+    const dms = conversations
+      .filter(c => c.type === 'direct' && !c.archived)
+      .slice()
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .map(c => ({
+        kind: 'dm',
+        id: c.id,
+        name: c.username,
+        avatar: c.avatar,
+        subtitle: 'Direct message'
+      }));
+
+    const joinedGroups = groups
+      .filter(g => !g.isLeftByUser && (g.members || []).some(m => m.id === 'user_self'))
+      .map(g => ({
+        kind: 'group',
+        id: g.id,
+        name: g.name,
+        avatar: g.avatar,
+        subtitle: `${(g.members || []).length} members`
+      }));
+
+    return { dms, groups: joinedGroups };
+  }
+
+  // Deliver one post to every selected target. Each forwarded message carries
+  // `forwardedFrom` so the DM/group renderers can show the attribution line.
+  // Returns the number of chats written to, for the toast.
+  function forwardPostToTargets(channel, post, targets, note) {
+    const baseTimestamp = Date.now();
+    const trimmedNote = (note || '').trim();
+    let delivered = 0;
+
+    targets.forEach((target, index) => {
+      // Offset by index so two targets in the same millisecond can't collide.
+      const timestamp = baseTimestamp + index;
+      const forwardedFrom = {
+        channelId: channel.id,
+        channelName: channel.name,
+        channelAvatar: channel.avatar,
+        postId: post.id
+      };
+
+      if (target.kind === 'dm') {
+        const conversation = conversations.find(c => c.id === target.id);
+        if (!conversation) return;
+        if (!conversation.messages) conversation.messages = [];
+
+        conversation.messages.push({
+          id: `msg_fwd_${timestamp}_${index}`,
+          text: post.text,
+          timestamp,
+          isOutgoing: true,
+          forwardedFrom
+        });
+
+        if (trimmedNote) {
+          conversation.messages.push({
+            id: `msg_fwd_note_${timestamp}_${index}`,
+            text: trimmedNote,
+            timestamp: timestamp + 1,
+            isOutgoing: true
+          });
+        }
+
+        updateThreadLastMessage(
+          conversation,
+          false,
+          '↗ ' + (trimmedNote || post.text).substring(0, 100),
+          trimmedNote ? timestamp + 1 : timestamp
+        );
+        delivered++;
+        return;
+      }
+
+      const group = groups.find(g => g.id === target.id);
+      if (!group) return;
+      if (!group.messages) group.messages = [];
+
+      group.messages.push({
+        id: `msg_fwd_${timestamp}_${index}`,
+        senderId: 'user_self',
+        text: post.text,
+        timestamp,
+        isOutgoing: true,
+        forwardedFrom
+      });
+
+      if (trimmedNote) {
+        group.messages.push({
+          id: `msg_fwd_note_${timestamp}_${index}`,
+          senderId: 'user_self',
+          text: trimmedNote,
+          timestamp: timestamp + 1,
+          isOutgoing: true
+        });
+      }
+
+      updateThreadLastMessage(
+        group,
+        true,
+        '↗ ' + (trimmedNote || post.text).substring(0, 100),
+        trimmedNote ? timestamp + 1 : timestamp
+      );
+      delivered++;
+    });
+
+    return delivered;
+  }
+
+  // "Forward to" sheet — pick any number of DMs and joined groups, optionally add
+  // a note, then Send. Stays on the channel so the user can keep reading.
+  function showForwardSheet(channelId, postId) {
+    const channel = channels.find(c => c.id === channelId);
+    const post = channel && channel.posts.find(p => p.id === postId);
+    if (!post) return;
+
+    const { dms, groups: joinedGroups } = getForwardTargets();
+    const allTargets = dms.concat(joinedGroups);
+    const selected = new Map();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog forward-sheet-dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Forward to</h2>
+        <button class="close-dialog-button" aria-label="Close">×</button>
+      </div>
+      <div class="dialog-content">
+        <div class="forward-post-preview">
+          <div class="forward-preview-channel">${channel.avatar} ${channel.name}</div>
+          <div class="forward-preview-text">${post.text.substring(0, 140)}${post.text.length > 140 ? '…' : ''}</div>
+        </div>
+        <input type="text" class="form-input search-forward-targets" placeholder="Search chats and groups" aria-label="Search chats and groups">
+        <div class="forward-targets-list"></div>
+        <textarea class="form-input forward-note-input" rows="2" placeholder="Add a note (optional)" aria-label="Add a note"></textarea>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="forward-cancel-btn">Cancel</button>
+        <button class="button-primary" id="forward-send-btn" disabled>Send</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const targetsList = dialog.querySelector('.forward-targets-list');
+    const searchInput = dialog.querySelector('.search-forward-targets');
+    const noteInput = dialog.querySelector('.forward-note-input');
+    const sendButton = dialog.querySelector('#forward-send-btn');
+
+    function targetRowHTML(target) {
+      const isSelected = selected.has(`${target.kind}:${target.id}`);
+      return `
+        <button class="forward-target-item ${isSelected ? 'selected' : ''}" data-kind="${target.kind}" data-target-id="${target.id}" aria-pressed="${isSelected ? 'true' : 'false'}">
+          <div class="user-avatar">${target.avatar}</div>
+          <div class="user-content">
+            <div class="user-name">${target.name}</div>
+            <div class="user-subtitle">${target.subtitle}</div>
+          </div>
+          <div class="selection-indicator ${isSelected ? 'selected' : ''}">${isSelected ? '✓' : ''}</div>
+        </button>
+      `;
+    }
+
+    function renderTargets() {
+      const query = searchInput.value.trim().toLowerCase();
+      const matches = (list) => list.filter(t => !query || t.name.toLowerCase().includes(query));
+      const matchingDms = matches(dms);
+      const matchingGroups = matches(joinedGroups);
+
+      if (!matchingDms.length && !matchingGroups.length) {
+        targetsList.innerHTML = '<div class="empty-state">No chats found</div>';
+        return;
+      }
+
+      targetsList.innerHTML = `
+        ${matchingDms.length ? `
+          <div class="forward-section-label">Recent chats</div>
+          ${matchingDms.map(targetRowHTML).join('')}
+        ` : ''}
+        ${matchingGroups.length ? `
+          <div class="forward-section-label">Groups</div>
+          ${matchingGroups.map(targetRowHTML).join('')}
+        ` : ''}
+      `;
+    }
+
+    function updateSendButton() {
+      const count = selected.size;
+      sendButton.disabled = count === 0;
+      sendButton.textContent = count > 1 ? `Send (${count})` : 'Send';
+    }
+
+    function closeSheet() {
+      overlay.remove();
+    }
+
+    renderTargets();
+    updateSendButton();
+
+    searchInput.addEventListener('input', renderTargets);
+
+    targetsList.addEventListener('click', (e) => {
+      const row = e.target.closest('.forward-target-item');
+      if (!row) return;
+      const key = `${row.dataset.kind}:${row.dataset.targetId}`;
+      if (selected.has(key)) {
+        selected.delete(key);
+      } else {
+        const target = allTargets.find(t => t.kind === row.dataset.kind && t.id === row.dataset.targetId);
+        if (target) selected.set(key, target);
+      }
+      renderTargets();
+      updateSendButton();
+    });
+
+    dialog.querySelector('.close-dialog-button').addEventListener('click', closeSheet);
+    dialog.querySelector('#forward-cancel-btn').addEventListener('click', closeSheet);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) closeSheet();
+    });
+
+    sendButton.addEventListener('click', () => {
+      if (!selected.size) return;
+      const targets = Array.from(selected.values());
+      const count = forwardPostToTargets(channel, post, targets, noteInput.value);
+      closeSheet();
+      const label = count === 1 ? targets[0].name : `${count} chats`;
+      showToast(`Forwarded to ${label}`, { type: 'success' });
+    });
+
+    // Screenshot-state: pre-select the first two targets so the deep link lands
+    // on an enabled Send button rather than the disabled empty state.
+    if (SHOT_FORWARD_SHEET) {
+      // Each click re-renders the list, so re-query between clicks — a stale
+      // NodeList entry is detached and its click never reaches the delegate.
+      for (let i = 0; i < 2; i++) {
+        const rows = targetsList.querySelectorAll('.forward-target-item:not(.selected)');
+        if (rows[0]) rows[0].click();
+      }
+    }
   }
 
   // Show confirm dialog
