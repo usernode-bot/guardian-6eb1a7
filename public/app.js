@@ -2305,7 +2305,6 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       messageHTML += `
-        ${renderPinBadge(msg)}
         <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
         <div class="message-reaction-chips" data-message-id="${msg.id}">${messageReactionChipsHTML(msg)}</div>
         <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
@@ -2833,7 +2832,8 @@ document.addEventListener('DOMContentLoaded', () => {
             ? (menuTargetMessage.isOutgoing === true || isCurrentUserGroupAdmin(conversation))
             : menuTargetMessage.isOutgoing === true
       );
-      const visibleMenuItems = MENU_ITEMS.filter(item => item.action !== 'delete' || canDeleteMenuTarget);
+      const visibleMenuItems = MENU_ITEMS.filter(item => item.action !== 'delete' || canDeleteMenuTarget)
+        .filter(item => item.action !== 'pin' || threadType === 'channel');
 
       const contextMenu = document.createElement('div');
       contextMenu.className = 'context-menu';
@@ -3523,7 +3523,6 @@ document.addEventListener('DOMContentLoaded', () => {
         messageHTML += `
           ${quoteHTML}
           ${forwardHTML}
-          ${renderPinBadge(msg)}
           <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
           ${reactionChipsRow}
           <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
@@ -3535,7 +3534,6 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="message-sender-name">${msg.senderName}</div>
             ${quoteHTML}
             ${forwardHTML}
-            ${renderPinBadge(msg)}
             <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
             ${reactionChipsRow}
             <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
