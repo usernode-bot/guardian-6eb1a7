@@ -328,6 +328,111 @@
       "expectText": "Announcements"
     },
     {
+      "name": "Channel view renders the post feed",
+      "path": "/#/channel/channel_1",
+      "expectText": "Mainnet Beta is Live"
+    },
+    {
+      "name": "Channel posts render as cards",
+      "path": "/#/channel/channel_1",
+      "expectSelector": ".post-card"
+    },
+    {
+      "name": "Channel post shows reaction chips with counts",
+      "path": "/#/channel/channel_1",
+      "expectSelector": ".post-reaction-chip"
+    },
+    {
+      "name": "Own reactions are highlighted on the chip",
+      "path": "/#/channel/channel_1",
+      "expectSelector": ".post-reaction-chip.is-mine"
+    },
+    {
+      "name": "Post action row holds only the overflow menu button",
+      "path": "/#/channel/channel_1",
+      "expectSelector": ".post-actions .post-menu-button"
+    },
+    {
+      "name": "Channel header shows follower count",
+      "path": "/#/channel/channel_1",
+      "expectText": "followers"
+    },
+    {
+      "name": "Unfollowed channel shows a header Follow pill",
+      "path": "/#/channel/channel_3",
+      "expectSelector": ".channel-follow-pill"
+    },
+    {
+      "name": "Owned channel keeps the publish composer",
+      "path": "/#/channel/channel_2",
+      "expectSelector": ".channel-footer .composer-input"
+    },
+    {
+      "name": "Reaction picker opens from a long-press on the post card",
+      "path": "/?shot=post-reactions#/channel/channel_1",
+      "expectSelector": ".reaction-picker-option"
+    },
+    {
+      "name": "Post overflow menu offers Copy text",
+      "path": "/?shot=post-menu#/channel/channel_1",
+      "expectText": "Copy text"
+    },
+    {
+      "name": "Post overflow menu is where Forward now lives",
+      "path": "/?shot=post-menu#/channel/channel_1",
+      "expectSelector": "#forward-post-btn"
+    },
+    {
+      "name": "Owner post menu offers Edit Post",
+      "path": "/?shot=post-menu#/channel/channel_2",
+      "expectText": "Edit Post"
+    },
+    {
+      "name": "Owner post menu offers Delete Post",
+      "path": "/?shot=post-menu#/channel/channel_2",
+      "expectSelector": "#delete-post-btn"
+    },
+    {
+      "name": "Edit Post dialog opens prefilled with the post text",
+      "path": "/?shot=post-edit#/channel/channel_2",
+      "expectSelector": ".edit-post-dialog .edit-post-input"
+    },
+    {
+      "name": "Forward sheet opens with selectable targets",
+      "path": "/?shot=forward-sheet#/channel/channel_1",
+      "expectText": "Forward to"
+    },
+    {
+      "name": "Forward sheet lists forward targets",
+      "path": "/?shot=forward-sheet#/channel/channel_1",
+      "expectSelector": ".forward-target-item"
+    },
+    {
+      "name": "Forwarded DM message shows source channel",
+      "path": "/#/conversation/conv_2",
+      "expectText": "Forwarded from Solana Indonesia"
+    },
+    {
+      "name": "Forwarded group message shows attribution",
+      "path": "/#/group/group_1",
+      "expectSelector": ".forward-attribution"
+    },
+    {
+      "name": "Long-pressing a DM message reacts and opens the picker",
+      "path": "/?shot=message-reactions#/conversation/conv_2",
+      "expectSelector": ".message-reaction-chip"
+    },
+    {
+      "name": "Message reaction picker reuses the post picker's options",
+      "path": "/?shot=message-reactions#/conversation/conv_2",
+      "expectSelector": ".message-reaction-picker .reaction-picker-option"
+    },
+    {
+      "name": "Long-pressing a group message reacts and opens the picker",
+      "path": "/?shot=message-reactions#/group/group_1",
+      "expectSelector": ".message-reaction-chip"
+    },
+    {
       "name": "Messages header keeps its search control after removing + New Group",
       "path": "/",
       "expectSelector": ".messages-header .messages-header-actions .search-icon"
