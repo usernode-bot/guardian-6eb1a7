@@ -18,6 +18,11 @@
       "expectSelector": ".unread-badge"
     },
     {
+      "name": "Pinned conversation shows pin icon in Messages list",
+      "path": "/",
+      "expectSelector": ".conversation-pin-icon"
+    },
+    {
       "name": "Bottom navigation renders",
       "path": "/",
       "expectSelector": "#bottom-nav"
@@ -43,9 +48,89 @@
       "expectSelector": ".composer-input"
     },
     {
+      "name": "Pinned message shows pin badge",
+      "path": "/#/conversation/conv_1",
+      "expectSelector": ".message-pin-badge"
+    },
+    {
+      "name": "Scroll-to-latest FAB renders in direct message view",
+      "path": "/?shot=scroll-fab#/conversation/conv_1",
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"]"
+    },
+    {
+      "name": "Scroll-to-latest FAB is painted on screen when scrolled up in direct messages",
+      "path": "/?shot=scroll-fab#/conversation/conv_1",
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"].is-visible[data-fab-onscreen=\"true\"]"
+    },
+    {
+      "name": "Scroll-to-latest FAB hides when direct message thread sits at the bottom",
+      "path": "/?shot=scroll-fab-bottom#/conversation/conv_1",
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"][data-fab-onscreen=\"false\"]"
+    },
+    {
+      "name": "Scroll-to-latest FAB renders in group chat view",
+      "path": "/?shot=scroll-fab#/group/group_1",
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"]"
+    },
+    {
+      "name": "Scroll-to-latest FAB is painted on screen when scrolled up in group chat",
+      "path": "/?shot=scroll-fab#/group/group_1",
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"].is-visible[data-fab-onscreen=\"true\"]"
+    },
+    {
+      "name": "Scroll-to-latest FAB hides when group thread sits at the bottom",
+      "path": "/?shot=scroll-fab-bottom#/group/group_1",
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"][data-fab-onscreen=\"false\"]"
+    },
+    {
+      "name": "Composer still renders alongside the scroll-to-latest FAB",
+      "path": "/?shot=scroll-fab#/group/group_1",
+      "expectSelector": ".composer-container .composer-input"
+    },
+    {
+      "name": "Sending a direct message keeps the user in the conversation",
+      "path": "/?shot=send-stay#/conversation/conv_1",
+      "expectSelector": ".conversation-page .composer-container .composer-input"
+    },
+    {
+      "name": "Sent direct message appears in the thread",
+      "path": "/?shot=send-stay#/conversation/conv_1",
+      "expectText": "Shot send stay check"
+    },
+    {
+      "name": "DM header's ⋮ menu opens and shows its options",
+      "path": "/?shot=dm-menu#/conversation/conv_1",
+      "expectText": "Pin Conversation"
+    },
+    {
+      "name": "DM header's ⋮ menu includes Clear Chat option",
+      "path": "/?shot=dm-menu#/conversation/conv_1",
+      "expectText": "Clear Chat"
+    },
+    {
+      "name": "Conversation list preview updates after clearing a DM chat",
+      "path": "/?shot=dm-cleared",
+      "expectText": "No messages yet"
+    },
+    {
+      "name": "Sending a group message keeps the user in the group chat",
+      "path": "/?shot=send-stay#/group/group_1",
+      "expectSelector": ".conversation-page .composer-container .composer-input"
+    },
+    {
+      "name": "Deleted group message renders as a placeholder",
+      "path": "/?shot=message-deleted#/group/group_1",
+      "expectSelector": ".message-bubble.deleted"
+    },
+    {
+      "name": "Sent group message appears in the thread",
+      "path": "/?shot=send-stay#/group/group_1",
+      "expectText": "Shot send stay check"
+    },
+    {
       "name": "New Message page loads",
       "path": "/#/create",
-      "expectText": "New Message"
+      "expectText": "Create Group"
     },
     {
       "name": "Search field displays on New Message page",
@@ -61,6 +146,41 @@
       "name": "Create menu shows exactly one Create Channel option",
       "path": "/#/create",
       "expectSelector": "[data-testid=\"create-channel-entry\"]"
+    },
+    {
+      "name": "Create menu shows the managed groups list",
+      "path": "/#/create",
+      "expectSelector": "[data-testid=\"managed-groups-list\"]"
+    },
+    {
+      "name": "Create menu shows the managed channels list",
+      "path": "/#/create",
+      "expectSelector": "[data-testid=\"managed-channels-list\"]"
+    },
+    {
+      "name": "Create menu lists a group the user owns",
+      "path": "/#/create",
+      "expectText": "Seeker Club"
+    },
+    {
+      "name": "Create menu lists a group the user only administers",
+      "path": "/#/create",
+      "expectText": "Guardian Mods"
+    },
+    {
+      "name": "Create menu lists a channel the user created",
+      "path": "/#/create",
+      "expectText": "Web3 Builders"
+    },
+    {
+      "name": "Managed group rows show an Owner/Admin badge",
+      "path": "/#/create",
+      "expectSelector": "[data-testid=\"managed-groups-list\"] .managed-role-badge"
+    },
+    {
+      "name": "Managed group list collapses behind a Show all expander",
+      "path": "/#/create",
+      "expectSelector": "[data-testid=\"managed-groups-list\"] .managed-show-all"
     },
     {
       "name": "Suggested Users section displays",
@@ -91,6 +211,16 @@
       "name": "Member search input appears on Create Group page",
       "path": "/#/create-group",
       "expectSelector": "#search-members-input"
+    },
+    {
+      "name": "Create Group page shows privacy toggle",
+      "path": "/#/create-group",
+      "expectSelector": "#privacy-toggle"
+    },
+    {
+      "name": "Create Group page privacy toggle defaults to Private",
+      "path": "/#/create-group",
+      "expectSelector": "#privacy-private-btn.active"
     },
     {
       "name": "Group conversations appear in Messages list",
@@ -196,6 +326,156 @@
       "name": "Channel detail screen loads",
       "path": "/#/discover/channel/discover_channel_1",
       "expectText": "Announcements"
+    },
+    {
+      "name": "Channel view renders the post feed",
+      "path": "/#/channel/channel_1",
+      "expectText": "Mainnet Beta is Live"
+    },
+    {
+      "name": "Channel posts render as cards",
+      "path": "/#/channel/channel_1",
+      "expectSelector": ".post-card"
+    },
+    {
+      "name": "Channel post shows reaction chips with counts",
+      "path": "/#/channel/channel_1",
+      "expectSelector": ".post-reaction-chip"
+    },
+    {
+      "name": "Own reactions are highlighted on the chip",
+      "path": "/#/channel/channel_1",
+      "expectSelector": ".post-reaction-chip.is-mine"
+    },
+    {
+      "name": "Post action row holds only the overflow menu button",
+      "path": "/#/channel/channel_1",
+      "expectSelector": ".post-actions .post-menu-button"
+    },
+    {
+      "name": "Channel header shows follower count",
+      "path": "/#/channel/channel_1",
+      "expectText": "followers"
+    },
+    {
+      "name": "Unfollowed channel shows a header Follow pill",
+      "path": "/#/channel/channel_3",
+      "expectSelector": ".channel-follow-pill"
+    },
+    {
+      "name": "Owned channel keeps the publish composer",
+      "path": "/#/channel/channel_2",
+      "expectSelector": ".channel-footer .composer-input"
+    },
+    {
+      "name": "Reaction picker opens from a long-press on the post card",
+      "path": "/?shot=post-reactions#/channel/channel_1",
+      "expectSelector": ".reaction-picker-option"
+    },
+    {
+      "name": "Post overflow menu offers Copy text",
+      "path": "/?shot=post-menu#/channel/channel_1",
+      "expectText": "Copy text"
+    },
+    {
+      "name": "Post overflow menu is where Forward now lives",
+      "path": "/?shot=post-menu#/channel/channel_1",
+      "expectSelector": "#forward-post-btn"
+    },
+    {
+      "name": "Owner post menu offers Edit Post",
+      "path": "/?shot=post-menu#/channel/channel_2",
+      "expectText": "Edit Post"
+    },
+    {
+      "name": "Owner post menu offers Delete Post",
+      "path": "/?shot=post-menu#/channel/channel_2",
+      "expectSelector": "#delete-post-btn"
+    },
+    {
+      "name": "Edit Post dialog opens prefilled with the post text",
+      "path": "/?shot=post-edit#/channel/channel_2",
+      "expectSelector": ".edit-post-dialog .edit-post-input"
+    },
+    {
+      "name": "Forward sheet opens with selectable targets",
+      "path": "/?shot=forward-sheet#/channel/channel_1",
+      "expectText": "Forward to"
+    },
+    {
+      "name": "Forward sheet lists forward targets",
+      "path": "/?shot=forward-sheet#/channel/channel_1",
+      "expectSelector": ".forward-target-item"
+    },
+    {
+      "name": "Forwarded DM message shows source channel",
+      "path": "/#/conversation/conv_2",
+      "expectText": "Forwarded from Solana Indonesia"
+    },
+    {
+      "name": "Forwarded group message shows attribution",
+      "path": "/#/group/group_1",
+      "expectSelector": ".forward-attribution"
+    },
+    {
+      "name": "Long-pressing a DM message reacts and opens the picker",
+      "path": "/?shot=message-reactions#/conversation/conv_2",
+      "expectSelector": ".message-reaction-chip"
+    },
+    {
+      "name": "Message reaction picker reuses the post picker's options",
+      "path": "/?shot=message-reactions#/conversation/conv_2",
+      "expectSelector": ".message-reaction-picker .reaction-picker-option"
+    },
+    {
+      "name": "Long-pressing a group message reacts and opens the picker",
+      "path": "/?shot=message-reactions#/group/group_1",
+      "expectSelector": ".message-reaction-chip"
+    },
+    {
+      "name": "New Group entry point on Messages list",
+      "path": "/",
+      "expectSelector": "[data-testid=\"new-group-entry\"]"
+    },
+    {
+      "name": "Create Group explains the public option",
+      "path": "/?shot=create-group-public#/create-group",
+      "expectText": "Anyone can join"
+    },
+    {
+      "name": "Public privacy option can be selected",
+      "path": "/?shot=create-group-public#/create-group",
+      "expectSelector": "#privacy-public-btn.active"
+    },
+    {
+      "name": "One invitee enables Create Group",
+      "path": "/?shot=create-group-one-member#/create-group",
+      "expectSelector": "#create-group-button:not([disabled])"
+    },
+    {
+      "name": "Zero invitees is blocked",
+      "path": "/?shot=create-group-zero-members#/create-group",
+      "expectText": "Select at least 1 member"
+    },
+    {
+      "name": "Blocked submit stays on Create Group",
+      "path": "/?shot=create-group-zero-members#/create-group",
+      "expectSelector": ".create-group-page #group-name-input"
+    },
+    {
+      "name": "Seeded public group is discoverable",
+      "path": "/#/discover",
+      "expectText": "Staging Demo Public Group"
+    },
+    {
+      "name": "Seeded public group detail loads",
+      "path": "/#/discover/group/group_staging_public_1",
+      "expectText": "Staging Demo Public Group"
+    },
+    {
+      "name": "Seeded public group offers Join",
+      "path": "/#/discover/group/group_staging_public_1",
+      "expectSelector": "#join-button"
     },
     {
       "name": "Attach image button appears in DM composer",
