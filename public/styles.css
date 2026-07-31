@@ -2372,6 +2372,9 @@ html, body {
   cursor: pointer;
   font-size: 13px;
   color: #444;
+  min-height: 28px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   transition: background-color 0.15s, border-color 0.15s;
 }
 
@@ -2396,47 +2399,39 @@ html, body {
   font-weight: 600;
 }
 
+/* One control only — ⋯ — so the row is a right-aligned single slot. Forward
+   lives inside that menu and reacting is a hold on the card. */
 .post-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: flex-end;
   margin-top: 10px;
-  padding-top: 10px;
+  padding-top: 6px;
   border-top: 1px solid #f0f0f0;
   font-size: 13px;
   color: #555;
 }
 
-.post-forward-button,
 .post-menu-button {
   background: none;
   border: none;
-  padding: 6px 8px;
+  padding: 4px 10px;
   min-height: 32px;
+  min-width: 44px;
   border-radius: 8px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 14px;
+  justify-content: center;
+  font-size: 20px;
+  line-height: 1;
   color: #555;
   transition: color 0.2s, background-color 0.2s;
 }
 
-.post-forward-button:active,
 .post-menu-button:active {
   background-color: #f0f0f0;
   color: #007AFF;
-}
-
-.post-forward-button {
-  font-size: 16px;
-}
-
-/* Pushes ⋯ to the far edge so the row reads as Forward … More. */
-.post-menu-button {
-  margin-left: auto;
-  font-size: 18px;
 }
 
 /* Edit Post — a plain text editor over the standard bottom-sheet dialog shell.
@@ -2486,11 +2481,13 @@ html, body {
 }
 
 /* Anchored to the card (position: relative) so it opens next to the post it
-   belongs to rather than floating over the page. */
+   belongs to rather than floating over the page. Sits at the card's bottom
+   edge — over the thin ⋯ action row rather than over the post text, so you can
+   still read what you're reacting to while the picker is open. */
 .reaction-picker {
   position: absolute;
-  right: 12px;
-  bottom: 52px;
+  right: 8px;
+  bottom: 4px;
   z-index: 20;
   display: flex;
   gap: 2px;
@@ -2507,6 +2504,9 @@ html, body {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* touch-action: manipulation opts these out of the browser's double-tap-zoom
+   detection, which is the other place a per-tap delay comes from. The JS
+   reacts on touchstart; this keeps the visual feedback just as prompt. */
 .reaction-picker-option {
   width: 44px;
   height: 44px;
@@ -2519,6 +2519,8 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   transition: background-color 0.15s, transform 0.15s;
 }
 

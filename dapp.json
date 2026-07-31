@@ -348,12 +348,7 @@
       "expectSelector": ".post-reaction-chip.is-mine"
     },
     {
-      "name": "Channel post exposes a forward action",
-      "path": "/#/channel/channel_1",
-      "expectSelector": ".post-forward-button"
-    },
-    {
-      "name": "Post action row keeps the overflow menu button",
+      "name": "Post action row holds only the overflow menu button",
       "path": "/#/channel/channel_1",
       "expectSelector": ".post-actions .post-menu-button"
     },
@@ -378,14 +373,24 @@
       "expectSelector": ".reaction-picker-option"
     },
     {
-      "name": "Post overflow menu offers Forward and Copy text",
+      "name": "Post overflow menu offers Copy text",
       "path": "/?shot=post-menu#/channel/channel_1",
       "expectText": "Copy text"
+    },
+    {
+      "name": "Post overflow menu is where Forward now lives",
+      "path": "/?shot=post-menu#/channel/channel_1",
+      "expectSelector": "#forward-post-btn"
     },
     {
       "name": "Owner post menu offers Edit Post",
       "path": "/?shot=post-menu#/channel/channel_2",
       "expectText": "Edit Post"
+    },
+    {
+      "name": "Owner post menu offers Delete Post",
+      "path": "/?shot=post-menu#/channel/channel_2",
+      "expectSelector": "#delete-post-btn"
     },
     {
       "name": "Edit Post dialog opens prefilled with the post text",

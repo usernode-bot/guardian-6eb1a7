@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=dm-menu           clicks the DM header's ⋮ button on load          → options menu must render
   //   ?shot=dm-cleared        clears conv_1's chat via the real Clear Chat fn  → list preview must read "No messages yet"
   //   ?shot=post-reactions    long-presses the first post card                  → reaction picker must render
-  //   ?shot=forward-sheet     opens the Forward sheet for the first post       → target rows + enabled Send must render
+  //   ?shot=forward-sheet     ⋯ menu → Forward on the first post              → target rows + enabled Send must render
   //   ?shot=post-menu         opens the first post's ⋯ menu                    → Forward / Copy text (+ owner items) must render
   //   ?shot=post-edit         opens Edit Post on the first post (owner only)   → dialog prefilled with the post text must render
   //   ?shot=create-group-public       selects Public on Create Group           → #privacy-public-btn must be active
@@ -5501,15 +5501,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }).join('');
   }
 
-  // The action row for one post: forward and the ⋯ overflow menu, nothing else.
-  // Reacting is a hold gesture on the card itself (see the long-press wiring in
-  // renderChannelView) and the chip strip above this row, so no tap-target for
-  // liking or picking an emoji lives here.
+  // The action row for one post: the ⋯ overflow menu and nothing else. Reacting
+  // is a hold gesture on the card itself (see the long-press wiring in
+  // renderChannelView) plus the chip strip above this row, and Forward lives
+  // inside the ⋯ menu — so the row carries exactly one tap target.
   function postActionsHTML(post) {
     return `
-      <button class="post-forward-button" data-post-id="${post.id}" title="Forward" aria-label="Forward post">
-        <span aria-hidden="true">↗</span>
-      </button>
       <button class="post-menu-button" data-post-id="${post.id}" title="More options" aria-label="More options">⋯</button>
     `;
   }
@@ -5698,6 +5695,14 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
+    // Commit one emoji from the picker. Shared by the touch and the mouse paths
+    // so both do exactly the same thing in the same order.
+    function commitPickerReaction(postId, emoji) {
+      togglePostReaction(channelId, postId, emoji);
+      closeReactionPicker();
+      refreshPostReactions(channelId, postId);
+    }
+
     function openReactionPicker(postId) {
       if (openPickerPostId === postId) {
         closeReactionPicker();
@@ -5717,8 +5722,26 @@ document.addEventListener('DOMContentLoaded', () => {
       card.appendChild(picker);
       openPickerPostId = postId;
 
+      // React on touchstart, not on the click that a browser only synthesises
+      // after touchend (and after its own tap-delay heuristics). Waiting for
+      // that click is what made picking an emoji feel laggy, and any browser
+      // that decided the touch was part of a scroll swallowed it outright, so
+      // some taps did nothing at all. preventDefault() suppresses the trailing
+      // click so the mouse path below can't double-toggle.
+      picker.addEventListener('touchstart', (e) => {
+        const option = e.target.closest('.reaction-picker-option');
+        if (!option) return;
+        e.preventDefault();
+        e.stopPropagation();
+        commitPickerReaction(option.dataset.postId, option.dataset.emoji);
+      }, { passive: false });
+
       const onDocClick = (e) => {
-        if (e.target.closest('.reaction-picker')) return;
+        // Ignore clicks anywhere on the card that owns this picker. Releasing
+        // the long-press that opened it fires a trailing click right there, and
+        // treating that as "clicked outside" would slam the picker shut the
+        // instant the finger lifted.
+        if (e.target.closest(`.post-card[data-post-id="${postId}"]`)) return;
         closeReactionPicker();
       };
       const onKeyDown = (e) => {
@@ -5747,18 +5770,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const pickerOption = e.target.closest('.reaction-picker-option');
         if (pickerOption) {
           e.stopPropagation();
-          const postId = pickerOption.dataset.postId;
-          togglePostReaction(channelId, postId, pickerOption.dataset.emoji);
-          closeReactionPicker();
-          refreshPostReactions(channelId, postId);
-          return;
-        }
-
-        const forwardBtn = e.target.closest('.post-forward-button');
-        if (forwardBtn) {
-          e.stopPropagation();
-          closeReactionPicker();
-          showForwardSheet(channelId, forwardBtn.dataset.postId);
+          commitPickerReaction(pickerOption.dataset.postId, pickerOption.dataset.emoji);
           return;
         }
 
@@ -5775,7 +5787,11 @@ document.addEventListener('DOMContentLoaded', () => {
       // way to add a reaction (the action row holds just Forward and ⋯), and it
       // mirrors setupMessageLongPress's hold-to-act gesture on DM/group bubbles,
       // so the whole app reacts to a hold the same way.
-      const POST_LONG_PRESS_DURATION = 350;
+      // Shorter than the 350ms used on chat bubbles: reacting to a post is now
+      // hold-only, so the hold is the whole interaction and it needs to feel
+      // immediate. The 8px move threshold below still keeps a scroll from
+      // reading as a hold.
+      const POST_LONG_PRESS_DURATION = 280;
       feed.querySelectorAll('.post-card').forEach(card => {
         const cardPostId = card.dataset.postId;
         let longPressTimer = null;
@@ -5788,19 +5804,12 @@ document.addEventListener('DOMContentLoaded', () => {
           startPos = { x, y };
           longPressTimer = setTimeout(() => {
             longPressTimer = null;
-            // Releasing the hold fires a trailing 'click' on this same card
-            // a moment later. openReactionPicker's own outside-click dismiss
-            // listener would read that as "clicked outside" and instantly
-            // close what the hold just opened — swallow exactly that one
-            // click first (registered ahead of the picker's own listener,
-            // so it runs first) so the picker survives the release.
-            const swallowReleaseClick = (e) => {
-              e.stopPropagation();
-              e.stopImmediatePropagation();
-              document.removeEventListener('click', swallowReleaseClick, true);
-            };
-            document.addEventListener('click', swallowReleaseClick, true);
-            setTimeout(() => document.removeEventListener('click', swallowReleaseClick, true), 1000);
+            // The trailing click from releasing the hold is handled by
+            // openReactionPicker's dismiss listener, which ignores clicks on
+            // the card that owns the picker. Nothing is swallowed at document
+            // level here: an armed one-shot click-eater would go on to eat the
+            // user's NEXT real tap (an emoji, the ⋯ button) whenever the
+            // release click never arrived.
             openReactionPicker(cardPostId);
           }, POST_LONG_PRESS_DURATION);
         };
@@ -5876,8 +5885,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const firstCard = feed?.querySelector('.post-card');
       if (firstCard) openReactionPicker(firstCard.dataset.postId);
     }
+    // Forward moved into the ⋯ menu, so the deep link now walks the same two
+    // taps a user does: open the menu, then pick Forward.
     if (SHOT_FORWARD_SHEET) {
-      feed?.querySelector('.post-card .post-forward-button')?.click();
+      feed?.querySelector('.post-card .post-menu-button')?.click();
+      document.getElementById('forward-post-btn')?.click();
     }
     if (SHOT_POST_MENU) {
       feed?.querySelector('.post-card .post-menu-button')?.click();
