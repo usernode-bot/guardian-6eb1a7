@@ -311,6 +311,16 @@
       "expectText": "Seeker Club"
     },
     {
+      "name": "Promoting a member to admin updates their role badge",
+      "path": "/?shot=admin-toggle#/group/group_1/info",
+      "expectSelector": ".group-member-item[data-member-id=\"user_bob\"] .member-role-badge"
+    },
+    {
+      "name": "Editing group description refreshes the Group Info screen in place",
+      "path": "/?shot=desc-edit#/group/group_1/info",
+      "expectText": "Shot desc edit check"
+    },
+    {
       "name": "Add Members page loads",
       "path": "/#/group/group_1/add-members",
       "expectText": "Add Members"

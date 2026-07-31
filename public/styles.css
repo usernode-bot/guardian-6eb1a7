@@ -2716,16 +2716,16 @@ html, body {
   gap: 12px;
 }
 
-.detail-item {
+.channel-details-section .detail-item {
   padding: 12px 0;
   border-bottom: 1px solid #f0f0f0;
 }
 
-.detail-item:last-child {
+.channel-details-section .detail-item:last-child {
   border-bottom: none;
 }
 
-.detail-label {
+.channel-details-section .detail-label {
   font-size: 12px;
   color: #999;
   font-weight: 600;
@@ -2733,7 +2733,7 @@ html, body {
   margin-bottom: 4px;
 }
 
-.detail-value {
+.channel-details-section .detail-value {
   font-size: 16px;
   color: #333;
   font-weight: 500;
