@@ -122,7 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
       messages: [
         { id: 'msg_1', text: "Hey! How's it going?", timestamp: Date.now() - 5*60*1000, isOutgoing: false },
         { id: 'msg_2', text: "Great! Just finished work", timestamp: Date.now() - 4.5*60*1000, isOutgoing: true },
-        { id: 'msg_3', text: "Nice! Want to grab dinner?", timestamp: Date.now() - 4*60*1000, isOutgoing: false, isPinned: true },
+        { id: 'msg_3', text: "Nice! Want to grab dinner?", timestamp: Date.now() - 4*60*1000, isOutgoing: false },
         { id: 'msg_4', text: "Sure! When?", timestamp: Date.now() - 3.5*60*1000, isOutgoing: true },
         { id: 'msg_5', text: "How about 7pm?", timestamp: Date.now() - 3*60*1000, isOutgoing: false },
         { id: 'msg_6', text: "That sounds great! Let's meet up soon.", timestamp: Date.now() - 2*60*1000, isOutgoing: true, replyTo: { messageId: 'msg_5', senderName: 'Alice Chen', previewText: 'How about 7pm?' } }
@@ -2305,7 +2305,6 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       messageHTML += `
-        ${renderPinBadge(msg)}
         <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
         <div class="message-reaction-chips" data-message-id="${msg.id}">${messageReactionChipsHTML(msg)}</div>
         <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
@@ -2833,7 +2832,8 @@ document.addEventListener('DOMContentLoaded', () => {
             ? (menuTargetMessage.isOutgoing === true || isCurrentUserGroupAdmin(conversation))
             : menuTargetMessage.isOutgoing === true
       );
-      const visibleMenuItems = MENU_ITEMS.filter(item => item.action !== 'delete' || canDeleteMenuTarget);
+      const visibleMenuItems = MENU_ITEMS.filter(item => item.action !== 'delete' || canDeleteMenuTarget)
+        .filter(item => item.action !== 'pin' || threadType === 'channel');
 
       const contextMenu = document.createElement('div');
       contextMenu.className = 'context-menu';
@@ -3523,7 +3523,6 @@ document.addEventListener('DOMContentLoaded', () => {
         messageHTML += `
           ${quoteHTML}
           ${forwardHTML}
-          ${renderPinBadge(msg)}
           <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
           ${reactionChipsRow}
           <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
@@ -3535,7 +3534,6 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="message-sender-name">${msg.senderName}</div>
             ${quoteHTML}
             ${forwardHTML}
-            ${renderPinBadge(msg)}
             <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
             ${reactionChipsRow}
             <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
