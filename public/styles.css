@@ -3909,6 +3909,13 @@ html, body {
   padding: 6px 12px 8px 12px;
 }
 
+/* Auto-linkified URLs inside a message bubble or channel post */
+.message-link {
+  color: #007AFF;
+  text-decoration: underline;
+  word-break: break-all;
+}
+
 /* Full-screen lightbox */
 .image-lightbox-overlay {
   position: fixed;

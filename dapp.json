@@ -544,6 +544,21 @@
       "name": "Image message preview appears in Messages list",
       "path": "/",
       "expectText": "Staging demo photo"
+    },
+    {
+      "name": "Attach image button appears in channel composer",
+      "path": "/#/channel/channel_2",
+      "expectSelector": ".attach-image-button"
+    },
+    {
+      "name": "Image message renders in channel feed",
+      "path": "/#/channel/channel_4",
+      "expectSelector": ".message-image"
+    },
+    {
+      "name": "Message link renders as clickable anchor",
+      "path": "/#/conversation/conv_2",
+      "expectSelector": ".message-link"
     }
   ]
 }
