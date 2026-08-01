@@ -12,6 +12,11 @@
       "description": "This app's slug on the Usernode platform, used in chromeless deep-link redirects (#app/<slug>/full).",
       "required": false,
       "default": "guardian"
+    },
+    {
+      "key": "NODE_RPC_URL",
+      "description": "http://usernode-node:3000",
+      "private": true
     }
   ],
   "tests": [
