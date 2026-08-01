@@ -5,6 +5,8 @@ const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const PLATFORM_BASE_URL = process.env.PLATFORM_BASE_URL || 'https://social-vibecoding.usernodelabs.org';
+const APP_SLUG = process.env.APP_SLUG || 'guardian';
 const USERNODE_JWT_PUBLIC_KEY = process.env.USERNODE_JWT_PUBLIC_KEY;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 
@@ -13,17 +15,7 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
-// Middleware
-app.use(express.json());
-app.use(express.static('public'));
-
-// Auth middleware - follows Usernode platform conventions
-const PUBLIC_API_PATHS = new Set(['/health', '/api/state']);
-// NOTE: /api/groups is deliberately NOT listed here. Group membership is
-// per-user data, so every group route must run against a verified req.user.
-const PUBLIC_PREFIXES = ['/explorer-api/', '/api/conversations'];
-
-app.use((req, res, next) => {
+function decodeUser(req) {
   const token = req.query.token || req.headers['x-usernode-token'];
   if (token && USERNODE_JWT_PUBLIC_KEY) {
     try {
@@ -33,13 +25,43 @@ app.use((req, res, next) => {
         audience: 'usernode:app:' + process.env.USERNODE_APP_ID
       });
       if (payload.pur === 'iframe') {
-        req.user = payload;
+        return payload;
       }
     } catch (err) {
-      // Token verification failed, continue without user
+      // Token verification failed, treat as unauthenticated
     }
   }
+  return null;
+}
 
+// Middleware
+app.use(express.json());
+
+app.use((req, res, next) => {
+  req.user = decodeUser(req);
+  next();
+});
+
+// Chromeless deep-link redirect: a shared link opened directly in a browser
+// (not inside the platform's app iframe) can't authenticate itself here, so
+// hand top-level unauthenticated document requests to the platform shell,
+// which mints a real session and forwards the original path back in.
+app.use((req, res, next) => {
+  if (req.method === 'GET' && req.get('sec-fetch-dest') === 'document' && !req.user) {
+    return res.redirect(`${PLATFORM_BASE_URL}/#app/${APP_SLUG}/full?path=${req.originalUrl}`);
+  }
+  next();
+});
+
+app.use(express.static('public'));
+
+// Auth middleware - follows Usernode platform conventions
+const PUBLIC_API_PATHS = new Set(['/health', '/api/state']);
+// NOTE: /api/groups is deliberately NOT listed here. Group membership is
+// per-user data, so every group route must run against a verified req.user.
+const PUBLIC_PREFIXES = ['/explorer-api/', '/api/conversations'];
+
+app.use((req, res, next) => {
   if (req.method !== 'GET' || req.path.startsWith('/api/')) {
     if (PUBLIC_API_PATHS.has(req.path)) return next();
     if (PUBLIC_PREFIXES.some((p) => req.path.startsWith(p))) return next();
@@ -68,6 +90,26 @@ app.get('/api/state', (req, res) => {
 // ---------------------------------------------------------------------------
 // Group helpers
 // ---------------------------------------------------------------------------
+
+// Returns the caller's role in a group: 'owner', the stored group_members
+// role, or null if the group doesn't exist or the caller isn't a member.
+// 'user_self' is this (single-real-user, mostly mock) app's placeholder for
+// "whoever is logged in" -- the same sentinel the frontend already uses in
+// isCurrentUserGroupAdmin -- so rows seeded against it match whichever real
+// user is currently authenticated.
+async function getGroupRole(groupId, userId) {
+  const groupResult = await pool.query('SELECT creator_user_id FROM groups WHERE id = $1', [groupId]);
+  if (groupResult.rows.length === 0) return null;
+
+  const creatorId = groupResult.rows[0].creator_user_id;
+  if (creatorId === userId || creatorId === 'user_self') return 'owner';
+
+  const memberResult = await pool.query(
+    'SELECT role FROM group_members WHERE group_id = $1 AND (user_id = $2 OR user_id = $3)',
+    [groupId, userId, 'user_self']
+  );
+  return memberResult.rows.length > 0 ? memberResult.rows[0].role : null;
+}
 
 const MAX_NAME_LENGTH = 50;
 const MAX_DESCRIPTION_LENGTH = 250;
@@ -346,7 +388,7 @@ app.post('/api/groups/:groupId/join', async (req, res) => {
 });
 
 // PUT /api/groups/:groupId/name - Update group name
-app.put('/api/groups/:groupId/name', (req, res) => {
+app.put('/api/groups/:groupId/name', async (req, res) => {
   const { name } = req.body;
   const { groupId } = req.params;
 
@@ -358,13 +400,20 @@ app.put('/api/groups/:groupId/name', (req, res) => {
     return res.status(400).json({ error: 'Group name must be 50 characters or less' });
   }
 
-  // TODO: Validate user is group creator/admin
-  // TODO: Update database
+  const role = await getGroupRole(groupId, req.user.id);
+  if (role === null) {
+    return res.status(404).json({ error: 'Group not found' });
+  }
+  if (role !== 'owner' && role !== 'admin') {
+    return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
+  }
+
+  await pool.query('UPDATE groups SET name = $1, updated_at = now() WHERE id = $2', [name.trim(), groupId]);
   res.json({ id: groupId, name: name.trim() });
 });
 
 // PUT /api/groups/:groupId/description - Update group description
-app.put('/api/groups/:groupId/description', (req, res) => {
+app.put('/api/groups/:groupId/description', async (req, res) => {
   const { description } = req.body;
   const { groupId } = req.params;
 
@@ -372,13 +421,20 @@ app.put('/api/groups/:groupId/description', (req, res) => {
     return res.status(400).json({ error: 'Description must be 250 characters or less' });
   }
 
-  // TODO: Validate user is group creator/admin
-  // TODO: Update database
+  const role = await getGroupRole(groupId, req.user.id);
+  if (role === null) {
+    return res.status(404).json({ error: 'Group not found' });
+  }
+  if (role !== 'owner' && role !== 'admin') {
+    return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
+  }
+
+  await pool.query('UPDATE groups SET description = $1, updated_at = now() WHERE id = $2', [description || '', groupId]);
   res.json({ id: groupId, description: description || '' });
 });
 
 // PUT /api/groups/:groupId/avatar - Update group avatar
-app.put('/api/groups/:groupId/avatar', (req, res) => {
+app.put('/api/groups/:groupId/avatar', async (req, res) => {
   const { avatar } = req.body;
   const { groupId } = req.params;
 
@@ -386,9 +442,16 @@ app.put('/api/groups/:groupId/avatar', (req, res) => {
     return res.status(400).json({ error: 'Avatar is required' });
   }
 
-  // TODO: Validate user is group creator/admin
+  const role = await getGroupRole(groupId, req.user.id);
+  if (role === null) {
+    return res.status(404).json({ error: 'Group not found' });
+  }
+  if (role !== 'owner' && role !== 'admin') {
+    return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
+  }
+
   // TODO: Store avatar (base64 for now, cloud storage in future)
-  // TODO: Update database
+  await pool.query('UPDATE groups SET avatar = $1, updated_at = now() WHERE id = $2', [avatar, groupId]);
   res.json({ id: groupId, avatar });
 });
 
@@ -452,7 +515,7 @@ app.delete('/api/groups/:groupId/members/:memberId', (req, res) => {
 });
 
 // PUT /api/groups/:groupId/members/:memberId/role - Promote/demote a member (owner only)
-app.put('/api/groups/:groupId/members/:memberId/role', (req, res) => {
+app.put('/api/groups/:groupId/members/:memberId/role', async (req, res) => {
   const { groupId, memberId } = req.params;
   const { role } = req.body;
 
@@ -460,9 +523,20 @@ app.put('/api/groups/:groupId/members/:memberId/role', (req, res) => {
     return res.status(400).json({ error: 'Role must be "admin" or "member"' });
   }
 
-  // TODO: Validate requesting user is the group owner
-  // TODO: Prevent changing the owner's own role
-  // TODO: Update database
+  const requesterRole = await getGroupRole(groupId, req.user.id);
+  if (requesterRole === null) {
+    return res.status(404).json({ error: 'Group not found' });
+  }
+  if (requesterRole !== 'owner') {
+    return res.status(403).json({ error: 'Only the group creator can change member roles' });
+  }
+
+  const targetRole = await getGroupRole(groupId, memberId);
+  if (targetRole === 'owner') {
+    return res.status(400).json({ error: "Cannot change the group creator's role" });
+  }
+
+  await pool.query('UPDATE group_members SET role = $1 WHERE group_id = $2 AND user_id = $3', [role, groupId, memberId]);
   res.json({
     id: groupId,
     memberId,
@@ -577,7 +651,8 @@ async function initDatabase() {
           CHECK (visibility IN ('public', 'private')),
         creator_user_id TEXT NOT NULL,
         creator_username TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
     `);
 

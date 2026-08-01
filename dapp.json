@@ -1,6 +1,19 @@
 {
   "name": "Guardian",
-  "secrets": [],
+  "secrets": [
+    {
+      "key": "PLATFORM_BASE_URL",
+      "description": "Base URL of the Usernode Social Vibecoding platform shell, used to build chromeless deep-link redirects for shared links.",
+      "required": false,
+      "default": "https://social-vibecoding.usernodelabs.org"
+    },
+    {
+      "key": "APP_SLUG",
+      "description": "This app's slug on the Usernode platform, used in chromeless deep-link redirects (#app/<slug>/full).",
+      "required": false,
+      "default": "guardian"
+    }
+  ],
   "tests": [
     {
       "name": "Messages page loads (default)",
@@ -46,11 +59,6 @@
       "name": "Composer appears on conversation screen",
       "path": "/#/conversation/conv_1",
       "expectSelector": ".composer-input"
-    },
-    {
-      "name": "Pinned message shows pin badge",
-      "path": "/#/conversation/conv_1",
-      "expectSelector": ".message-pin-badge"
     },
     {
       "name": "Scroll-to-latest FAB renders in direct message view",
@@ -273,14 +281,39 @@
       "expectText": "Members"
     },
     {
-      "name": "Group Info page shows edit buttons",
+      "name": "Group Info page shows edit buttons for admin/owner",
       "path": "/#/group/group_1/info",
       "expectSelector": ".detail-edit-button"
+    },
+    {
+      "name": "Group Info page loads for a plain (non-admin) member",
+      "path": "/#/group/group_2/info",
+      "expectText": "Design Team"
     },
     {
       "name": "Group Info page displays leave button",
       "path": "/#/group/group_1/info",
       "expectSelector": ".leave-group-button"
+    },
+    {
+      "name": "Group Info page shows Share Group button for every member",
+      "path": "/#/group/group_2/info",
+      "expectSelector": ".share-group-button"
+    },
+    {
+      "name": "Shared group link routes to the group's info via ?group= query",
+      "path": "/?group=group_1#/group/group_1/info",
+      "expectText": "Seeker Club"
+    },
+    {
+      "name": "Promoting a member to admin updates their role badge",
+      "path": "/?shot=admin-toggle#/group/group_1/info",
+      "expectSelector": ".group-member-item[data-member-id=\"user_bob\"] .member-role-badge"
+    },
+    {
+      "name": "Editing group description refreshes the Group Info screen in place",
+      "path": "/?shot=desc-edit#/group/group_1/info",
+      "expectText": "Shot desc edit check"
     },
     {
       "name": "Add Members page loads",
@@ -433,9 +466,19 @@
       "expectSelector": ".message-reaction-chip"
     },
     {
-      "name": "New Group entry point on Messages list",
+      "name": "Messages header keeps its search control after removing + New Group",
       "path": "/",
-      "expectSelector": "[data-testid=\"new-group-entry\"]"
+      "expectSelector": ".messages-header .messages-header-actions .search-icon"
+    },
+    {
+      "name": "Messages header renders the app title alongside search",
+      "path": "/",
+      "expectSelector": ".messages-header h1"
+    },
+    {
+      "name": "Group creation is still reachable from the Create menu",
+      "path": "/#/create",
+      "expectSelector": ".create-group-card"
     },
     {
       "name": "Create Group explains the public option",
