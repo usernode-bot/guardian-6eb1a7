@@ -211,6 +211,26 @@
       "name": "Change Photo dialog offers a file picker",
       "path": "/?shot=avatar-dialog#/profile",
       "expectSelector": ".avatar-dialog #avatar-choose-button"
+    },
+    {
+      "name": "Group Info page shows edit-avatar button for the group owner",
+      "path": "/#/group/group_1/info",
+      "expectSelector": "#edit-avatar-button"
+    },
+    {
+      "name": "Channel header avatar is tappable for a channel admin",
+      "path": "/#/channel/channel_2",
+      "expectSelector": "#channel-avatar-tap-target"
+    },
+    {
+      "name": "Channel header avatar still renders for a non-admin viewer",
+      "path": "/#/channel/channel_1",
+      "expectSelector": ".conversation-avatar-header"
+    },
+    {
+      "name": "Channel Info page loads via its route",
+      "path": "/#/channel/channel_2/info",
+      "expectText": "Web3 Builders"
     }
   ]
 }

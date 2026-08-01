@@ -117,6 +117,10 @@ document.addEventListener('DOMContentLoaded', () => {
       id: 'group_1',
       name: 'Seeker Club',
       avatar: 'SC',
+      creatorId: 'user_self',
+      admins: ['user_self'],
+      avatarUrl: null,
+      avatarFileId: null,
       description: 'A community of seekers and explorers',
       memberCount: 128,
       members: [
@@ -138,6 +142,10 @@ document.addEventListener('DOMContentLoaded', () => {
       id: 'group_2',
       name: 'Design Team',
       avatar: 'DT',
+      creatorId: 'user_8',
+      admins: ['user_8'],
+      avatarUrl: null,
+      avatarFileId: null,
       description: 'Collaborate on visual designs and UI/UX',
       memberCount: 3,
       members: [
@@ -392,6 +400,9 @@ document.addEventListener('DOMContentLoaded', () => {
       avatar: 'SI',
       isPublic: true,
       creatorId: 'user_4',
+      admins: ['user_4'],
+      avatarUrl: null,
+      avatarFileId: null,
       createdAt: Date.now() - 7 * 24 * 60 * 60 * 1000,
       followerCount: 12500,
       followers: { 'user_self': true, 'user_1': true, 'user_2': true },
@@ -424,6 +435,9 @@ document.addEventListener('DOMContentLoaded', () => {
       avatar: 'WB',
       isPublic: true,
       creatorId: 'user_self',
+      admins: ['user_self'],
+      avatarUrl: null,
+      avatarFileId: null,
       createdAt: Date.now() - 3 * 24 * 60 * 60 * 1000,
       followerCount: 245,
       followers: { 'user_self': true },
@@ -447,6 +461,9 @@ document.addEventListener('DOMContentLoaded', () => {
       avatar: 'DT',
       isPublic: true,
       creatorId: 'user_8',
+      admins: ['user_8'],
+      avatarUrl: null,
+      avatarFileId: null,
       createdAt: Date.now() - 10 * 24 * 60 * 60 * 1000,
       followerCount: 2000,
       followers: {},
@@ -1037,10 +1054,25 @@ document.addEventListener('DOMContentLoaded', () => {
     return { close };
   }
 
+  // Whether the current user may change `entity`'s photo — true if they are
+  // the creator or listed as an admin. Mirrored server-side (see
+  // canEditEntityAvatar in server.js) since groups/channels have no
+  // persistent backend table to authorize against independently.
+  function canEditEntityAvatar(entity, userId) {
+    if (!entity) return false;
+    const uid = userId || 'user_self';
+    if (entity.creatorId === uid) return true;
+    if (Array.isArray(entity.admins) && entity.admins.includes(uid)) return true;
+    return false;
+  }
+
   // Persist an avatar mapping server-side. `payload` is null to clear it.
+  // `extra` carries additional fields the endpoint needs (e.g. creatorId/
+  // admins, for the server's canEditEntityAvatar check on group/channel
+  // photos) — ignored by endpoints that don't read them.
   // Failures are tagged stage=persist so the dialog can say "uploaded but not
   // saved" rather than blaming the upload that actually succeeded.
-  async function persistAvatar(endpoint, payload) {
+  async function persistAvatar(endpoint, payload, extra) {
     const token = localStorage.getItem('usernode-token');
     let response;
     try {
@@ -1050,10 +1082,10 @@ document.addEventListener('DOMContentLoaded', () => {
           { 'content-type': 'application/json' },
           token ? { 'x-usernode-token': token } : {}
         ),
-        body: JSON.stringify({
+        body: JSON.stringify(Object.assign({
           avatarUrl: payload ? payload.url : null,
           avatarFileId: payload ? payload.fileId : null
-        })
+        }, extra || {}))
       });
     } catch (err) {
       throw new AvatarError('network_error', {
@@ -1098,6 +1130,24 @@ document.addEventListener('DOMContentLoaded', () => {
         profileState.avatarUrl = mine.avatarUrl;
         profileState.avatarFileId = mine.avatarFileId;
       }
+
+      const groupAvatars = (data && data.group) || {};
+      groups.forEach((group) => {
+        const saved = groupAvatars[group.id];
+        if (saved) {
+          group.avatarUrl = saved.avatarUrl;
+          group.avatarFileId = saved.avatarFileId;
+        }
+      });
+
+      const channelAvatars = (data && data.channel) || {};
+      channels.forEach((channel) => {
+        const saved = channelAvatars[channel.id];
+        if (saved) {
+          channel.avatarUrl = saved.avatarUrl;
+          channel.avatarFileId = saved.avatarFileId;
+        }
+      });
     } catch (err) {
       console.log('Avatars unavailable, using initials');
     }
@@ -1117,13 +1167,17 @@ document.addEventListener('DOMContentLoaded', () => {
   function createGroup(groupName, groupDescription, selectedMembers, avatarData) {
     const groupId = generateGroupId();
     const timestamp = Date.now();
-    const avatarValue = avatarData || generateDefaultAvatar(groupName);
+    const avatarValue = generateDefaultAvatar(groupName);
 
     const newGroup = {
       id: groupId,
       name: groupName,
       description: groupDescription,
       avatar: avatarValue,
+      creatorId: 'user_self',
+      admins: ['user_self'],
+      avatarUrl: avatarData ? avatarData.url : null,
+      avatarFileId: avatarData ? avatarData.fileId : null,
       memberCount: selectedMembers.length + 1, // +1 for the user
       members: [{ id: 'user_self', username: 'You' }, ...selectedMembers],
       createdAt: timestamp,
@@ -1369,6 +1423,10 @@ document.addEventListener('DOMContentLoaded', () => {
       name: discoverGroup.name,
       description: discoverGroup.description,
       avatar: discoverGroup.avatar,
+      creatorId: 'user_other',
+      admins: ['user_other'],
+      avatarUrl: null,
+      avatarFileId: null,
       memberCount: discoverGroup.memberCount + 1,
       members: [{ id: 'user_self', username: 'You' }, ...discoverGroup.members],
       createdAt: Date.now(),
@@ -1419,6 +1477,9 @@ document.addEventListener('DOMContentLoaded', () => {
       visibility: discoverChannel.visibility,
       createdAt: Date.now(),
       creatorId: 'user_other',
+      admins: ['user_other'],
+      avatarUrl: null,
+      avatarFileId: null,
       memberCount: discoverChannel.memberCount + 1,
       currentUserIsMember: true,
       currentUserIsAdmin: false,
@@ -2655,6 +2716,11 @@ document.addEventListener('DOMContentLoaded', () => {
           <span class="option-label">Members (${group.memberCount})</span>
           <span class="option-chevron">›</span>
         </button>
+        <button class="menu-option" id="group-info-btn">
+          <span class="option-icon">ℹ️</span>
+          <span class="option-label">Group Info</span>
+          <span class="option-chevron">›</span>
+        </button>
         <button class="menu-option" id="edit-description-btn">
           <span class="option-icon">📝</span>
           <span class="option-label">Edit Description</span>
@@ -2683,6 +2749,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('view-members-btn').addEventListener('click', () => {
       overlay.remove();
       showMembersSheet(groupId, group);
+    });
+
+    document.getElementById('group-info-btn').addEventListener('click', () => {
+      overlay.remove();
+      window.location.hash = `/group/${groupId}/info`;
     });
 
     document.getElementById('edit-description-btn').addEventListener('click', () => {
@@ -3018,8 +3089,7 @@ document.addEventListener('DOMContentLoaded', () => {
       groupDescription: '',
       selectedMembers: [],
       searchQuery: '',
-      avatarFile: null,
-      avatarPreview: null,
+      avatarResult: null,
       validationError: ''
     };
 
@@ -3044,7 +3114,6 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="avatar-placeholder" id="avatar-placeholder">
             <div class="avatar-placeholder-text">+ Add Photo</div>
           </div>
-          <input type="file" id="avatar-file-input" accept="image/*" style="display: none;" />
         </div>
 
         <div class="form-section">
@@ -3080,7 +3149,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const groupDescriptionInput = document.getElementById('group-description-input');
     const searchMembersInput = document.getElementById('search-members-input');
     const avatarPlaceholder = document.getElementById('avatar-placeholder');
-    const avatarFileInput = document.getElementById('avatar-file-input');
     const suggestedUsersList = document.getElementById('suggested-users-list');
     const membersChipsContainer = document.getElementById('members-chips-container');
     const createGroupButton = document.getElementById('create-group-button');
@@ -3089,15 +3157,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Helper function to update avatar display
     function updateAvatarDisplay() {
-      if (state.avatarPreview) {
-        const img = document.createElement('img');
-        img.src = state.avatarPreview;
-        img.style.width = '100%';
-        img.style.height = '100%';
-        img.style.borderRadius = '50%';
-        img.style.objectFit = 'cover';
-        avatarPlaceholder.innerHTML = '';
-        avatarPlaceholder.appendChild(img);
+      if (state.avatarResult) {
+        avatarPlaceholder.innerHTML = renderAvatarHtml(
+          { avatarUrl: state.avatarResult.url },
+          'avatar-placeholder-large'
+        );
       } else if (state.groupName.trim()) {
         const initials = generateDefaultAvatar(state.groupName);
         avatarPlaceholder.innerHTML = `<div style="font-size: 48px; color: #fff; font-weight: 600;">${initials}</div>`;
@@ -3204,23 +3268,18 @@ document.addEventListener('DOMContentLoaded', () => {
       window.location.hash = '/create';
     });
 
-    // Avatar placeholder handler - opens file picker
+    // Avatar placeholder handler - opens the shared photo dialog
     avatarPlaceholder.addEventListener('click', () => {
-      avatarFileInput.click();
-    });
-
-    // Avatar file input handler
-    avatarFileInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          state.avatarFile = file;
-          state.avatarPreview = event.target.result;
+      openAvatarDialog({
+        title: 'Add Group Photo',
+        initials: state.groupName.trim() ? generateDefaultAvatar(state.groupName) : '',
+        currentUrl: state.avatarResult ? state.avatarResult.url : null,
+        allowRemove: !!state.avatarResult,
+        onCommit: async (result) => {
+          state.avatarResult = result;
           updateAvatarDisplay();
-        };
-        reader.readAsDataURL(file);
-      }
+        }
+      });
     });
 
     // Group name input handler
@@ -3274,7 +3333,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.groupName,
         state.groupDescription,
         state.selectedMembers,
-        state.avatarPreview
+        state.avatarResult
       );
 
       // Navigate to the new group chat
@@ -3302,6 +3361,9 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
     `).join('');
 
+    const canEditAvatar = canEditEntityAvatar(group);
+    const avatarHtml = renderAvatarHtml(group, 'group-avatar-large', { id: 'group-avatar-large' });
+
     pageContainer.innerHTML = `
       <div class="group-info-page">
         <div class="group-info-header">
@@ -3312,8 +3374,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         <div class="group-info-content">
           <div class="group-avatar-section">
-            <div class="group-avatar-large" id="group-avatar-large">${group.avatar}</div>
-            <button class="edit-avatar-button" id="edit-avatar-button">Change Photo</button>
+            ${avatarHtml}
+            ${canEditAvatar ? '<button class="edit-avatar-button" id="edit-avatar-button">Change Photo</button>' : ''}
           </div>
 
           <div class="group-details-section">
@@ -3358,10 +3420,13 @@ document.addEventListener('DOMContentLoaded', () => {
       showEditDescriptionDialog(groupId, group.description);
     });
 
-    // Change avatar
-    document.getElementById('edit-avatar-button').addEventListener('click', () => {
-      showAvatarPickerDialog(groupId, group);
-    });
+    // Change avatar (button only rendered when canEditEntityAvatar allows it)
+    const editAvatarButton = document.getElementById('edit-avatar-button');
+    if (editAvatarButton) {
+      editAvatarButton.addEventListener('click', () => {
+        changeGroupPhoto(groupId);
+      });
+    }
 
     // Add members
     document.getElementById('add-members-button').addEventListener('click', () => {
@@ -3558,111 +3623,56 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Show avatar picker dialog - stays on chat page
-  function showAvatarPickerDialog(groupId, groupData) {
-    const overlay = document.createElement('div');
-    overlay.className = 'dialog-overlay';
+  // Group entry point into the shared avatar flow.
+  function changeGroupPhoto(groupId) {
+    const group = groups.find(g => g.id === groupId);
+    if (!group || !canEditEntityAvatar(group)) return;
+    const previousFileId = group.avatarFileId;
 
-    const dialog = document.createElement('div');
-    dialog.className = 'dialog';
-    dialog.innerHTML = `
-      <div class="dialog-header">
-        <h2>Change Group Photo</h2>
-      </div>
-      <div class="dialog-content">
-        <div id="avatar-preview" class="avatar-preview">
-          <div class="avatar-placeholder-large">${groupData.avatar}</div>
-        </div>
-        <input type="file" id="avatar-file-picker" accept="image/*" style="display: none;" />
-        <button class="button-secondary" id="select-photo-button">Select Photo</button>
-        <div class="validation-error" id="avatar-error"></div>
-      </div>
-      <div class="dialog-footer">
-        <button class="button-secondary" id="cancel-avatar">Cancel</button>
-        <button class="button-primary" id="save-avatar" disabled>Use Photo</button>
-      </div>
-    `;
-
-    overlay.appendChild(dialog);
-    pageContainer.appendChild(overlay);
-
-    let selectedFile = null;
-    const filePicker = document.getElementById('avatar-file-picker');
-    const preview = document.getElementById('avatar-preview');
-    const selectBtn = document.getElementById('select-photo-button');
-    const saveBtn = document.getElementById('save-avatar');
-    const errorEl = document.getElementById('avatar-error');
-
-    selectBtn.addEventListener('click', () => {
-      filePicker.click();
-    });
-
-    filePicker.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        selectedFile = file;
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          preview.innerHTML = `<img src="${event.target.result}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />`;
-          saveBtn.disabled = false;
-        };
-        reader.readAsDataURL(file);
+    openAvatarDialog({
+      title: 'Change Group Photo',
+      initials: group.avatar,
+      currentUrl: group.avatarUrl,
+      allowRemove: !!group.avatarUrl,
+      onCommit: async (result) => {
+        await persistAvatar(`/api/groups/${groupId}/avatar`, result, {
+          creatorId: group.creatorId,
+          admins: group.admins
+        });
+        group.avatarUrl = result ? result.url : null;
+        group.avatarFileId = result ? result.fileId : null;
+        if (previousFileId && previousFileId !== group.avatarFileId) {
+          deleteAvatarFile(previousFileId);
+        }
+        renderGroupInfoPage(groupId);
+        showToast(result ? 'Photo updated' : 'Photo removed', { type: 'success' });
       }
     });
+  }
 
-    document.getElementById('cancel-avatar').addEventListener('click', () => {
-      overlay.remove();
-    });
+  // Channel entry point into the shared avatar flow.
+  function changeChannelPhoto(channelId) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel || !canEditEntityAvatar(channel)) return;
+    const previousFileId = channel.avatarFileId;
 
-    document.getElementById('save-avatar').addEventListener('click', async () => {
-      if (!selectedFile) return;
-
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const base64 = event.target.result;
-
-        try {
-          const response = await fetch(`/api/groups/${groupId}/avatar`, {
-            method: 'PUT',
-            headers: {
-              'content-type': 'application/json',
-              'x-usernode-token': localStorage.getItem('usernode-token')
-            },
-            body: JSON.stringify({ avatar: base64 })
-          });
-
-          if (!response.ok) {
-            throw new Error('Failed to update avatar');
-          }
-
-          const group = groups.find(g => g.id === groupId);
-          group.avatar = base64;
-
-          // Update Messages list
-          const conversation = conversations.find(c => c.groupId === groupId);
-          if (conversation) {
-            conversation.avatar = base64;
-          }
-
-          // Update header avatar immediately
-          const headerAvatar = document.querySelector('.conversation-avatar-header');
-          if (headerAvatar) {
-            headerAvatar.innerHTML = base64.includes('data:') ? `<img src="${base64}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />` : base64;
-          }
-
-          overlay.remove();
-          showToast('Photo updated', { type: 'success' });
-          renderMessagesPage(); // Update messages list
-        } catch (error) {
-          errorEl.textContent = 'Failed to update photo';
-          console.error(error);
+    openAvatarDialog({
+      title: 'Change Channel Photo',
+      initials: channel.avatar,
+      currentUrl: channel.avatarUrl,
+      allowRemove: !!channel.avatarUrl,
+      onCommit: async (result) => {
+        await persistAvatar(`/api/channels/${channelId}/avatar`, result, {
+          creatorId: channel.creatorId,
+          admins: channel.admins
+        });
+        channel.avatarUrl = result ? result.url : null;
+        channel.avatarFileId = result ? result.fileId : null;
+        if (previousFileId && previousFileId !== channel.avatarFileId) {
+          deleteAvatarFile(previousFileId);
         }
-      };
-      reader.readAsDataURL(selectedFile);
-    });
-
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) {
-        overlay.remove();
+        renderChannelView(channelId);
+        showToast(result ? 'Photo updated' : 'Photo removed', { type: 'success' });
       }
     });
   }
@@ -3992,7 +4002,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function createChannel(name, description, visibility, avatarData) {
     const channelId = 'channel_' + Date.now();
     const timestamp = Date.now();
-    const avatarValue = avatarData || name.charAt(0).toUpperCase();
+    const avatarValue = name.charAt(0).toUpperCase();
 
     const newChannel = {
       id: channelId,
@@ -4001,6 +4011,9 @@ document.addEventListener('DOMContentLoaded', () => {
       avatar: avatarValue,
       isPublic: visibility === 'public',
       creatorId: 'user_self',
+      admins: ['user_self'],
+      avatarUrl: avatarData ? avatarData.url : null,
+      avatarFileId: avatarData ? avatarData.fileId : null,
       createdAt: timestamp,
       followerCount: 1,
       followers: { 'user_self': true },
@@ -4180,6 +4193,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const isOwner = channel.creatorId === 'user_self';
     const isFollowing = channel.followers['user_self'];
     const isMuted = channel.mutedByUsers['user_self'];
+    const canEditAvatar = canEditEntityAvatar(channel);
 
     // Render posts in reverse chronological order
     const postsList = channel.posts.map(post => {
@@ -4208,7 +4222,10 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="conversation-page-header">
           <button class="back-button" aria-label="Back to messages">←</button>
           <div class="conversation-header-info group-header-info" id="channel-header-info-${channelId}">
-            <div class="conversation-avatar-header">${channel.avatar}</div>
+            ${renderAvatarHtml(channel, 'conversation-avatar-header', canEditAvatar ? {
+              id: 'channel-avatar-tap-target',
+              attrs: 'role="button" tabindex="0" title="Change photo"'
+            } : {})}
             <div class="header-text">
               <div class="header-username">${channel.name}</div>
               <div class="header-member-count">${channel.followerCount.toLocaleString()} Followers</div>
@@ -4251,6 +4268,22 @@ document.addEventListener('DOMContentLoaded', () => {
     if (menuButton) {
       menuButton.addEventListener('click', () => {
         showChannelMenu(channelId, channel, isOwner);
+      });
+    }
+
+    // Tapping the header avatar opens the shared photo dialog (creator/admin only)
+    const channelAvatarTapTarget = document.getElementById('channel-avatar-tap-target');
+    if (channelAvatarTapTarget) {
+      channelAvatarTapTarget.addEventListener('click', (e) => {
+        e.stopPropagation();
+        changeChannelPhoto(channelId);
+      });
+      channelAvatarTapTarget.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          changeChannelPhoto(channelId);
+        }
       });
     }
 
@@ -4365,6 +4398,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function showChannelMenu(channelId, channel, isOwner) {
     const overlay = document.createElement('div');
     overlay.className = 'dialog-overlay';
+    const canEdit = canEditEntityAvatar(channel);
 
     const dialog = document.createElement('div');
     dialog.className = 'dialog group-menu-dialog';
@@ -4379,11 +4413,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (isOwner) {
       menuHTML += `
+        ${canEdit ? `
         <button class="menu-option" id="edit-channel-btn">
           <span class="option-icon">✏️</span>
           <span class="option-label">Edit Channel</span>
           <span class="option-chevron">›</span>
         </button>
+        ` : ''}
         <button class="menu-option leave-option" id="delete-channel-btn">
           <span class="option-icon">🗑️</span>
           <span class="option-label">Delete Channel</span>
@@ -4420,6 +4456,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     if (isOwner) {
+      document.getElementById('edit-channel-btn')?.addEventListener('click', () => {
+        overlay.remove();
+        window.location.hash = `/channel/${channelId}/info`;
+      });
+
       document.getElementById('delete-channel-btn')?.addEventListener('click', () => {
         overlay.remove();
         showConfirmDialog('Delete Channel', `Delete "${channel.name}"? This cannot be undone.`, () => {
@@ -4654,14 +4695,20 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const membersList = channel.members.map(member => `
-      <div class="channel-member-item" data-member-id="${member.id}">
-        <div class="member-avatar">${member.avatar || member.username.charAt(0).toUpperCase()}</div>
-        <div class="member-info">
-          <div class="member-name">${member.username}</div>
+    const followerIds = Object.keys(channel.followers || {});
+    const membersList = followerIds.map(id => {
+      const user = id === 'user_self' ? { username: 'You', avatar: 'Y' } : suggestedUsers.find(u => u.id === id);
+      const username = user ? user.username : id;
+      const initials = (user && user.avatar) || username.charAt(0).toUpperCase();
+      return `
+        <div class="channel-member-item" data-member-id="${id}">
+          <div class="member-avatar">${initials}</div>
+          <div class="member-info">
+            <div class="member-name">${username}</div>
+          </div>
         </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     pageContainer.innerHTML = `
       <div class="channel-info-page">
@@ -4673,7 +4720,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         <div class="channel-info-content">
           <div class="channel-avatar-section">
-            <div class="channel-avatar-large" id="channel-avatar-large">${channel.avatar}</div>
+            ${renderAvatarHtml(channel, 'channel-avatar-large', { id: 'channel-avatar-large' })}
           </div>
 
           <div class="channel-details-section">
@@ -4689,17 +4736,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
             <div class="detail-item">
               <div class="detail-label">Visibility</div>
-              <div class="detail-value">${channel.visibility === 'public' ? '🌐 Public' : '🔒 Private'}</div>
+              <div class="detail-value">${channel.isPublic ? '🌐 Public' : '🔒 Private'}</div>
             </div>
 
             <div class="detail-item">
               <div class="detail-label">Members</div>
-              <div class="detail-value">${channel.memberCount}</div>
+              <div class="detail-value">${channel.followerCount}</div>
             </div>
           </div>
 
           <div class="members-section">
-            <div class="section-title">Members (${channel.memberCount})</div>
+            <div class="section-title">Members (${channel.followerCount})</div>
             <div class="members-list" id="members-list">
               ${membersList}
             </div>
@@ -4775,8 +4822,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const state = {
       channelName: '',
       channelDescription: '',
-      avatarFile: null,
-      avatarPreview: null,
+      avatarResult: null,
       validationError: ''
     };
 
@@ -4791,7 +4837,6 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="avatar-placeholder" id="avatar-placeholder">
             <div class="avatar-placeholder-text">+ Add Photo</div>
           </div>
-          <input type="file" id="avatar-file-input" accept="image/*" style="display: none;" />
         </div>
 
         <div class="form-section">
@@ -4810,20 +4855,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const channelNameInput = document.getElementById('channel-name-input');
     const channelDescriptionInput = document.getElementById('channel-description-input');
     const avatarPlaceholder = document.getElementById('avatar-placeholder');
-    const avatarFileInput = document.getElementById('avatar-file-input');
     const createChannelButton = document.getElementById('create-channel-button');
     const nameError = document.getElementById('name-error');
 
     function updateAvatarDisplay() {
-      if (state.avatarPreview) {
-        const img = document.createElement('img');
-        img.src = state.avatarPreview;
-        img.style.width = '100%';
-        img.style.height = '100%';
-        img.style.borderRadius = '50%';
-        img.style.objectFit = 'cover';
-        avatarPlaceholder.innerHTML = '';
-        avatarPlaceholder.appendChild(img);
+      if (state.avatarResult) {
+        avatarPlaceholder.innerHTML = renderAvatarHtml(
+          { avatarUrl: state.avatarResult.url },
+          'avatar-placeholder-large'
+        );
       } else if (state.channelName.trim()) {
         const initials = generateDefaultAvatar(state.channelName);
         avatarPlaceholder.innerHTML = `<div style="font-size: 48px; color: #fff; font-weight: 600;">${initials}</div>`;
@@ -4843,20 +4883,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     avatarPlaceholder.addEventListener('click', () => {
-      avatarFileInput.click();
-    });
-
-    avatarFileInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          state.avatarFile = file;
-          state.avatarPreview = event.target.result;
+      openAvatarDialog({
+        title: 'Add Channel Photo',
+        initials: state.channelName.trim() ? generateDefaultAvatar(state.channelName) : '',
+        currentUrl: state.avatarResult ? state.avatarResult.url : null,
+        allowRemove: !!state.avatarResult,
+        onCommit: async (result) => {
+          state.avatarResult = result;
           updateAvatarDisplay();
-        };
-        reader.readAsDataURL(file);
-      }
+        }
+      });
     });
 
     channelNameInput.addEventListener('input', (e) => {
@@ -4884,7 +4920,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.channelName,
         state.channelDescription,
         'public',
-        state.avatarPreview
+        state.avatarResult
       );
 
       window.location.hash = `/channel/${channelId}`;
@@ -5137,13 +5173,20 @@ document.addEventListener('DOMContentLoaded', () => {
         renderGroupConversationPage(groupId);
       }
     } else if (path.startsWith('channel/')) {
-      const channelId = path.split('/')[1];
+      const parts = path.split('/');
+      const channelId = parts[1];
+      const action = parts[2];
 
       // Remove active from all nav tabs when on channel screen
       navTabs.forEach(tab => tab.classList.remove('active'));
       // Hide bottom nav on channel screen
       bottomNav.style.display = 'none';
-      renderChannelView(channelId);
+
+      if (action === 'info') {
+        renderChannelInfoModal(channelId);
+      } else {
+        renderChannelView(channelId);
+      }
     } else if (path === 'create-group') {
       // Hide bottom nav on create group screen
       bottomNav.style.display = 'none';

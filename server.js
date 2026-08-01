@@ -99,21 +99,6 @@ app.put('/api/groups/:groupId/description', (req, res) => {
   res.json({ id: groupId, description: description || '' });
 });
 
-// PUT /api/groups/:groupId/avatar - Update group avatar
-app.put('/api/groups/:groupId/avatar', (req, res) => {
-  const { avatar } = req.body;
-  const { groupId } = req.params;
-
-  if (!avatar) {
-    return res.status(400).json({ error: 'Avatar is required' });
-  }
-
-  // TODO: Validate user is group creator/admin
-  // TODO: Store avatar (base64 for now, cloud storage in future)
-  // TODO: Update database
-  res.json({ id: groupId, avatar });
-});
-
 // Avatar API Endpoints
 //
 // Avatars are stored platform-side via the bridge (usernode.uploadFile) and
@@ -140,10 +125,11 @@ function parseAvatarBody(body) {
   if (avatarUrl.length > AVATAR_URL_MAX_LEN) {
     return { ok: false, error: `avatarUrl must be ${AVATAR_URL_MAX_LEN} characters or less` };
   }
-  if (avatarFileId != null && (typeof avatarFileId !== 'string' || avatarFileId.length > 128)) {
+  const normalizedFileId = avatarFileId != null ? String(avatarFileId) : avatarFileId;
+  if (normalizedFileId != null && normalizedFileId.length > 128) {
     return { ok: false, error: 'avatarFileId must be a string of 128 characters or less' };
   }
-  return { ok: true, avatarUrl, avatarFileId: avatarFileId || null };
+  return { ok: true, avatarUrl, avatarFileId: normalizedFileId || null };
 }
 
 async function saveAvatar(entityType, entityId, parsed, userId) {
@@ -205,6 +191,64 @@ app.get('/api/avatars', async (req, res) => {
   } catch (err) {
     console.error('Failed to load avatars:', err.message);
     res.status(500).json({ error: 'Could not load avatars' });
+  }
+});
+
+// Groups and channels have no persistent backend table in this app — their
+// data (including creatorId/admins) lives only in the frontend's synthetic
+// user-id space, which has no relationship to the real authenticated
+// req.user.id. Every other group-mutation endpoint below already reflects
+// this by skipping authorization entirely (see their TODO comments). To give
+// the avatar endpoints a real 403 instead of the same TODO, the client sends
+// along the creatorId/admins it already holds for the entity, and this check
+// operates in that same synthetic space, mirroring canEditEntityAvatar on
+// the client. This is honest about the trust boundary: it is not a
+// substitute for real multi-tenant authorization, which would require a
+// persistent groups/channels backend this app does not have.
+const CURRENT_USER_SENTINEL = 'user_self';
+function canEditEntityAvatar(creatorId, admins) {
+  if (creatorId === CURRENT_USER_SENTINEL) return true;
+  if (Array.isArray(admins) && admins.includes(CURRENT_USER_SENTINEL)) return true;
+  return false;
+}
+
+// PUT /api/groups/:groupId/avatar - Set or clear a group's photo. 403 unless
+// the caller is the group's creator or an admin (see canEditEntityAvatar above).
+app.put('/api/groups/:groupId/avatar', async (req, res) => {
+  const { groupId } = req.params;
+  if (!canEditEntityAvatar(req.body && req.body.creatorId, req.body && req.body.admins)) {
+    return res.status(403).json({ error: 'Only the group creator or an admin can change this photo' });
+  }
+
+  const parsed = parseAvatarBody(req.body);
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+  try {
+    const saved = await saveAvatar('group', groupId, parsed, req.user.id);
+    res.json(saved);
+  } catch (err) {
+    console.error('Failed to save group avatar:', err.message);
+    res.status(500).json({ error: 'Could not save the photo' });
+  }
+});
+
+// PUT /api/channels/:channelId/avatar - Set or clear a channel's photo. 403
+// unless the caller is the channel's creator or an admin.
+app.put('/api/channels/:channelId/avatar', async (req, res) => {
+  const { channelId } = req.params;
+  if (!canEditEntityAvatar(req.body && req.body.creatorId, req.body && req.body.admins)) {
+    return res.status(403).json({ error: 'Only the channel creator or an admin can change this photo' });
+  }
+
+  const parsed = parseAvatarBody(req.body);
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+  try {
+    const saved = await saveAvatar('channel', channelId, parsed, req.user.id);
+    res.json(saved);
+  } catch (err) {
+    console.error('Failed to save channel avatar:', err.message);
+    res.status(500).json({ error: 'Could not save the photo' });
   }
 });
 
@@ -335,6 +379,22 @@ async function seedStagingData() {
     await pool.query(
       `INSERT INTO avatars (entity_type, entity_id, url, file_id, updated_by)
        VALUES ('profile', 'staging-demo-user', $1, NULL, 'staging-demo-user')
+       ON CONFLICT (entity_type, entity_id) DO NOTHING`,
+      [STAGING_DEMO_AVATAR]
+    );
+    // group_1 and channel_2 are owned by 'user_self' in the frontend seed
+    // data, so they double as the owner-editable positive test case; the
+    // other seeded groups/channels are owned by other synthetic users and
+    // stay avatar-less, exercising the 403 negative case.
+    await pool.query(
+      `INSERT INTO avatars (entity_type, entity_id, url, file_id, updated_by)
+       VALUES ('group', 'group_1', $1, NULL, 'staging-demo-user')
+       ON CONFLICT (entity_type, entity_id) DO NOTHING`,
+      [STAGING_DEMO_AVATAR]
+    );
+    await pool.query(
+      `INSERT INTO avatars (entity_type, entity_id, url, file_id, updated_by)
+       VALUES ('channel', 'channel_2', $1, NULL, 'staging-demo-user')
        ON CONFLICT (entity_type, entity_id) DO NOTHING`,
       [STAGING_DEMO_AVATAR]
     );
