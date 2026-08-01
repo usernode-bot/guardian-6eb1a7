@@ -3909,11 +3909,20 @@ html, body {
   padding: 6px 12px 8px 12px;
 }
 
-/* Auto-linkified URLs inside a message bubble or channel post */
+/* Auto-linkified URLs inside a message bubble or channel post.
+   Default color is tuned for the incoming bubble / channel post's light
+   backgrounds; the outgoing bubble is #007aff, so a plain #007AFF link
+   would be invisible against its own background — override it below. */
 .message-link {
-  color: #007AFF;
+  color: #0056b3;
   text-decoration: underline;
   word-break: break-all;
+}
+
+.message.outgoing .message-link {
+  color: #fff;
+  text-decoration-color: rgba(255, 255, 255, 0.85);
+  font-weight: 600;
 }
 
 /* Full-screen lightbox */
