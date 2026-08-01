@@ -201,6 +201,16 @@
       "expectSelector": ".suggested-user-item"
     },
     {
+      "name": "Suggested Users lists a real staging directory user, not fixtures",
+      "path": "/#/create",
+      "expectText": "staging-demo-citra"
+    },
+    {
+      "name": "Searching wallet/username on New Message finds a matching staging user",
+      "path": "/?shot=search-users#/create",
+      "expectText": "staging-demo-citra"
+    },
+    {
       "name": "Create Group page loads",
       "path": "/#/create-group",
       "expectText": "Create Group"
