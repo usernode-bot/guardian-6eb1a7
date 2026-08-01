@@ -191,11 +191,29 @@ document.addEventListener('DOMContentLoaded', () => {
       onlineStatus: false,
       archived: false,
       pinned: false,
+      manuallyMarkedUnread: true, // Staging demo — proves the unread dot renders independent of unreadCount
       mutedByUsers: {},
       messages: [
         { id: 'msg_1', text: "See you at the event!", timestamp: Date.now() - 3*24*60*60*1000, isOutgoing: false },
         { id: 'msg_2', text: "Definitely! Can't wait", timestamp: Date.now() - 2.5*24*60*60*1000, isOutgoing: true },
         { id: 'msg_3', text: "Looking forward to the event next week", timestamp: Date.now() - 2*24*60*60*1000, isOutgoing: false }
+      ]
+    },
+    {
+      id: 'conv_staging_hidden_1',
+      type: 'direct',
+      username: 'Staging Demo Hidden User',
+      avatar: 'SH',
+      lastMessage: 'Staging demo — deleted from inbox, proves the hidden-from-inbox filter',
+      timestamp: Date.now() - 3 * 24 * 60 * 60 * 1000,
+      unreadCount: 0,
+      onlineStatus: false,
+      archived: false,
+      pinned: false,
+      hiddenFromInbox: true,
+      mutedByUsers: {},
+      messages: [
+        { id: 'msg_1', text: 'Staging demo message', timestamp: Date.now() - 3*24*60*60*1000, isOutgoing: false }
       ]
     }
   ];
@@ -1162,6 +1180,12 @@ document.addEventListener('DOMContentLoaded', () => {
       filtered = requests;
     }
 
+    // Deleted/left/unfollowed conversations stay in the array (so their
+    // messages survive) but must disappear from every inbox tab.
+    if (tab !== 'requests') {
+      filtered = filtered.filter(c => !c.hiddenFromInbox);
+    }
+
     // Deduplication: keep only the first occurrence of each conversation ID
     const seen = new Set();
     filtered = filtered.filter(c => {
@@ -1239,7 +1263,9 @@ document.addEventListener('DOMContentLoaded', () => {
               </div>
               <p class="conversation-message">${escapeHtml(item.lastMessage)}</p>
             </div>
-            ${item.unreadCount > 0 ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>` : ''}
+            ${item.unreadCount > 0
+              ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>`
+              : (item.manuallyMarkedUnread ? `<div class="unread-badge unread-dot" style="background-color: ${badgeColor};"></div>` : '')}
           </div>
         `;
       }
@@ -1268,7 +1294,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const routeHash = item.dataset.routeHash;
         const convId = item.dataset.conversationId;
         const conv = conversations.find(c => c.id === convId);
-        if (conv) conv.unreadCount = 0;
+        if (conv) {
+          conv.unreadCount = 0;
+          conv.manuallyMarkedUnread = false;
+        }
         window.location.hash = routeHash;
       });
     });
@@ -1855,7 +1884,9 @@ document.addEventListener('DOMContentLoaded', () => {
               </div>
               <p class="conversation-message">${escapeHtml(item.lastMessage)}</p>
             </div>
-            ${item.unreadCount > 0 ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>` : ''}
+            ${item.unreadCount > 0
+              ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>`
+              : (item.manuallyMarkedUnread ? `<div class="unread-badge unread-dot" style="background-color: ${badgeColor};"></div>` : '')}
           </div>
         `;
       }
@@ -1994,13 +2025,60 @@ document.addEventListener('DOMContentLoaded', () => {
     renderMessagesPage();
   }
 
+  // Type-aware "Delete" for the conversation-list long-press menu: a DM is
+  // hidden from this user's inbox only (the other side keeps their copy), a
+  // group delete is really "Leave Group", a channel delete is "Unfollow".
+  function handleConversationDelete(conv) {
+    if (conv.type === 'group') {
+      const group = groups.find(g => g.id === conv.groupId);
+      if (group) showLeaveGroupDialog(conv.groupId, group.name);
+      return;
+    }
+
+    if (conv.type === 'channel') {
+      unfollowChannel(conv.channelId);
+      renderMessagesPage();
+      showToast('Unfollowed channel', { type: 'success' });
+      return;
+    }
+
+    showConfirmDialog(
+      'Delete Chat',
+      `Delete your chat with ${conv.username}? This only removes it from your inbox — ${conv.username} will still see the conversation.`,
+      async () => {
+        conv.hiddenFromInbox = true;
+        try {
+          await fetch(`/api/conversations/${conv.id}/state`, {
+            method: 'PUT',
+            headers: authHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ hiddenFromInbox: true })
+          });
+        } catch (err) {
+          console.error('Failed to delete conversation:', err);
+        }
+        renderMessagesPage();
+        showToast('Chat deleted', { type: 'success' });
+      }
+    );
+  }
+
   // Setup long-press context menu for conversation items
   function setupConversationLongPress() {
     const conversationItems = document.querySelectorAll('.conversation-item');
     const LONG_PRESS_DURATION = 350;
-    const MENU_ITEMS = [
-      { icon: '📌', label: 'Pin', action: 'pin' }
-    ];
+
+    function buildMenuItems(conv) {
+      const isUnread = conv.unreadCount > 0 || !!conv.manuallyMarkedUnread;
+      const deleteLabel = conv.type === 'group' ? 'Leave Group'
+        : conv.type === 'channel' ? 'Unfollow'
+        : 'Delete Chat';
+
+      return [
+        { icon: '📌', label: conv.pinned ? 'Unpin' : 'Pin', action: 'pin' },
+        { icon: '👁', label: isUnread ? 'Mark as Read' : 'Mark as Unread', action: 'toggle-read' },
+        { icon: '🗑', label: deleteLabel, action: 'delete', destructive: true }
+      ];
+    }
 
     let menuState = {
       selectedConvId: null,
@@ -2047,16 +2125,12 @@ document.addEventListener('DOMContentLoaded', () => {
       // Create context menu
       const contextMenu = document.createElement('div');
       contextMenu.className = 'conversation-context-menu';
-      const menuButtons = MENU_ITEMS.map(item => {
-        const isPinned = conv.pinned && item.action === 'pin';
-        const label = isPinned ? 'Unpin' : item.label;
-        return `
-          <button class="menu-item" aria-label="${label}" data-action="${item.action}">
+      const menuButtons = buildMenuItems(conv).map(item => `
+          <button class="menu-item${item.destructive ? ' destructive' : ''}" aria-label="${item.label}" data-action="${item.action}">
             <span class="menu-icon">${item.icon}</span>
-            <span class="menu-label">${label}</span>
+            <span class="menu-label">${item.label}</span>
           </button>
-        `;
-      }).join('');
+        `).join('');
       contextMenu.innerHTML = menuButtons;
       messagesPage.appendChild(contextMenu);
 
@@ -2097,17 +2171,32 @@ document.addEventListener('DOMContentLoaded', () => {
           const action = btn.dataset.action;
           btn.classList.add('tapped');
 
+          if (action === 'delete') {
+            dismissMenu();
+            handleConversationDelete(conv);
+            return;
+          }
+
           try {
             if (action === 'pin') {
               const newPinnedState = !conv.pinned;
-              const res = await fetch(`/api/conversations/${convId}/pin`, {
+              const res = await fetch(`/api/conversations/${convId}/state`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({ pinned: newPinnedState })
               });
               if (res.ok) {
                 conv.pinned = newPinnedState;
               }
+            } else if (action === 'toggle-read') {
+              const newUnreadState = !(conv.unreadCount > 0 || conv.manuallyMarkedUnread);
+              conv.manuallyMarkedUnread = newUnreadState;
+              if (!newUnreadState) conv.unreadCount = 0;
+              await fetch(`/api/conversations/${convId}/state`, {
+                method: 'PUT',
+                headers: authHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ manuallyMarkedUnread: newUnreadState })
+              });
             }
           } catch (err) {
             console.error(`Failed to ${action} conversation:`, err);
@@ -2617,9 +2706,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('pin-conversation-btn')?.addEventListener('click', async () => {
       const newPinnedState = !conversation.pinned;
       try {
-        const res = await fetch(`/api/conversations/${conversationId}/pin`, {
+        const res = await fetch(`/api/conversations/${conversationId}/state`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ pinned: newPinnedState })
         });
         if (res.ok) {
@@ -5792,6 +5881,9 @@ document.addEventListener('DOMContentLoaded', () => {
         group.memberCount = group.members.length;
         group.isLeftByUser = true;
 
+        const conv = conversations.find(c => c.type === 'group' && c.groupId === groupId);
+        if (conv) conv.hiddenFromInbox = true;
+
         // Add system message
         group.messages.push({
           id: 'msg_' + Date.now(),
@@ -5804,7 +5896,12 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         overlay.remove();
+        // Setting an unchanged hash doesn't fire 'hashchange' (e.g. leaving
+        // via the messages-list long-press menu, already on this route), so
+        // render directly rather than relying on the navigation listener.
+        const alreadyOnMessages = window.location.hash === '#/messages' || window.location.hash === '';
         window.location.hash = '/messages';
+        if (alreadyOnMessages) renderMessagesPage();
         showToast('You left the group', { type: 'success' });
       } catch (error) {
         console.error(error);
@@ -6066,6 +6163,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const conv = conversations.find(c => c.type === 'channel' && c.channelId === channelId);
     if (conv) {
       conv.archived = true;
+      conv.hiddenFromInbox = true;
     }
   }
 

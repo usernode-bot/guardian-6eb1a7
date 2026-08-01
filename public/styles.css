@@ -239,6 +239,14 @@ html, body {
   transform: translateY(-50%);
 }
 
+.unread-badge.unread-dot {
+  min-width: 0;
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  border-radius: 50%;
+}
+
 /* Conversation Screen */
 .conversation-page {
   display: flex;
@@ -702,6 +710,10 @@ html, body {
 
 .menu-item.tapped {
   animation: menuItemTap 150ms ease-out;
+}
+
+.menu-item.destructive {
+  color: #ff3b30;
 }
 
 .menu-icon {

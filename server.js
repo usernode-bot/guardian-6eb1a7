@@ -59,7 +59,9 @@ app.use(express.static('public'));
 const PUBLIC_API_PATHS = new Set(['/health', '/api/state']);
 // NOTE: /api/groups is deliberately NOT listed here. Group membership is
 // per-user data, so every group route must run against a verified req.user.
-const PUBLIC_PREFIXES = ['/explorer-api/', '/api/conversations'];
+// /api/conversations is deliberately NOT listed here either: conversation
+// pin/read/hide state is per-user, so it must run against a verified req.user.
+const PUBLIC_PREFIXES = ['/explorer-api/'];
 
 app.use((req, res, next) => {
   if (req.method !== 'GET' || req.path.startsWith('/api/')) {
@@ -603,28 +605,48 @@ app.post('/api/groups/:groupId/join-requests/:requestId/deny', (req, res) => {
   });
 });
 
-// In-memory conversation storage (demo/frontend state)
-let conversations = {};
-
 // Conversation Management API Endpoints
 
-// PUT /api/conversations/:id/pin - Toggle pin on a conversation
-app.put('/api/conversations/:id/pin', (req, res) => {
+// PUT /api/conversations/:id/state - Update the caller's own view of a
+// conversation: pin, manually-marked-unread, or hidden-from-inbox (the local
+// "delete" for a DM; group/channel deletes are a leave/unfollow instead).
+// Per-user data, so this route requires a verified req.user (see
+// PUBLIC_PREFIXES above). Each field is optional so callers can toggle one
+// flag at a time without clobbering the others.
+app.put('/api/conversations/:id/state', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+
   const { id } = req.params;
-  const { pinned } = req.body;
+  const { pinned, manuallyMarkedUnread, hiddenFromInbox } = req.body || {};
+  const pinnedVal = typeof pinned === 'boolean' ? pinned : null;
+  const unreadVal = typeof manuallyMarkedUnread === 'boolean' ? manuallyMarkedUnread : null;
+  const hiddenVal = typeof hiddenFromInbox === 'boolean' ? hiddenFromInbox : null;
 
-  // Initialize or update conversation pin state
-  if (!conversations[id]) {
-    conversations[id] = { pinned: !!pinned };
-  } else {
-    conversations[id].pinned = !!pinned;
+  try {
+    const result = await pool.query(
+      `INSERT INTO conversation_user_state
+         (conversation_id, user_id, pinned, manually_marked_unread, hidden_from_inbox)
+       VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false), COALESCE($5, false))
+       ON CONFLICT (conversation_id, user_id) DO UPDATE SET
+         pinned = COALESCE($3, conversation_user_state.pinned),
+         manually_marked_unread = COALESCE($4, conversation_user_state.manually_marked_unread),
+         hidden_from_inbox = COALESCE($5, conversation_user_state.hidden_from_inbox),
+         updated_at = now()
+       RETURNING pinned, manually_marked_unread, hidden_from_inbox`,
+      [id, req.user.id, pinnedVal, unreadVal, hiddenVal]
+    );
+    const row = result.rows[0];
+    res.json({
+      id,
+      pinned: row.pinned,
+      manuallyMarkedUnread: row.manually_marked_unread,
+      hiddenFromInbox: row.hidden_from_inbox,
+      message: 'Conversation state updated'
+    });
+  } catch (err) {
+    console.error('[conversations] state update failed:', err);
+    res.status(500).json({ error: 'Failed to update conversation state' });
   }
-
-  res.json({
-    id: id,
-    pinned: conversations[id].pinned,
-    message: 'Conversation pin status updated'
-  });
 });
 
 // Initialize database schema
@@ -670,6 +692,23 @@ async function initDatabase() {
       );
     `);
 
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS conversation_user_state (
+        conversation_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        pinned BOOLEAN NOT NULL DEFAULT false,
+        manually_marked_unread BOOLEAN NOT NULL DEFAULT false,
+        hidden_from_inbox BOOLEAN NOT NULL DEFAULT false,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (conversation_id, user_id)
+      );
+    `);
+
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS conversation_user_state_user_idx
+         ON conversation_user_state (user_id)`
+    );
+
     await pool.query(
       `CREATE INDEX IF NOT EXISTS groups_visibility_created_idx
          ON groups (visibility, created_at DESC)`
@@ -684,6 +723,9 @@ async function initDatabase() {
     // is why the seed block below is mandatory.
     await pool.query(`COMMENT ON TABLE groups IS 'staging:private'`);
     await pool.query(`COMMENT ON TABLE group_members IS 'staging:private'`);
+    // Private: a hidden_from_inbox/pinned row ties a real user_id to a
+    // specific conversation_id, which can reveal who a user is DMing.
+    await pool.query(`COMMENT ON TABLE conversation_user_state IS 'staging:private'`);
 
     console.log('Database initialized');
   } catch (err) {
