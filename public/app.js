@@ -106,6 +106,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // carry a data URI rather than a real /app-files/ URL.
   const DEMO_IMAGE_BLUE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='200'%3E%3Crect width='320' height='200' fill='%234a90d9'/%3E%3Ctext x='160' y='115' font-family='sans-serif' font-size='40' fill='white' text-anchor='middle'%3EDEMO%3C/text%3E%3C/svg%3E";
   const DEMO_IMAGE_ORANGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='200'%3E%3Crect width='320' height='200' fill='%23e07a3f'/%3E%3Ctext x='160' y='115' font-family='sans-serif' font-size='40' fill='white' text-anchor='middle'%3EDEMO%3C/text%3E%3C/svg%3E";
+  const DEMO_IMAGE_GREEN = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='200'%3E%3Crect width='320' height='200' fill='%233fa15e'/%3E%3Ctext x='160' y='115' font-family='sans-serif' font-size='40' fill='white' text-anchor='middle'%3EDEMO%3C/text%3E%3C/svg%3E";
 
   const pageContainer = document.getElementById('page-container');
   const bottomNav = document.getElementById('bottom-nav');
@@ -150,6 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
       messages: [
         { id: 'msg_1', text: "Check out the new features", timestamp: Date.now() - 2*60*60*1000, isOutgoing: false },
         { id: 'msg_2', text: "Looking good!", timestamp: Date.now() - 1.5*60*60*1000, isOutgoing: true },
+        { id: 'msg_link_demo', text: "Docs are here: https://guardian.example.com/docs — check it out!", timestamp: Date.now() - 1.25*60*60*1000, isOutgoing: false },
         { id: 'msg_3', text: "Did you see the latest updates?", timestamp: Date.now() - 60*60*1000, isOutgoing: false },
         {
           id: 'msg_4',
@@ -191,11 +193,29 @@ document.addEventListener('DOMContentLoaded', () => {
       onlineStatus: false,
       archived: false,
       pinned: false,
+      manuallyMarkedUnread: true, // Staging demo — proves the unread dot renders independent of unreadCount
       mutedByUsers: {},
       messages: [
         { id: 'msg_1', text: "See you at the event!", timestamp: Date.now() - 3*24*60*60*1000, isOutgoing: false },
         { id: 'msg_2', text: "Definitely! Can't wait", timestamp: Date.now() - 2.5*24*60*60*1000, isOutgoing: true },
         { id: 'msg_3', text: "Looking forward to the event next week", timestamp: Date.now() - 2*24*60*60*1000, isOutgoing: false }
+      ]
+    },
+    {
+      id: 'conv_staging_hidden_1',
+      type: 'direct',
+      username: 'Staging Demo Hidden User',
+      avatar: 'SH',
+      lastMessage: 'Staging demo — deleted from inbox, proves the hidden-from-inbox filter',
+      timestamp: Date.now() - 3 * 24 * 60 * 60 * 1000,
+      unreadCount: 0,
+      onlineStatus: false,
+      archived: false,
+      pinned: false,
+      hiddenFromInbox: true,
+      mutedByUsers: {},
+      messages: [
+        { id: 'msg_1', text: 'Staging demo message', timestamp: Date.now() - 3*24*60*60*1000, isOutgoing: false }
       ]
     }
   ];
@@ -266,7 +286,8 @@ document.addEventListener('DOMContentLoaded', () => {
       ],
       messages: [
         { id: 'msg_1', senderId: 'user_8', senderName: 'designpro', text: 'Just posted the new mockups', timestamp: Date.now() - 30*60*1000, isOutgoing: false },
-        { id: 'msg_2', senderId: 'user_self', text: 'Thanks! Reviewing now', timestamp: Date.now() - 25*60*1000, isOutgoing: true }
+        { id: 'msg_2', senderId: 'user_self', text: 'Thanks! Reviewing now', timestamp: Date.now() - 25*60*1000, isOutgoing: true },
+        { id: 'msg_link_demo', senderId: 'user_8', senderName: 'designpro', text: 'Full spec doc: https://guardian.example.com/design-spec', timestamp: Date.now() - 20*60*1000, isOutgoing: false }
       ]
     },
     {
@@ -350,8 +371,8 @@ document.addEventListener('DOMContentLoaded', () => {
       groupId: 'group_2',
       name: 'Design Team',
       avatar: 'DT',
-      lastMessage: 'Thanks! Reviewing now',
-      timestamp: Date.now() - 25*60*1000,
+      lastMessage: 'Full spec doc: https://guardian.example.com/design-spec',
+      timestamp: Date.now() - 20*60*1000,
       unreadCount: 0,
       archived: false,
       pinned: false
@@ -714,6 +735,15 @@ document.addEventListener('DOMContentLoaded', () => {
           timestamp: Date.now() - 24 * 60 * 60 * 1000,
           reactions: { '😂': { 'user_1': true } },
           isPinned: false
+        },
+        {
+          id: 'post_5',
+          channelId: 'channel_1',
+          authorId: 'user_4',
+          text: 'FAQ: https://guardian.example.com/solana-faq for common questions.',
+          timestamp: Date.now() - 48 * 60 * 60 * 1000,
+          reactions: {},
+          isPinned: false
         }
       ]
     },
@@ -776,7 +806,18 @@ document.addEventListener('DOMContentLoaded', () => {
       followerCount: 18,
       followers: { 'user_self': true },
       mutedByUsers: {},
-      posts: []
+      posts: [
+        {
+          id: 'post_6',
+          channelId: 'channel_4',
+          authorId: 'user_self',
+          text: 'Shipped a new badge design ✨',
+          imageUrl: DEMO_IMAGE_GREEN,
+          timestamp: Date.now() - 10 * 60 * 1000,
+          reactions: {},
+          isPinned: false
+        }
+      ]
     }
   ];
 
@@ -847,8 +888,8 @@ document.addEventListener('DOMContentLoaded', () => {
       channelId: 'channel_4',
       name: 'Builder Notes',
       avatar: 'BN',
-      lastMessage: 'No posts yet',
-      timestamp: Date.now() - 36 * 60 * 60 * 1000,
+      lastMessage: '📷 Shipped a new badge design ✨',
+      timestamp: Date.now() - 10 * 60 * 1000,
       unreadCount: 0,
       archived: false,
       pinned: false
@@ -1105,6 +1146,46 @@ document.addEventListener('DOMContentLoaded', () => {
       .replace(/>/g, '&gt;');
   }
 
+  // Turn http(s):// and www.-prefixed URLs in plain message text into clickable
+  // links. Runs on the ORIGINAL (unescaped) string so it can split cleanly on
+  // real URL boundaries, then escapes each side of the split independently -
+  // a URL containing HTML-special characters can never break out of the
+  // surrounding markup this way. This also closes the escaping gap the plain
+  // text branch of messageBodyHTML() used to have (message text went into
+  // innerHTML unescaped), since every caller now routes through here.
+  const LINK_PATTERN = /(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+)/gi;
+
+  function linkifyHTML(text) {
+    const value = text == null ? '' : String(text);
+    let result = '';
+    let lastIndex = 0;
+    let match;
+    LINK_PATTERN.lastIndex = 0;
+    while ((match = LINK_PATTERN.exec(value)) !== null) {
+      result += escapeHtml(value.slice(lastIndex, match.index));
+
+      // Trailing punctuation is almost never part of the URL itself, so
+      // "see https://example.com." links to example.com, not example.com.
+      let url = match[0];
+      let trailing = '';
+      const trailingMatch = url.match(/[).,!?:;]+$/);
+      if (trailingMatch) {
+        trailing = trailingMatch[0];
+        url = url.slice(0, -trailing.length);
+      }
+
+      if (url) {
+        const href = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+        result += `<a href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer" class="message-link">${escapeHtml(url)}</a>`;
+      }
+      result += escapeHtml(trailing);
+
+      lastIndex = match.index + match[0].length;
+    }
+    result += escapeHtml(value.slice(lastIndex));
+    return result;
+  }
+
   // Only allow platform-hosted https URLs or inline image data URIs
   function safeImageUrl(url) {
     if (typeof url !== 'string') return null;
@@ -1128,10 +1209,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // Body of a message bubble - plain text, or an image with optional caption
   function messageBodyHTML(msg) {
     const url = msg.imageUrl ? safeImageUrl(msg.imageUrl) : null;
-    if (!url) return msg.text || '';
+    if (!url) return linkifyHTML(msg.text);
 
     const caption = msg.text
-      ? `<div class="message-caption">${msg.text}</div>`
+      ? `<div class="message-caption">${linkifyHTML(msg.text)}</div>`
       : '';
     return `
       <img class="message-image" src="${escapeAttr(url)}" alt="Photo" loading="lazy"
@@ -1160,6 +1241,12 @@ document.addEventListener('DOMContentLoaded', () => {
       filtered = conversations.filter(c => c.type === 'channel');
     } else if (tab === 'requests') {
       filtered = requests;
+    }
+
+    // Deleted/left/unfollowed conversations stay in the array (so their
+    // messages survive) but must disappear from every inbox tab.
+    if (tab !== 'requests') {
+      filtered = filtered.filter(c => !c.hiddenFromInbox);
     }
 
     // Deduplication: keep only the first occurrence of each conversation ID
@@ -1239,7 +1326,9 @@ document.addEventListener('DOMContentLoaded', () => {
               </div>
               <p class="conversation-message">${escapeHtml(item.lastMessage)}</p>
             </div>
-            ${item.unreadCount > 0 ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>` : ''}
+            ${item.unreadCount > 0
+              ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>`
+              : (item.manuallyMarkedUnread ? `<div class="unread-badge unread-dot" style="background-color: ${badgeColor};"></div>` : '')}
           </div>
         `;
       }
@@ -1268,7 +1357,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const routeHash = item.dataset.routeHash;
         const convId = item.dataset.conversationId;
         const conv = conversations.find(c => c.id === convId);
-        if (conv) conv.unreadCount = 0;
+        if (conv) {
+          conv.unreadCount = 0;
+          conv.manuallyMarkedUnread = false;
+        }
         window.location.hash = routeHash;
       });
     });
@@ -1855,7 +1947,9 @@ document.addEventListener('DOMContentLoaded', () => {
               </div>
               <p class="conversation-message">${escapeHtml(item.lastMessage)}</p>
             </div>
-            ${item.unreadCount > 0 ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>` : ''}
+            ${item.unreadCount > 0
+              ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>`
+              : (item.manuallyMarkedUnread ? `<div class="unread-badge unread-dot" style="background-color: ${badgeColor};"></div>` : '')}
           </div>
         `;
       }
@@ -1994,13 +2088,60 @@ document.addEventListener('DOMContentLoaded', () => {
     renderMessagesPage();
   }
 
+  // Type-aware "Delete" for the conversation-list long-press menu: a DM is
+  // hidden from this user's inbox only (the other side keeps their copy), a
+  // group delete is really "Leave Group", a channel delete is "Unfollow".
+  function handleConversationDelete(conv) {
+    if (conv.type === 'group') {
+      const group = groups.find(g => g.id === conv.groupId);
+      if (group) showLeaveGroupDialog(conv.groupId, group.name);
+      return;
+    }
+
+    if (conv.type === 'channel') {
+      unfollowChannel(conv.channelId);
+      renderMessagesPage();
+      showToast('Unfollowed channel', { type: 'success' });
+      return;
+    }
+
+    showConfirmDialog(
+      'Delete Chat',
+      `Delete your chat with ${conv.username}? This only removes it from your inbox — ${conv.username} will still see the conversation.`,
+      async () => {
+        conv.hiddenFromInbox = true;
+        try {
+          await fetch(`/api/conversations/${conv.id}/state`, {
+            method: 'PUT',
+            headers: authHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ hiddenFromInbox: true })
+          });
+        } catch (err) {
+          console.error('Failed to delete conversation:', err);
+        }
+        renderMessagesPage();
+        showToast('Chat deleted', { type: 'success' });
+      }
+    );
+  }
+
   // Setup long-press context menu for conversation items
   function setupConversationLongPress() {
     const conversationItems = document.querySelectorAll('.conversation-item');
     const LONG_PRESS_DURATION = 350;
-    const MENU_ITEMS = [
-      { icon: '📌', label: 'Pin', action: 'pin' }
-    ];
+
+    function buildMenuItems(conv) {
+      const isUnread = conv.unreadCount > 0 || !!conv.manuallyMarkedUnread;
+      const deleteLabel = conv.type === 'group' ? 'Leave Group'
+        : conv.type === 'channel' ? 'Unfollow'
+        : 'Delete Chat';
+
+      return [
+        { icon: '📌', label: conv.pinned ? 'Unpin' : 'Pin', action: 'pin' },
+        { icon: '👁', label: isUnread ? 'Mark as Read' : 'Mark as Unread', action: 'toggle-read' },
+        { icon: '🗑', label: deleteLabel, action: 'delete', destructive: true }
+      ];
+    }
 
     let menuState = {
       selectedConvId: null,
@@ -2047,16 +2188,12 @@ document.addEventListener('DOMContentLoaded', () => {
       // Create context menu
       const contextMenu = document.createElement('div');
       contextMenu.className = 'conversation-context-menu';
-      const menuButtons = MENU_ITEMS.map(item => {
-        const isPinned = conv.pinned && item.action === 'pin';
-        const label = isPinned ? 'Unpin' : item.label;
-        return `
-          <button class="menu-item" aria-label="${label}" data-action="${item.action}">
+      const menuButtons = buildMenuItems(conv).map(item => `
+          <button class="menu-item${item.destructive ? ' destructive' : ''}" aria-label="${item.label}" data-action="${item.action}">
             <span class="menu-icon">${item.icon}</span>
-            <span class="menu-label">${label}</span>
+            <span class="menu-label">${item.label}</span>
           </button>
-        `;
-      }).join('');
+        `).join('');
       contextMenu.innerHTML = menuButtons;
       messagesPage.appendChild(contextMenu);
 
@@ -2097,17 +2234,32 @@ document.addEventListener('DOMContentLoaded', () => {
           const action = btn.dataset.action;
           btn.classList.add('tapped');
 
+          if (action === 'delete') {
+            dismissMenu();
+            handleConversationDelete(conv);
+            return;
+          }
+
           try {
             if (action === 'pin') {
               const newPinnedState = !conv.pinned;
-              const res = await fetch(`/api/conversations/${convId}/pin`, {
+              const res = await fetch(`/api/conversations/${convId}/state`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({ pinned: newPinnedState })
               });
               if (res.ok) {
                 conv.pinned = newPinnedState;
               }
+            } else if (action === 'toggle-read') {
+              const newUnreadState = !(conv.unreadCount > 0 || conv.manuallyMarkedUnread);
+              conv.manuallyMarkedUnread = newUnreadState;
+              if (!newUnreadState) conv.unreadCount = 0;
+              await fetch(`/api/conversations/${convId}/state`, {
+                method: 'PUT',
+                headers: authHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ manuallyMarkedUnread: newUnreadState })
+              });
             }
           } catch (err) {
             console.error(`Failed to ${action} conversation:`, err);
@@ -2617,9 +2769,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('pin-conversation-btn')?.addEventListener('click', async () => {
       const newPinnedState = !conversation.pinned;
       try {
-        const res = await fetch(`/api/conversations/${conversationId}/pin`, {
+        const res = await fetch(`/api/conversations/${conversationId}/state`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ pinned: newPinnedState })
         });
         if (res.ok) {
@@ -3515,8 +3667,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Full-screen viewer for image messages. Delegated on the thread
   // container so it survives the re-render after every send.
-  function setupImageLightbox() {
-    const messagesContainer = document.querySelector('.messages-container');
+  function setupImageLightbox(containerSelector) {
+    const messagesContainer = document.querySelector(containerSelector || '.messages-container');
     if (!messagesContainer) return;
 
     messagesContainer.addEventListener('click', (e) => {
@@ -3779,28 +3931,16 @@ document.addEventListener('DOMContentLoaded', () => {
   // renderers, so the caller says which one it is — re-rendering a group through
   // renderConversationPage() used to find nothing and bounce the user out to the
   // Messages list, losing the message they just sent.
-  function setupComposer(thread, options) {
-    const opts = options || {};
-    const isGroup = !!opts.isGroup;
-    // How to redraw the screen we're on after a send. Defaults to the direct
-    // conversation renderer; group and channel views pass their own.
-    const rerender = typeof opts.rerender === 'function'
-      ? opts.rerender
-      : (isGroup
-        ? () => renderGroupConversationPage(thread.id, { fromSend: true })
-        : () => renderConversationPage(thread.id, { fromSend: true }));
-    const conversation = thread;
-    const composerInput = document.querySelector('.composer-input');
-    const sendButton = document.querySelector('.send-button');
-    const replyCloseButton = document.querySelector('.reply-close-button');
-    const attachButton = document.querySelector('.attach-image-button');
-    const attachInput = document.querySelector('.attach-image-input');
-    const pendingBar = document.querySelector('.pending-image-bar');
-    const pendingThumb = document.querySelector('.pending-image-thumb');
-    const pendingStatus = document.querySelector('.pending-image-status');
-    const pendingRemove = document.querySelector('.pending-image-remove');
+  // Wires the image-attach button/input pipeline (sniff -> downscale -> upload)
+  // that every composer shares - DM, group and channel alike. `actionButton`
+  // is whichever button submits the composer (Send or Publish); it's disabled
+  // while an upload is in flight so nothing can be sent half-uploaded.
+  // Returns an accessor for the currently-uploaded image plus a way to clear
+  // it after a successful send/publish.
+  function setupImageAttachment(els) {
+    const { attachButton, attachInput, pendingBar, pendingThumb, pendingStatus, pendingRemove, actionButton } = els;
 
-    // Pending-image state is per render: every send re-runs setupComposer
+    // Pending-image state is per render: every send/publish re-runs this setup
     let pendingImage = null;
 
     function clearPendingImage() {
@@ -3810,7 +3950,7 @@ document.addEventListener('DOMContentLoaded', () => {
       pendingImage = null;
       if (pendingBar) pendingBar.style.display = 'none';
       if (pendingThumb) pendingThumb.removeAttribute('src');
-      if (sendButton) sendButton.disabled = false;
+      if (actionButton) actionButton.disabled = false;
       if (attachButton) attachButton.disabled = false;
       if (attachInput) attachInput.value = '';
     }
@@ -3865,7 +4005,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pendingThumb) pendingThumb.src = objectUrl;
         if (pendingStatus) pendingStatus.textContent = 'Uploading…';
         if (pendingBar) pendingBar.style.display = 'flex';
-        sendButton.disabled = true;
+        if (actionButton) actionButton.disabled = true;
         attachButton.disabled = true;
 
         const uploadingFor = pendingImage;
@@ -3878,7 +4018,7 @@ document.addEventListener('DOMContentLoaded', () => {
           pendingImage.id = stored.id;
           pendingImage.status = 'ready';
           if (pendingStatus) pendingStatus.textContent = 'Ready to send';
-          sendButton.disabled = false;
+          if (actionButton) actionButton.disabled = false;
           attachButton.disabled = false;
         } catch (err) {
           // Log everything the platform gave us plus exactly what we sent, so
@@ -3912,6 +4052,38 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
+    return {
+      clearPendingImage,
+      getReadyImage: () => (pendingImage && pendingImage.status === 'ready' ? pendingImage : null)
+    };
+  }
+
+  function setupComposer(thread, options) {
+    const opts = options || {};
+    const isGroup = !!opts.isGroup;
+    // How to redraw the screen we're on after a send. Defaults to the direct
+    // conversation renderer; group and channel views pass their own.
+    const rerender = typeof opts.rerender === 'function'
+      ? opts.rerender
+      : (isGroup
+        ? () => renderGroupConversationPage(thread.id, { fromSend: true })
+        : () => renderConversationPage(thread.id, { fromSend: true }));
+    const conversation = thread;
+    const composerInput = document.querySelector('.composer-input');
+    const sendButton = document.querySelector('.send-button');
+    const replyCloseButton = document.querySelector('.reply-close-button');
+    const attachButton = document.querySelector('.attach-image-button');
+    const attachInput = document.querySelector('.attach-image-input');
+    const pendingBar = document.querySelector('.pending-image-bar');
+    const pendingThumb = document.querySelector('.pending-image-thumb');
+    const pendingStatus = document.querySelector('.pending-image-status');
+    const pendingRemove = document.querySelector('.pending-image-remove');
+
+    const imageAttachment = setupImageAttachment({
+      attachButton, attachInput, pendingBar, pendingThumb, pendingStatus, pendingRemove,
+      actionButton: sendButton
+    });
+
     // Auto-expand textarea functionality
     function autoExpandTextarea() {
       // Reset height to calculate scrollHeight
@@ -3939,7 +4111,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     sendButton.addEventListener('click', () => {
       const text = composerInput.value.trim();
-      const readyImage = pendingImage && pendingImage.status === 'ready' ? pendingImage : null;
+      const readyImage = imageAttachment.getReadyImage();
       // An image on its own is a valid message - text is optional now
       if (!text && !readyImage) return;
 
@@ -3971,7 +4143,7 @@ document.addEventListener('DOMContentLoaded', () => {
       composerInput.value = '';
       composerInput.style.height = '48px';
       clearReplyState();
-      clearPendingImage();
+      imageAttachment.clearPendingImage();
 
       // Update conversation last message and timestamp for All tab sorting. A
       // group's row in the Messages list is keyed by groupId (a channel's by
@@ -5792,6 +5964,9 @@ document.addEventListener('DOMContentLoaded', () => {
         group.memberCount = group.members.length;
         group.isLeftByUser = true;
 
+        const conv = conversations.find(c => c.type === 'group' && c.groupId === groupId);
+        if (conv) conv.hiddenFromInbox = true;
+
         // Add system message
         group.messages.push({
           id: 'msg_' + Date.now(),
@@ -5804,7 +5979,12 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         overlay.remove();
+        // Setting an unchanged hash doesn't fire 'hashchange' (e.g. leaving
+        // via the messages-list long-press menu, already on this route), so
+        // render directly rather than relying on the navigation listener.
+        const alreadyOnMessages = window.location.hash === '#/messages' || window.location.hash === '';
         window.location.hash = '/messages';
+        if (alreadyOnMessages) renderMessagesPage();
         showToast('You left the group', { type: 'success' });
       } catch (error) {
         console.error(error);
@@ -5987,7 +6167,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Publish a post to a channel
-  function publishPost(channelId, text, imageData) {
+  function publishPost(channelId, text, image) {
     const channel = channels.find(c => c.id === channelId);
     if (!channel || channel.creatorId !== 'user_self') {
       return null;
@@ -6001,18 +6181,22 @@ document.addEventListener('DOMContentLoaded', () => {
       channelId: channelId,
       authorId: 'user_self',
       text: text,
-      imageData: imageData || null,
       timestamp: timestamp,
       reactions: {},
       isPinned: false
     };
+
+    if (image) {
+      newPost.imageUrl = image.url;
+      newPost.imageId = image.id;
+    }
 
     channel.posts.unshift(newPost);
 
     // Update last post in conversation
     const conv = conversations.find(c => c.type === 'channel' && c.channelId === channelId);
     if (conv) {
-      conv.lastMessage = text.substring(0, 100);
+      conv.lastMessage = truncateText(messagePreviewText(newPost), 100);
       conv.timestamp = timestamp;
     }
 
@@ -6045,7 +6229,7 @@ document.addEventListener('DOMContentLoaded', () => {
         channelId: channelId,
         name: channel.name,
         avatar: channel.avatar,
-        lastMessage: channel.posts[0]?.text.substring(0, 100) || 'No posts yet',
+        lastMessage: channel.posts[0] ? truncateText(messagePreviewText(channel.posts[0]), 100) : 'No posts yet',
         timestamp: channel.posts[0]?.timestamp || channel.createdAt,
         unreadCount: channel.posts.length,
         archived: false,
@@ -6066,6 +6250,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const conv = conversations.find(c => c.type === 'channel' && c.channelId === channelId);
     if (conv) {
       conv.archived = true;
+      conv.hiddenFromInbox = true;
     }
   }
 
@@ -6120,7 +6305,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const conv = conversations.find(c => c.type === 'channel' && c.channelId === channelId);
       if (conv) {
         if (channel.posts.length > 0) {
-          conv.lastMessage = channel.posts[0].text.substring(0, 100);
+          conv.lastMessage = truncateText(messagePreviewText(channel.posts[0]), 100);
           conv.timestamp = channel.posts[0].timestamp;
         } else {
           conv.lastMessage = 'No posts yet';
@@ -6184,7 +6369,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="post-card-channel">${channel.name}</div>
           <div class="post-card-time">${formatTimestamp(post.timestamp)}</div>
         </div>
-        <div class="post-content">${post.text}</div>
+        <div class="post-content${messageBubbleClass(post)}">${messageBodyHTML(post)}</div>
         <div class="post-reaction-chips">${postReactionChipsHTML(post)}</div>
         <div class="post-actions">${postActionsHTML(post)}</div>
       </article>
@@ -6221,7 +6406,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!card) return;
 
     const content = card.querySelector('.post-content');
-    if (content) content.innerHTML = post.text;
+    if (content) {
+      content.innerHTML = messageBodyHTML(post);
+      content.className = `post-content${messageBubbleClass(post)}`;
+    }
   }
 
   // Message-level reactions reuse POST_REACTIONS/reactionCount/userReacted so
@@ -6306,9 +6494,15 @@ document.addEventListener('DOMContentLoaded', () => {
         ${isOwner ? `
           <div class="channel-footer">
             <div class="composer-container">
+              <div class="pending-image-bar" style="display: none;">
+                <img class="pending-image-thumb" alt="Selected image preview" />
+                <span class="pending-image-status">Uploading…</span>
+                <button class="pending-image-remove" aria-label="Remove image">✕</button>
+              </div>
               <textarea class="composer-input" placeholder="What's happening?" rows="1"></textarea>
               <div class="composer-actions">
-                <button class="image-button" aria-label="Add image">📷</button>
+                <button class="image-button attach-image-button" aria-label="Add image">📷</button>
+                <input type="file" class="attach-image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display: none;" />
                 <button class="publish-button" aria-label="Publish">Publish</button>
               </div>
             </div>
@@ -6519,6 +6713,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if (isOwner) {
       const composerInput = document.querySelector('.composer-input');
       const publishButton = document.querySelector('.publish-button');
+      const attachButton = document.querySelector('.attach-image-button');
+      const attachInput = document.querySelector('.attach-image-input');
+      const pendingBar = document.querySelector('.pending-image-bar');
+      const pendingThumb = document.querySelector('.pending-image-thumb');
+      const pendingStatus = document.querySelector('.pending-image-status');
+      const pendingRemove = document.querySelector('.pending-image-remove');
+
+      const imageAttachment = setupImageAttachment({
+        attachButton, attachInput, pendingBar, pendingThumb, pendingStatus, pendingRemove,
+        actionButton: publishButton
+      });
 
       function autoExpandTextarea() {
         composerInput.style.height = 'auto';
@@ -6530,15 +6735,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
       publishButton.addEventListener('click', () => {
         const text = composerInput.value.trim();
-        if (!text) return;
+        const readyImage = imageAttachment.getReadyImage();
+        // An image on its own is a valid post - text is optional, same as DMs/groups
+        if (!text && !readyImage) return;
 
-        publishPost(channelId, text);
+        publishPost(channelId, text, readyImage);
         composerInput.value = '';
         composerInput.style.height = '40px';
+        imageAttachment.clearPendingImage();
         renderChannelView(channelId);
         showToast('Post published', { type: 'success' });
       });
     }
+
+    // Image lightbox for post images - the feed is the channel's own scroll
+    // container, not the DM/group `.messages-container`.
+    setupImageLightbox('.channel-feed');
 
     // Screenshot-state: drive the REAL controls so the deep links exercise the
     // actual listener wiring above, not just the rendering functions.
