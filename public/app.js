@@ -7668,7 +7668,7 @@ document.addEventListener('DOMContentLoaded', () => {
     bio: 'Building on Usernode',
     avatarUrl: null,
     avatarImageId: null,
-    walletAddress: '0x91FA987D4DC5A4E2DDB0F3E8C7B6A5D2C8'
+    walletAddress: null
   };
 
   function getInitialsFromUsername(username) {
@@ -7690,9 +7690,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.user) {
           currentUser = { id: data.user.id, username: data.user.username || 'johndoe' };
           profileState.username = data.user.username || 'johndoe';
-          if (data.user.usernode_pubkey) {
-            profileState.walletAddress = data.user.usernode_pubkey;
-          }
+          profileState.walletAddress = data.user.usernode_pubkey || null;
         }
       }
     } catch (err) {
@@ -7705,7 +7703,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const bio = profileState.bio;
     const walletAddress = profileState.walletAddress;
 
-    const shortAddress = walletAddress.substring(0, 6) + '...' + walletAddress.substring(walletAddress.length - 4);
+    const shortAddress = walletAddress
+      ? walletAddress.substring(0, 6) + '...' + walletAddress.substring(walletAddress.length - 4)
+      : null;
     const initials = getInitialsFromUsername(username);
 
     let avatarContent = initials;
@@ -7738,9 +7738,9 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="profile-wallet-card">
             <div class="wallet-info">
               <div class="wallet-label">Usernode Address</div>
-              <div class="wallet-address">${shortAddress}</div>
+              <div class="wallet-address">${walletAddress ? shortAddress : 'No wallet linked yet'}</div>
             </div>
-            <button class="wallet-copy-btn" id="wallet-copy-btn" aria-label="Copy address">📋</button>
+            ${walletAddress ? '<button class="wallet-copy-btn" id="wallet-copy-btn" aria-label="Copy address">📋</button>' : ''}
           </div>
         </div>
       </div>
@@ -7777,42 +7777,45 @@ document.addEventListener('DOMContentLoaded', () => {
       window.location.hash = '/profile/edit-bio';
     });
 
-    // Wallet copy button
-    document.getElementById('wallet-copy-btn').addEventListener('click', () => {
-      const copyFallback = () => {
-        const textarea = document.createElement('textarea');
-        textarea.value = walletAddress;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.focus();
-        textarea.select();
+    // Wallet copy button (only present when a wallet is linked)
+    const walletCopyBtn = document.getElementById('wallet-copy-btn');
+    if (walletCopyBtn) {
+      walletCopyBtn.addEventListener('click', () => {
+        const copyFallback = () => {
+          const textarea = document.createElement('textarea');
+          textarea.value = walletAddress;
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.focus();
+          textarea.select();
 
-        let copied = false;
-        try {
-          copied = document.execCommand('copy');
-        } catch (err) {
-          copied = false;
-        }
-        document.body.removeChild(textarea);
+          let copied = false;
+          try {
+            copied = document.execCommand('copy');
+          } catch (err) {
+            copied = false;
+          }
+          document.body.removeChild(textarea);
 
-        if (copied) {
-          showToast('Address copied', { type: 'success' });
+          if (copied) {
+            showToast('Address copied', { type: 'success' });
+          } else {
+            window.prompt('Copy this address:', walletAddress);
+          }
+        };
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(walletAddress).then(() => {
+            showToast('Address copied', { type: 'success' });
+          }).catch(() => {
+            copyFallback();
+          });
         } else {
-          window.prompt('Copy this address:', walletAddress);
-        }
-      };
-
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(walletAddress).then(() => {
-          showToast('Address copied', { type: 'success' });
-        }).catch(() => {
           copyFallback();
-        });
-      } else {
-        copyFallback();
-      }
-    });
+        }
+      });
+    }
   }
 
   function renderProfileEditBioPage() {
