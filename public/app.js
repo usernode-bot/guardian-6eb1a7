@@ -101,6 +101,12 @@ document.addEventListener('DOMContentLoaded', () => {
     profile: { title: 'Profile', name: 'Profile' }
   };
 
+  // Tiny inline placeholder images for the seeded demo image messages.
+  // Platform-stored files are NOT cloned into staging, so seeded rows must
+  // carry a data URI rather than a real /app-files/ URL.
+  const DEMO_IMAGE_BLUE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='200'%3E%3Crect width='320' height='200' fill='%234a90d9'/%3E%3Ctext x='160' y='115' font-family='sans-serif' font-size='40' fill='white' text-anchor='middle'%3EDEMO%3C/text%3E%3C/svg%3E";
+  const DEMO_IMAGE_ORANGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='200'%3E%3Crect width='320' height='200' fill='%23e07a3f'/%3E%3Ctext x='160' y='115' font-family='sans-serif' font-size='40' fill='white' text-anchor='middle'%3EDEMO%3C/text%3E%3C/svg%3E";
+
   const pageContainer = document.getElementById('page-container');
   const bottomNav = document.getElementById('bottom-nav');
   const navTabs = document.querySelectorAll('.nav-tab');
@@ -112,8 +118,8 @@ document.addEventListener('DOMContentLoaded', () => {
       type: 'direct',
       username: 'Alice Chen',
       avatar: 'AC',
-      lastMessage: 'That sounds great! Let\'s meet up soon.',
-      timestamp: Date.now() - 2 * 60 * 1000, // 2 minutes ago
+      lastMessage: '📷 Staging demo photo',
+      timestamp: Date.now() - 1 * 60 * 1000, // 1 minute ago
       unreadCount: 2,
       onlineStatus: true,
       archived: false,
@@ -125,7 +131,8 @@ document.addEventListener('DOMContentLoaded', () => {
         { id: 'msg_3', text: "Nice! Want to grab dinner?", timestamp: Date.now() - 4*60*1000, isOutgoing: false },
         { id: 'msg_4', text: "Sure! When?", timestamp: Date.now() - 3.5*60*1000, isOutgoing: true },
         { id: 'msg_5', text: "How about 7pm?", timestamp: Date.now() - 3*60*1000, isOutgoing: false },
-        { id: 'msg_6', text: "That sounds great! Let's meet up soon.", timestamp: Date.now() - 2*60*1000, isOutgoing: true, replyTo: { messageId: 'msg_5', senderName: 'Alice Chen', previewText: 'How about 7pm?' } }
+        { id: 'msg_6', text: "That sounds great! Let's meet up soon.", timestamp: Date.now() - 2*60*1000, isOutgoing: true, replyTo: { messageId: 'msg_5', senderName: 'Alice Chen', previewText: 'How about 7pm?' } },
+        { id: 'msg_demo_image', text: 'Staging demo photo', imageUrl: DEMO_IMAGE_BLUE, timestamp: Date.now() - 1*60*1000, isOutgoing: false }
       ]
     },
     {
@@ -236,7 +243,8 @@ document.addEventListener('DOMContentLoaded', () => {
           timestamp: Date.now() - 4*60*1000,
           isOutgoing: true,
           forwardedFrom: { channelId: 'channel_1', channelName: 'Solana Indonesia', channelAvatar: 'SI', postId: 'post_1' }
-        }
+        },
+        { id: 'msg_demo_image', senderId: 'user_alice', senderName: 'Alice', text: 'Staging demo photo', imageUrl: DEMO_IMAGE_ORANGE, timestamp: Date.now() - 3.5*60*1000, isOutgoing: false }
       ]
     },
     {
@@ -330,8 +338,8 @@ document.addEventListener('DOMContentLoaded', () => {
       groupId: 'group_1',
       name: 'Seeker Club',
       avatar: 'SC',
-      lastMessage: '↗ Mainnet Beta is Live 🚀',
-      timestamp: Date.now() - 4*60*1000,
+      lastMessage: '📷 Staging demo photo',
+      timestamp: Date.now() - 3.5*60*1000,
       unreadCount: 0,
       archived: false,
       pinned: false
@@ -1080,10 +1088,62 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Truncate text to 50 characters with ellipsis
   function truncateText(text, length = 50) {
-    if (text.length > length) {
-      return text.substring(0, length) + '…';
+    const value = text == null ? '' : String(text);
+    if (value.length > length) {
+      return value.substring(0, length) + '…';
     }
-    return text;
+    return value;
+  }
+
+  // Escape a value for safe interpolation into an HTML attribute
+  function escapeAttr(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  // Only allow platform-hosted https URLs or inline image data URIs
+  function safeImageUrl(url) {
+    if (typeof url !== 'string') return null;
+    const trimmed = url.trim();
+    if (/^https:\/\//i.test(trimmed) || /^data:image\//i.test(trimmed)) {
+      return trimmed;
+    }
+    return null;
+  }
+
+  // Preview text used in the conversation list, reply quotes and toasts.
+  // Image messages have no (or optional) text, so they get a 📷 prefix.
+  function messagePreviewText(msg) {
+    if (!msg) return '';
+    if (msg.imageUrl) {
+      return msg.text ? `📷 ${msg.text}` : '📷 Photo';
+    }
+    return msg.text || '';
+  }
+
+  // Body of a message bubble - plain text, or an image with optional caption
+  function messageBodyHTML(msg) {
+    const url = msg.imageUrl ? safeImageUrl(msg.imageUrl) : null;
+    if (!url) return msg.text || '';
+
+    const caption = msg.text
+      ? `<div class="message-caption">${msg.text}</div>`
+      : '';
+    return `
+      <img class="message-image" src="${escapeAttr(url)}" alt="Photo" loading="lazy"
+           data-message-id="${escapeAttr(msg.id)}"
+           onerror="this.classList.add('message-image-missing');" />
+      ${caption}
+    `;
+  }
+
+  // Extra class for bubbles that hold an image (removes bubble padding)
+  function messageBubbleClass(msg) {
+    return msg && msg.imageUrl && safeImageUrl(msg.imageUrl) ? ' has-image' : '';
   }
 
   // Filter conversations by tab and search query
@@ -1233,7 +1293,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Update conversation last message and timestamp
   function updateConversationLastMessage(conversationId, lastMessage, newTimestamp) {
-    const conv = conversations.find(c => c.id === conversationId);
+    // Group/channel threads are keyed by their own id in the list rows
+    // (conv_group_1 -> groupId: group_1), so match on all three.
+    const conv = conversations.find(c =>
+      c.id === conversationId || c.groupId === conversationId || c.channelId === conversationId
+    );
     if (conv) {
       conv.lastMessage = lastMessage;
       conv.timestamp = newTimestamp || Date.now();
@@ -2108,6 +2172,32 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Render conversation screen
+  // Shared composer markup for DM, group and channel threads.
+  // The attach-image control sits on the LEFT of the input field.
+  function composerMarkup(options = {}) {
+    const disabled = options.disabled ? 'disabled' : '';
+    return `
+      <div class="reply-preview-bar" style="display: none;">
+        <div class="reply-preview-content">
+          <div class="reply-quote">
+            <div class="reply-sender">Replying to: <span class="reply-sender-name"></span></div>
+            <div class="reply-text"></div>
+          </div>
+          <button class="reply-close-button" aria-label="Cancel reply">✕</button>
+        </div>
+      </div>
+      <div class="pending-image-bar" style="display: none;">
+        <img class="pending-image-thumb" alt="Selected image preview" />
+        <span class="pending-image-status">Uploading…</span>
+        <button class="pending-image-remove" aria-label="Remove image">✕</button>
+      </div>
+      <button class="attach-image-button" type="button" aria-label="Add image" ${disabled}>📷</button>
+      <input type="file" class="attach-image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display: none;" />
+      <textarea class="composer-input" placeholder="Message..." rows="1" ${disabled}></textarea>
+      <button class="send-button" aria-label="Send" ${disabled}>➤</button>
+    `;
+  }
+
   // Markup for the floating "jump to newest message" button. It lives inside
   // .messages-area so it is pinned to the bottom-right of the scrolling list
   // and can never overlap the composer, which sits below that area.
@@ -2250,6 +2340,51 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(updateVisibility, 700);
   }
 
+  // A message <img> occupies no height until it decodes, so a thread containing
+  // a photo keeps growing AFTER the render's scroll-to-bottom has already run.
+  // Left alone that strands the list a few hundred pixels short of the end: the
+  // reader lands on a thread that looks like it will not scroll all the way
+  // down, and the scroll-to-latest FAB fades in on a thread nobody scrolled.
+  //
+  // Two halves to keeping that still. `data-loaded` lets the CSS hold a
+  // placeholder box open until the bytes land (cleared on load so a short,
+  // wide photo is not cropped to the placeholder's shape), and each image that
+  // lands re-pins the list to the bottom - but only while we are still parked
+  // there, since a reader who has scrolled up into history must not be yanked
+  // back down by a photo finishing somewhere below them.
+  function keepThreadPinnedThroughImageLoads(messagesContainer, parkedAtBottom) {
+    if (!messagesContainer) return;
+
+    let pinned = parkedAtBottom !== false;
+
+    function distanceFromBottom() {
+      return messagesContainer.scrollHeight
+        - messagesContainer.scrollTop
+        - messagesContainer.clientHeight;
+    }
+
+    // Only a real scroll gesture fires this - content growing underneath does
+    // not - so it is a faithful read of whether the reader has moved away.
+    messagesContainer.addEventListener('scroll', () => {
+      pinned = distanceFromBottom() <= SCROLL_FAB_THRESHOLD_PX;
+    }, { passive: true });
+
+    messagesContainer.querySelectorAll('.message-image').forEach(img => {
+      // Cached images are already decoded and never fire `load`, so they have
+      // to be released from the placeholder here or their box stays oversized.
+      if (img.complete) {
+        img.dataset.loaded = 'true';
+        return;
+      }
+      const settle = () => {
+        img.dataset.loaded = 'true';
+        if (pinned) messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      };
+      img.addEventListener('load', settle, { once: true });
+      img.addEventListener('error', settle, { once: true });
+    });
+  }
+
   // Attribution line shown above a forwarded message's bubble, outside it, so the
   // bubble keeps looking like an ordinary message in both colour schemes.
   function forwardAttributionHTML(forwardedFrom) {
@@ -2305,7 +2440,8 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       messageHTML += `
-        <div class="message-bubble" data-message-id="${msg.id}">${msg.text}</div>
+        ${renderPinBadge(msg)}
+        <div class="message-bubble${messageBubbleClass(msg)}" data-message-id="${msg.id}">${messageBodyHTML(msg)}</div>
         <div class="message-reaction-chips" data-message-id="${msg.id}">${messageReactionChipsHTML(msg)}</div>
         <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
       </div>`;
@@ -2334,17 +2470,7 @@ document.addEventListener('DOMContentLoaded', () => {
           ${scrollToLatestFabHTML()}
         </div>
         <div class="composer-container">
-          <div class="reply-preview-bar" style="display: none;">
-            <div class="reply-preview-content">
-              <div class="reply-quote">
-                <div class="reply-sender">Replying to: <span class="reply-sender-name"></span></div>
-                <div class="reply-text"></div>
-              </div>
-              <button class="reply-close-button" aria-label="Cancel reply">✕</button>
-            </div>
-          </div>
-          <textarea class="composer-input" placeholder="Message..." rows="1"></textarea>
-          <button class="send-button" aria-label="Send">➤</button>
+          ${composerMarkup()}
         </div>
       </div>
     `;
@@ -2367,12 +2493,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // the list at the top so the FAB is visible — but after SENDING we always
     // jump to the bottom so the user sees the message they just wrote.
     const conversationRoot = pageContainer.querySelector('.conversation-page');
+    const parkedAtBottom = !(SHOT_SCROLL_FAB && !fromSend);
     setTimeout(() => {
       const messagesContainer = document.querySelector('.messages-container');
       if (messagesContainer) {
-        messagesContainer.scrollTop = (SHOT_SCROLL_FAB && !fromSend)
-          ? 0
-          : messagesContainer.scrollHeight;
+        messagesContainer.scrollTop = parkedAtBottom
+          ? messagesContainer.scrollHeight
+          : 0;
+        // Photos in the thread decode after this point and would otherwise
+        // push the end of the list back out of reach.
+        keepThreadPinnedThroughImageLoads(messagesContainer, parkedAtBottom);
       }
     }, 0);
 
@@ -2383,6 +2513,9 @@ document.addEventListener('DOMContentLoaded', () => {
     setupMessageLongPress(conversation, 'dm');
     setupMessageSwipeToReply(conversation, 'dm');
     setupForwardAttributionLinks(conversationRoot);
+
+    // Set up image lightbox for image messages
+    setupImageLightbox();
 
     // Set up send button and reply state management
     setupComposer(conversation, { isGroup: false });
@@ -2908,7 +3041,7 @@ document.addEventListener('DOMContentLoaded', () => {
               const senderName = targetMessage.isOutgoing
                 ? 'You'
                 : (threadType === 'group' ? targetMessage.senderName : conversation.username);
-              const previewText = truncateText(targetMessage.text, 50);
+              const previewText = truncateText(messagePreviewText(targetMessage), 50);
               setReplyState(messageId, senderName, previewText);
             }
           } else if (action === 'react') {
@@ -2917,7 +3050,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
           } else if (action === 'copy') {
             if (targetMessage) {
-              navigator.clipboard.writeText(targetMessage.text).then(() => {
+              const copyValue = targetMessage.imageUrl || targetMessage.text || '';
+              navigator.clipboard.writeText(copyValue).then(() => {
                 showToast('Message copied', { type: 'success' });
               }).catch(() => {
                 showToast('Failed to copy message', { type: 'error' });
@@ -3202,7 +3336,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const senderName = msg.isOutgoing
               ? 'You'
               : (threadType === 'group' ? msg.senderName : thread.username);
-            const previewText = truncateText(msg.text, 50);
+            const previewText = truncateText(messagePreviewText(msg), 50);
             setReplyState(msg.id, senderName, previewText);
             if (navigator.vibrate) navigator.vibrate(10);
             const composerInput = pageContainer.querySelector('.composer-input');
@@ -3273,7 +3407,9 @@ document.addEventListener('DOMContentLoaded', () => {
     );
     if (previewConversation) {
       const lastMessage = thread.messages[thread.messages.length - 1];
-      previewConversation.lastMessage = lastMessage ? truncateText(lastMessage.text, 100) : 'No messages yet';
+      previewConversation.lastMessage = lastMessage
+        ? truncateText(messagePreviewText(lastMessage), 100)
+        : 'No messages yet';
       if (lastMessage) previewConversation.timestamp = lastMessage.timestamp;
     }
 
@@ -3296,7 +3432,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Keep the conversation list preview in sync — skip hidden-for-self messages
     const visibleMessages = conversation.messages.filter(m => !(m.hiddenFor && m.hiddenFor.user_self));
     const lastMessage = visibleMessages[visibleMessages.length - 1];
-    conversation.lastMessage = lastMessage ? truncateText(lastMessage.text, 100) : 'No messages yet';
+    conversation.lastMessage = lastMessage ? truncateText(messagePreviewText(lastMessage), 100) : 'No messages yet';
     if (lastMessage) conversation.timestamp = lastMessage.timestamp;
 
     showToast('Message deleted', { type: 'success' });
@@ -3319,6 +3455,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const bubbleEl = messageEl.querySelector('.message-bubble');
       if (bubbleEl) {
         bubbleEl.classList.add('deleted');
+        // An image bubble drops its padding reset with the photo it held.
+        bubbleEl.classList.remove('has-image');
         bubbleEl.textContent = placeholderText;
       }
     }
@@ -3330,7 +3468,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (lastMessage) {
         row.lastMessage = lastMessage.isDeleted
           ? (lastMessage.deletedByAdmin ? 'This message was deleted by an admin' : 'Message deleted')
-          : truncateText(lastMessage.text, 100);
+          : truncateText(messagePreviewText(lastMessage), 100);
         row.timestamp = lastMessage.timestamp;
       } else {
         row.lastMessage = 'No messages yet';
@@ -3375,6 +3513,267 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Full-screen viewer for image messages. Delegated on the thread
+  // container so it survives the re-render after every send.
+  function setupImageLightbox() {
+    const messagesContainer = document.querySelector('.messages-container');
+    if (!messagesContainer) return;
+
+    messagesContainer.addEventListener('click', (e) => {
+      const image = e.target.closest('.message-image');
+      if (!image) return;
+      // A long-press opens the context menu instead - don't stack a viewer on it
+      if (document.querySelector('.context-menu')) return;
+      if (image.classList.contains('message-image-missing')) return;
+      e.stopPropagation();
+      openImageLightbox(image.getAttribute('src'));
+    });
+  }
+
+  function openImageLightbox(src) {
+    const url = safeImageUrl(src);
+    if (!url) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'image-lightbox-overlay';
+    overlay.innerHTML = `
+      <button class="image-lightbox-close" aria-label="Close image">✕</button>
+      <img class="image-lightbox-image" src="${escapeAttr(url)}" alt="Photo" />
+    `;
+
+    function dismiss() {
+      overlay.remove();
+      document.removeEventListener('keydown', onKeydown);
+    }
+
+    function onKeydown(e) {
+      if (e.key === 'Escape') dismiss();
+    }
+
+    overlay.addEventListener('click', (e) => {
+      // Backdrop and the close button dismiss; the image itself does not
+      if (e.target === overlay || e.target.closest('.image-lightbox-close')) {
+        dismiss();
+      }
+    });
+    document.addEventListener('keydown', onKeydown);
+
+    document.body.appendChild(overlay);
+  }
+
+  const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+  const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+  const DECODE_LIMIT_BYTES = 32 * 1024 * 1024;
+  const MAX_IMAGE_DIMENSION = 1600;
+  const SKIP_DOWNSCALE_BELOW_BYTES = 400 * 1024;
+
+  const STORAGE_ERROR_CODES = [
+    'file_too_large',
+    'invalid_image',
+    'app_quota_exceeded',
+    'user_quota_exceeded',
+    'staging_quota_exceeded',
+    'storage_unavailable'
+  ];
+
+  // The bridge surfaces the platform's structured code in a few different
+  // shapes depending on how the rejection travelled back through postMessage.
+  function uploadErrorCode(err) {
+    if (!err) return null;
+    const direct = err.code
+      || err.errorCode
+      || (err.data && err.data.code)
+      || (err.error && err.error.code)
+      || (err.cause && err.cause.code);
+    if (typeof direct === 'string' && direct) return direct;
+
+    const message = typeof err.message === 'string' ? err.message : '';
+    return STORAGE_ERROR_CODES.find(code => message.includes(code)) || null;
+  }
+
+  // Some rejections come back as prose with no structured code at all - the
+  // staging preview surfaces "File storage is unavailable right now" that way.
+  // Classify those onto the documented codes so the user still gets the right
+  // copy instead of the platform's raw internal wording.
+  const STORAGE_ERROR_MESSAGE_PATTERNS = [
+    [/storage\s+(?:is\s+)?(?:currently\s+|temporarily\s+)?(?:unavailable|offline|down)|unable to reach\s+(?:file\s+)?storage/i, 'storage_unavailable'],
+    [/quota|limit reached|out of space|no space left/i, 'user_quota_exceeded'],
+    [/too large|exceeds the (?:maximum|size)/i, 'file_too_large'],
+    [/(?:not a|unsupported|invalid)\s+(?:valid\s+)?image|unsupported (?:file )?type/i, 'invalid_image']
+  ];
+
+  function inferUploadErrorCode(err) {
+    const message = (err && typeof err.message === 'string') ? err.message : '';
+    if (!message) return null;
+    const match = STORAGE_ERROR_MESSAGE_PATTERNS.find(([pattern]) => pattern.test(message));
+    return match ? match[1] : null;
+  }
+
+  // Map platform storage error codes onto user-facing copy. A known code
+  // already names the cause, so it keeps its plain string; anything we can't
+  // classify surfaces the platform's own code/message instead of the catch-all,
+  // so a user reporting "upload failed" tells us something actionable.
+  function uploadErrorMessage(err) {
+    const message = (err && typeof err.message === 'string') ? err.message.trim() : '';
+
+    // Outside the platform shell the bridge rejects without a code. Check this
+    // before classifying prose, so "no shell" never reads as "storage is down".
+    if (!uploadErrorCode(err) && /platform shell|not available standalone|only works inside/i.test(message)) {
+      return "Image upload isn't available here";
+    }
+
+    const code = uploadErrorCode(err) || inferUploadErrorCode(err);
+    switch (code) {
+      case 'file_too_large':
+        return 'Image is too large (max 5 MB)';
+      case 'invalid_image':
+        return 'Only PNG, JPEG, GIF or WebP images are supported';
+      case 'app_quota_exceeded':
+      case 'user_quota_exceeded':
+      case 'staging_quota_exceeded':
+        return 'Upload limit reached — try a smaller image or delete old ones';
+      case 'storage_unavailable':
+        // Platform-side outage: retrying is the only useful advice, and the
+        // attach button is live again by the time this toast shows.
+        return 'Image storage is down right now — tap 📷 to try again';
+      default:
+        break;
+    }
+
+    if (code) return `Upload failed (${code}) — tap 📷 to try again`;
+    if (message) return `Upload failed — ${truncateText(message, 80)}`;
+    return 'Upload failed — tap 📷 to try again';
+  }
+
+  const EXTENSION_FOR_IMAGE_TYPE = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/gif': 'gif',
+    'image/webp': 'webp'
+  };
+
+  // The platform sniffs the bytes and rejects a file whose extension doesn't
+  // match them, so trust the bytes rather than the picker's reported MIME
+  // type (WebViews routinely guess it from the filename).
+  function sniffImageType(blob) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const b = new Uint8Array(reader.result || new ArrayBuffer(0));
+        if (b.length >= 4 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) {
+          resolve('image/png');
+        } else if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) {
+          resolve('image/jpeg');
+        } else if (b.length >= 3 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) {
+          resolve('image/gif');
+        } else if (b.length >= 12
+          && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46
+          && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) {
+          resolve('image/webp');
+        } else {
+          resolve(null);
+        }
+      };
+      reader.onerror = () => resolve(null);
+      try {
+        reader.readAsArrayBuffer(blob.slice(0, 12));
+      } catch (err) {
+        resolve(null);
+      }
+    });
+  }
+
+  // Strip any path and extension off the picked filename, leaving a safe stem
+  function imageFileStem(name) {
+    const withoutPath = String(name || '').split(/[\\/]/).pop() || '';
+    const stem = withoutPath
+      .replace(/\.[^.]+$/, '')
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .slice(0, 60);
+    return stem || 'photo';
+  }
+
+  // canvas.toBlob() returns a BARE BLOB - no filename at all - and re-encodes
+  // to JPEG, so a downscaled photo.png has to be uploaded as photo.jpg. The
+  // platform requires the extension to match the sniffed bytes, so always
+  // rebuild a File whose name, extension and type agree with the content.
+  function toUploadFile(blob, originalName, contentType) {
+    const type = contentType || blob.type || '';
+    const extension = EXTENSION_FOR_IMAGE_TYPE[type];
+    const stem = imageFileStem(originalName);
+    const filename = extension ? `${stem}.${extension}` : stem;
+
+    // Nothing was re-encoded and the picked file's own name already agrees with
+    // its bytes - hand the original File straight through rather than copying
+    // several megabytes to produce an identical one.
+    if (extension
+      && typeof File === 'function'
+      && blob instanceof File
+      && blob.type === type
+      && new RegExp(`\\.${extension}$`, 'i').test(blob.name || '')) {
+      return blob;
+    }
+
+    if (typeof File === 'function') {
+      try {
+        return new File([blob], filename, { type: type || undefined });
+      } catch (err) {
+        console.warn('File constructor unavailable, uploading a named Blob', err);
+      }
+    }
+
+    // Fallback for WebViews without a File constructor
+    const named = blob.slice(0, blob.size, type || blob.type);
+    try {
+      Object.defineProperty(named, 'name', { value: filename });
+    } catch (err) {
+      // Best effort - the bridge will fall back to its own default name
+    }
+    return named;
+  }
+
+  // Downscale oversized camera photos client-side (the platform does no
+  // server-side resizing). GIFs are left alone so animation survives.
+  function downscaleImage(file, contentType) {
+    return new Promise((resolve) => {
+      const type = contentType || file.type;
+      if (type === 'image/gif' || file.size < SKIP_DOWNSCALE_BELOW_BYTES) {
+        resolve(file);
+        return;
+      }
+
+      const objectUrl = URL.createObjectURL(file);
+      const img = new Image();
+
+      img.onload = () => {
+        const longest = Math.max(img.naturalWidth, img.naturalHeight);
+        if (!longest || longest <= MAX_IMAGE_DIMENSION) {
+          URL.revokeObjectURL(objectUrl);
+          resolve(file);
+          return;
+        }
+
+        const scale = MAX_IMAGE_DIMENSION / longest;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.naturalWidth * scale);
+        canvas.height = Math.round(img.naturalHeight * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(objectUrl);
+
+        canvas.toBlob((blob) => {
+          resolve(blob || file);
+        }, 'image/jpeg', 0.85);
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(file);
+      };
+
+      img.src = objectUrl;
+    });
+  }
+
   // `thread` is either a direct conversation (from `conversations`) or a group
   // (from `groups`). The two live in different arrays and are drawn by different
   // renderers, so the caller says which one it is — re-rendering a group through
@@ -3394,6 +3793,124 @@ document.addEventListener('DOMContentLoaded', () => {
     const composerInput = document.querySelector('.composer-input');
     const sendButton = document.querySelector('.send-button');
     const replyCloseButton = document.querySelector('.reply-close-button');
+    const attachButton = document.querySelector('.attach-image-button');
+    const attachInput = document.querySelector('.attach-image-input');
+    const pendingBar = document.querySelector('.pending-image-bar');
+    const pendingThumb = document.querySelector('.pending-image-thumb');
+    const pendingStatus = document.querySelector('.pending-image-status');
+    const pendingRemove = document.querySelector('.pending-image-remove');
+
+    // Pending-image state is per render: every send re-runs setupComposer
+    let pendingImage = null;
+
+    function clearPendingImage() {
+      if (pendingImage && pendingImage.objectUrl) {
+        URL.revokeObjectURL(pendingImage.objectUrl);
+      }
+      pendingImage = null;
+      if (pendingBar) pendingBar.style.display = 'none';
+      if (pendingThumb) pendingThumb.removeAttribute('src');
+      if (sendButton) sendButton.disabled = false;
+      if (attachButton) attachButton.disabled = false;
+      if (attachInput) attachInput.value = '';
+    }
+
+    if (attachButton && attachInput) {
+      attachButton.addEventListener('click', () => {
+        // The bridge is only present inside the platform shell. Keep the
+        // button visible everywhere so the feature set never differs.
+        if (!(window.usernode && window.usernode.uploadFile)) {
+          showToast("Image upload isn't available here", { type: 'error' });
+          return;
+        }
+        attachInput.click();
+      });
+
+      attachInput.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+
+        // Sniff the bytes rather than trusting the picker's MIME type - the
+        // platform sniffs too, and rejects anything whose extension disagrees
+        const sourceType = (await sniffImageType(file)) || file.type;
+        if (ALLOWED_IMAGE_TYPES.indexOf(sourceType) === -1) {
+          showToast('Only PNG, JPEG, GIF or WebP images are supported', { type: 'error' });
+          attachInput.value = '';
+          return;
+        }
+        // Bail before decoding something pathological, but leave the real
+        // 5 MB check until after downscaling - phone camera photos routinely
+        // arrive at 6-12 MB and shrink well under the limit
+        if (file.size > DECODE_LIMIT_BYTES) {
+          showToast('Image is too large (max 5 MB)', { type: 'error' });
+          attachInput.value = '';
+          return;
+        }
+
+        const downscaled = await downscaleImage(file, sourceType);
+        // Re-sniff: the canvas path re-encodes to JPEG, so the content type
+        // (and therefore the required extension) can differ from the source
+        const uploadType = (await sniffImageType(downscaled)) || downscaled.type || sourceType;
+        const blob = toUploadFile(downscaled, file.name, uploadType);
+
+        if (blob.size > MAX_IMAGE_BYTES) {
+          showToast('Image is too large (max 5 MB)', { type: 'error' });
+          attachInput.value = '';
+          return;
+        }
+        const objectUrl = URL.createObjectURL(blob);
+
+        pendingImage = { blob, objectUrl, url: null, id: null, status: 'uploading' };
+
+        if (pendingThumb) pendingThumb.src = objectUrl;
+        if (pendingStatus) pendingStatus.textContent = 'Uploading…';
+        if (pendingBar) pendingBar.style.display = 'flex';
+        sendButton.disabled = true;
+        attachButton.disabled = true;
+
+        const uploadingFor = pendingImage;
+        try {
+          const stored = await window.usernode.uploadFile(blob, { visibility: 'public' });
+          // The user may have cancelled while the upload was in flight
+          if (pendingImage !== uploadingFor) return;
+
+          pendingImage.url = stored.url;
+          pendingImage.id = stored.id;
+          pendingImage.status = 'ready';
+          if (pendingStatus) pendingStatus.textContent = 'Ready to send';
+          sendButton.disabled = false;
+          attachButton.disabled = false;
+        } catch (err) {
+          // Log everything the platform gave us plus exactly what we sent, so
+          // "upload failed" reports are diagnosable from the console alone
+          console.error('Image upload failed:', {
+            code: uploadErrorCode(err),
+            inferredCode: uploadErrorCode(err) ? null : inferUploadErrorCode(err),
+            name: err && err.name,
+            message: err && err.message,
+            status: err && (err.status || err.statusCode),
+            sentFilename: blob && blob.name,
+            sentContentType: blob && blob.type,
+            sentSizeBytes: blob && blob.size,
+            sourceFilename: file.name,
+            sourceContentType: file.type,
+            sniffedContentType: sourceType
+          }, err);
+          if (pendingImage === uploadingFor) {
+            clearPendingImage();
+          }
+          showToast(uploadErrorMessage(err), { type: 'error' });
+        } finally {
+          attachInput.value = '';
+        }
+      });
+    }
+
+    if (pendingRemove) {
+      pendingRemove.addEventListener('click', () => {
+        clearPendingImage();
+      });
+    }
 
     // Auto-expand textarea functionality
     function autoExpandTextarea() {
@@ -3422,18 +3939,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     sendButton.addEventListener('click', () => {
       const text = composerInput.value.trim();
-      if (!text) return;
+      const readyImage = pendingImage && pendingImage.status === 'ready' ? pendingImage : null;
+      // An image on its own is a valid message - text is optional now
+      if (!text && !readyImage) return;
 
       // Create new message with optional reply metadata
       const newMessage = {
         id: `msg_${Date.now()}`,
+        senderId: 'user_self',
         text: text,
         timestamp: Date.now(),
         isOutgoing: true
       };
 
-      // Group messages carry a sender id alongside the outgoing flag.
-      if (isGroup) newMessage.senderId = 'user_self';
+      if (readyImage) {
+        newMessage.imageUrl = readyImage.url;
+        newMessage.imageId = readyImage.id;
+      }
 
       // Attach reply metadata if replying
       if (replyState.targetMessageId) {
@@ -3449,10 +3971,17 @@ document.addEventListener('DOMContentLoaded', () => {
       composerInput.value = '';
       composerInput.style.height = '48px';
       clearReplyState();
+      clearPendingImage();
 
       // Update conversation last message and timestamp for All tab sorting. A
-      // group's row in the Messages list is keyed by groupId, not by group.id.
-      updateThreadLastMessage(thread, isGroup, text.substring(0, 100), newMessage.timestamp);
+      // group's row in the Messages list is keyed by groupId (a channel's by
+      // channelId), not by the thread's own id - so match on all three. An
+      // image-only message previews as "📷 Photo" rather than empty text.
+      updateConversationLastMessage(
+        conversation.id,
+        truncateText(messagePreviewText(newMessage), 100),
+        newMessage.timestamp
+      );
 
       // Re-render the SAME screen we're on, so the user stays in the thread.
       rerender();
@@ -3496,10 +4025,14 @@ document.addEventListener('DOMContentLoaded', () => {
       messageHTML += `<div class="message-reply-icon" aria-hidden="true">↩️</div>`;
       messageHTML += `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming has-avatar'}" data-message-id="${msg.id}">`;
 
-      const bubbleText = msg.isDeleted
+      // A deleted message shows only the tombstone - never its photo - so the
+      // image body and the .has-image padding reset are both skipped.
+      const bubbleBody = msg.isDeleted
         ? (msg.deletedByAdmin ? 'This message was deleted by an admin' : 'Message deleted')
-        : msg.text;
-      const bubbleClass = msg.isDeleted ? 'message-bubble deleted' : 'message-bubble';
+        : messageBodyHTML(msg);
+      const bubbleClass = msg.isDeleted
+        ? 'message-bubble deleted'
+        : `message-bubble${messageBubbleClass(msg)}`;
 
       const quoteHTML = msg.replyTo ? `
         <div class="message-quote" data-quoted-message-id="${msg.replyTo.messageId}">
@@ -3523,7 +4056,8 @@ document.addEventListener('DOMContentLoaded', () => {
         messageHTML += `
           ${quoteHTML}
           ${forwardHTML}
-          <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
+          ${renderPinBadge(msg)}
+          <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleBody}</div>
           ${reactionChipsRow}
           <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
         </div>`;
@@ -3534,7 +4068,8 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="message-sender-name">${msg.senderName}</div>
             ${quoteHTML}
             ${forwardHTML}
-            <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleText}</div>
+            ${renderPinBadge(msg)}
+            <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleBody}</div>
             ${reactionChipsRow}
             <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
           </div>
@@ -3566,17 +4101,7 @@ document.addEventListener('DOMContentLoaded', () => {
           ${scrollToLatestFabHTML()}
         </div>
         <div class="composer-container">
-          <div class="reply-preview-bar" style="display: none;">
-            <div class="reply-preview-content">
-              <div class="reply-quote">
-                <div class="reply-sender">Replying to: <span class="reply-sender-name"></span></div>
-                <div class="reply-text"></div>
-              </div>
-              <button class="reply-close-button" aria-label="Cancel reply">✕</button>
-            </div>
-          </div>
-          <textarea class="composer-input" placeholder="Message..." rows="1"></textarea>
-          <button class="send-button" aria-label="Send">➤</button>
+          ${composerMarkup()}
         </div>
       </div>
     `;
@@ -3635,12 +4160,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // the list at the top so the FAB is visible — but after SENDING we always
     // jump to the bottom so the user sees the message they just wrote.
     const groupRoot = pageContainer.querySelector('.conversation-page');
+    const parkedAtBottom = !(SHOT_SCROLL_FAB && !fromSend);
     setTimeout(() => {
       const messagesContainer = document.querySelector('.messages-container');
       if (messagesContainer) {
-        messagesContainer.scrollTop = (SHOT_SCROLL_FAB && !fromSend)
-          ? 0
-          : messagesContainer.scrollHeight;
+        messagesContainer.scrollTop = parkedAtBottom
+          ? messagesContainer.scrollHeight
+          : 0;
+        // Photos in the thread decode after this point and would otherwise
+        // push the end of the list back out of reach.
+        keepThreadPinnedThroughImageLoads(messagesContainer, parkedAtBottom);
       }
     }, 0);
 
@@ -3651,6 +4180,9 @@ document.addEventListener('DOMContentLoaded', () => {
     setupMessageLongPress(group, 'group');
     setupMessageSwipeToReply(group, 'group');
     setupForwardAttributionLinks(groupRoot);
+
+    // Set up image lightbox for image messages
+    setupImageLightbox();
 
     // Set up send button and reply state management
     setupComposer(group, { isGroup: true });
@@ -6598,7 +7130,6 @@ document.addEventListener('DOMContentLoaded', () => {
       return messageHTML;
     }).join('');
 
-    const composerDisabled = !channel.currentUserCanSend ? 'disabled' : '';
     const viewOnlyBadge = !channel.currentUserCanSend ? '<div class="view-only-badge">View only</div>' : '';
     const composerDisplay = channel.currentUserIsAdmin ? '' : 'display: none;';
 
@@ -6620,18 +7151,7 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
         <div class="composer-container" style="${composerDisplay}">
           ${viewOnlyBadge}
-          <div class="reply-preview-bar" style="display: none;">
-            <div class="reply-preview-content">
-              <div class="reply-quote">
-                <div class="reply-sender">Replying to: <span class="reply-sender-name"></span></div>
-                <div class="reply-text"></div>
-              </div>
-              <button class="reply-close-button" aria-label="Cancel reply">✕</button>
-            </div>
-          </div>
-          <button class="emoji-button" aria-label="Emoji">😊</button>
-          <textarea class="composer-input" placeholder="Message..." rows="1" ${composerDisabled}></textarea>
-          <button class="send-button" aria-label="Send" ${composerDisabled}>➤</button>
+          ${composerMarkup({ disabled: !channel.currentUserCanSend })}
         </div>
       </div>
     `;
@@ -6665,11 +7185,15 @@ document.addEventListener('DOMContentLoaded', () => {
       const messagesContainer = document.querySelector('.messages-container');
       if (messagesContainer) {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        keepThreadPinnedThroughImageLoads(messagesContainer, true);
       }
     }, 0);
 
     // Set up message long-press interactions
     setupMessageLongPress(channel, 'channel');
+
+    // Set up image lightbox for image messages
+    setupImageLightbox();
 
     // Set up send button and reply state management (only if can send).
     // Channels live in their own array, so they redraw with their own renderer —

@@ -519,6 +519,31 @@
       "name": "Seeded public group offers Join",
       "path": "/#/discover/group/group_staging_public_1",
       "expectSelector": "#join-button"
+    },
+    {
+      "name": "Attach image button appears in DM composer",
+      "path": "/#/conversation/conv_1",
+      "expectSelector": ".attach-image-button"
+    },
+    {
+      "name": "Attach image button appears in group composer",
+      "path": "/#/group/group_1",
+      "expectSelector": ".attach-image-button"
+    },
+    {
+      "name": "Image message renders in DM thread",
+      "path": "/#/conversation/conv_1",
+      "expectSelector": ".message-image"
+    },
+    {
+      "name": "Image message renders in group thread",
+      "path": "/#/group/group_1",
+      "expectSelector": ".message-image"
+    },
+    {
+      "name": "Image message preview appears in Messages list",
+      "path": "/",
+      "expectText": "Staging demo photo"
     }
   ]
 }

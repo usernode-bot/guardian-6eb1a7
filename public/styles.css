@@ -3767,3 +3767,181 @@ html, body {
 .edit-bio-footer .button-primary {
   flex: 1;
 }
+
+/* ==========================================================================
+   Image messages: composer attach button, pending upload strip, image
+   bubbles and the full-screen lightbox.
+   ========================================================================== */
+
+/* The composer is a flex row; the reply-preview and pending-image strips need
+   to break onto their own full-width line above the input. */
+.composer-container {
+  flex-wrap: wrap;
+}
+
+.composer-container > .reply-preview-bar,
+.composer-container > .pending-image-bar {
+  flex: 0 0 100%;
+  width: 100%;
+  order: -1;
+}
+
+.attach-image-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-end;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background-color: #f0f0f0;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.attach-image-button:active {
+  background-color: #e0e0e0;
+  opacity: 0.6;
+}
+
+.attach-image-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Pending image strip */
+.pending-image-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background-color: #f9f9f9;
+  border-top: 1px solid #e0e0e0;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.pending-image-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 8px;
+  background-color: #e0e0e0;
+  flex-shrink: 0;
+}
+
+.pending-image-status {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: #666;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-image-remove {
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: #999;
+  cursor: pointer;
+  padding: 4px 8px;
+  flex-shrink: 0;
+}
+
+.pending-image-remove:active {
+  opacity: 0.6;
+}
+
+/* Image message bubbles */
+.message-bubble.has-image {
+  padding: 0;
+  overflow: hidden;
+}
+
+.message-image {
+  display: block;
+  width: 100%;
+  max-width: 240px;
+  max-height: 320px;
+  object-fit: cover;
+  background-color: #2a2a2a;
+  cursor: pointer;
+}
+
+/* An <img> with no height attribute is zero pixels tall until it decodes, so a
+   thread full of photos grows under the reader and scrolls itself off the end.
+   Hold a neutral grey box of roughly the right size open until the bytes land;
+   app.js sets data-loaded to release it, so a short wide photo is never
+   stretched or cropped to the placeholder's shape. */
+.message-image:not([data-loaded='true']) {
+  min-height: 180px;
+}
+
+/* Shown when the stored file 404s or the URL is unreachable. */
+.message-image.message-image-missing {
+  width: 240px;
+  height: 160px;
+  max-height: 160px;
+  cursor: default;
+  background-color: #e6e6e6;
+  position: relative;
+}
+
+.message-image.message-image-missing::after {
+  content: 'Image unavailable';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: #888;
+  background-color: #e6e6e6;
+}
+
+.message-caption {
+  padding: 6px 12px 8px 12px;
+}
+
+/* Full-screen lightbox */
+.image-lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.9);
+  animation: fadeIn 200ms ease-out;
+}
+
+.image-lightbox-image {
+  max-width: 92vw;
+  max-height: 86vh;
+  object-fit: contain;
+}
+
+.image-lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.image-lightbox-close:active {
+  opacity: 0.6;
+}
