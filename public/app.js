@@ -7006,7 +7006,7 @@ document.addEventListener('DOMContentLoaded', () => {
               <div class="wallet-label">Usernode Address</div>
               <div class="wallet-address">${shortAddress}</div>
             </div>
-            <button class="wallet-copy-btn" id="wallet-copy-btn">📋</button>
+            <button class="wallet-copy-btn" id="wallet-copy-btn" aria-label="Copy address">📋</button>
           </div>
         </div>
       </div>
@@ -7045,7 +7045,39 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Wallet copy button
     document.getElementById('wallet-copy-btn').addEventListener('click', () => {
-      console.log('Copy address placeholder');
+      const copyFallback = () => {
+        const textarea = document.createElement('textarea');
+        textarea.value = walletAddress;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+
+        let copied = false;
+        try {
+          copied = document.execCommand('copy');
+        } catch (err) {
+          copied = false;
+        }
+        document.body.removeChild(textarea);
+
+        if (copied) {
+          showToast('Address copied', { type: 'success' });
+        } else {
+          window.prompt('Copy this address:', walletAddress);
+        }
+      };
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(walletAddress).then(() => {
+          showToast('Address copied', { type: 'success' });
+        }).catch(() => {
+          copyFallback();
+        });
+      } else {
+        copyFallback();
+      }
     });
   }
 
