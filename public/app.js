@@ -995,6 +995,23 @@ document.addEventListener('DOMContentLoaded', () => {
   let previousNavigationHash = '';
   let groupChannelBackTarget = '/messages';
 
+  // Where should the back button on a group/channel conversation screen return
+  // to? Discover when we got here from a Discover card tap, or from the
+  // ?group=/?channel= invite-link translation (priorHash is '' the very first
+  // time handleNavigation runs, which only happens for that boot-time
+  // redirect or a direct deep link -- both are "came from outside", so treat
+  // them the same as Discover); the Create menu when opened from there;
+  // Messages otherwise (e.g. from within an existing conversation).
+  function computeGroupChannelBackTarget(priorHash) {
+    if (priorHash === '' || priorHash === '/discover' || priorHash.startsWith('/discover?')) {
+      return '/discover';
+    }
+    if (priorHash === '/create') {
+      return '/create';
+    }
+    return '/messages';
+  }
+
   // Helper: generate unique group ID
   function generateGroupId() {
     return 'group_' + Date.now();
@@ -4270,8 +4287,9 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
     `;
 
-    // Add back button handler. Returns to the Create menu when this chat was
-    // opened from its managed-groups list, otherwise falls back to Messages.
+    // Add back button handler. Returns to Discover when this chat was opened
+    // from a Discover card (or an invite link), the Create menu when opened
+    // from its managed-groups list, otherwise falls back to Messages.
     document.querySelector('.back-button').addEventListener('click', () => {
       window.location.hash = groupChannelBackTarget;
     });
@@ -6523,8 +6541,9 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
     `;
 
-    // Back button handler. Returns to the Create menu when this channel was
-    // opened from its managed-channels list, otherwise falls back to Messages.
+    // Back button handler. Returns to Discover when this channel was opened
+    // from a Discover card (or an invite link), the Create menu when opened
+    // from its managed-channels list, otherwise falls back to Messages.
     document.querySelector('.back-button').addEventListener('click', () => {
       window.location.hash = groupChannelBackTarget;
     });
@@ -8012,7 +8031,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } else if (action === 'join-requests') {
         renderJoinRequestsPage(groupId);
       } else {
-        groupChannelBackTarget = (priorHash === '/create') ? '/create' : '/messages';
+        groupChannelBackTarget = computeGroupChannelBackTarget(priorHash);
         renderGroupConversationPage(groupId);
       }
     } else if (path.startsWith('channel/')) {
@@ -8022,7 +8041,7 @@ document.addEventListener('DOMContentLoaded', () => {
       navTabs.forEach(tab => tab.classList.remove('active'));
       // Hide bottom nav on channel screen
       bottomNav.style.display = 'none';
-      groupChannelBackTarget = (priorHash === '/create') ? '/create' : '/messages';
+      groupChannelBackTarget = computeGroupChannelBackTarget(priorHash);
       renderChannelView(channelId);
     } else if (path === 'create-group') {
       // Hide bottom nav on create group screen
