@@ -84,9 +84,77 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// App state endpoint
-app.get('/api/state', (req, res) => {
+// App state endpoint. Also upserts the caller into the `users` directory table
+// so Suggested Users / search have real people to show instead of fixtures.
+app.get('/api/state', async (req, res) => {
+  if (req.user) {
+    try {
+      await pool.query(
+        `INSERT INTO users (id, username, usernode_pubkey, last_seen_at)
+         VALUES ($1, $2, $3, now())
+         ON CONFLICT (id) DO UPDATE SET
+           username = EXCLUDED.username,
+           usernode_pubkey = EXCLUDED.usernode_pubkey,
+           last_seen_at = now()`,
+        [req.user.id, req.user.username || req.user.id, req.user.usernode_pubkey || null]
+      );
+    } catch (err) {
+      console.error('[users] upsert on /api/state failed:', err);
+    }
+  }
   res.json({ status: 'ok', user: req.user || null });
+});
+
+// ---------------------------------------------------------------------------
+// Users directory (public: usernames + wallet addresses aren't sensitive)
+// ---------------------------------------------------------------------------
+
+function shapeUser(row) {
+  return {
+    id: row.id,
+    username: row.username,
+    walletAddress: row.usernode_pubkey || null
+  };
+}
+
+// GET /api/users/suggested - most-recently-active users, for the New Message /
+// Create Group / Add Members "Suggested Users" lists.
+app.get('/api/users/suggested', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, username, usernode_pubkey FROM users
+        WHERE id != $1
+        ORDER BY last_seen_at DESC
+        LIMIT 20`,
+      [req.user.id]
+    );
+    res.json({ users: result.rows.map(shapeUser) });
+  } catch (err) {
+    console.error('[users] suggested failed:', err);
+    res.status(500).json({ error: 'Failed to load suggested users' });
+  }
+});
+
+// GET /api/users/search?q= - search the directory by username or wallet address.
+app.get('/api/users/search', async (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  if (!q) return res.json({ users: [] });
+
+  const likePattern = '%' + q.replace(/[\\%_]/g, (c) => '\\' + c) + '%';
+  try {
+    const result = await pool.query(
+      `SELECT id, username, usernode_pubkey FROM users
+        WHERE id != $1
+          AND (username ILIKE $2 ESCAPE '\\' OR usernode_pubkey ILIKE $2 ESCAPE '\\')
+        ORDER BY last_seen_at DESC
+        LIMIT 20`,
+      [req.user.id, likePattern]
+    );
+    res.json({ users: result.rows.map(shapeUser) });
+  } catch (err) {
+    console.error('[users] search failed:', err);
+    res.status(500).json({ error: 'Failed to search users' });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -678,6 +746,26 @@ async function initDatabase() {
       );
     `);
 
+    // Public: a directory of who has opened the app, upserted from every
+    // /api/state call. Usernames and wallet addresses aren't sensitive, so
+    // staging gets a full copy (unlike the group tables below) and this powers
+    // Suggested Users + wallet/username search.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL,
+        usernode_pubkey TEXT,
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS users_last_seen_idx ON users (last_seen_at DESC)`
+    );
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS users_username_idx ON users (lower(username))`
+    );
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS group_members (
         id BIGSERIAL PRIMARY KEY,
@@ -802,6 +890,40 @@ async function seedStagingData() {
     console.log('Staging demo groups seeded');
   } catch (err) {
     console.error('Staging seed error:', err);
+  }
+
+  await seedStagingUsers();
+}
+
+// Staging seed for the `users` directory table. `users` is public (full copy
+// in staging), but a fresh staging database still starts empty until real
+// people open the app, so Suggested Users/search would otherwise be blank.
+// One row is given a null wallet address on purpose, so the "no wallet
+// linked" rendering path stays exercised in staging too.
+async function seedStagingUsers() {
+  if (!IS_STAGING) return;
+
+  const seeds = [
+    { id: 'staging-demo-user-4', username: 'staging-demo-citra', pubkey: '0x1f3a9c2e7b5d44680a9f0c1e2d3b4a5968f7e6d5', offset: '5 minutes' },
+    { id: 'staging-demo-user-5', username: 'staging-demo-dedi', pubkey: '0x8b2e4f6a1c9d3e5b7a0f2c4e6d8b9a1f3e5c7d09', offset: '2 hours' },
+    { id: 'staging-demo-user-6', username: 'staging-demo-eka', pubkey: null, offset: '1 day' },
+    { id: 'staging-demo-user-7', username: 'staging-demo-fajar', pubkey: '0x4c7d9e1b3a5f60820c4e6a8f0b2d4e6c8a0f2e4d', offset: '3 days' },
+    { id: 'staging-demo-user-8', username: 'staging-demo-gita', pubkey: '0x9e1c3a5b7d9f02460a8c0e2f4b6d8a0c2e4f6a8b', offset: '10 days' },
+    { id: 'staging-demo-user-9', username: 'staging-demo-hasan', pubkey: '0x2a4c6e8b0d1f35970b9d1f3e5a7c9b1d3f5a7c9e', offset: '30 days' }
+  ];
+
+  try {
+    for (const seed of seeds) {
+      await pool.query(
+        `INSERT INTO users (id, username, usernode_pubkey, last_seen_at)
+         VALUES ($1, $2, $3, now() - $4::interval)
+         ON CONFLICT (id) DO NOTHING`,
+        [seed.id, seed.username, seed.pubkey, seed.offset]
+      );
+    }
+    console.log('Staging demo users seeded');
+  } catch (err) {
+    console.error('Staging user seed error:', err);
   }
 }
 

@@ -35,6 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=create-group-public       selects Public on Create Group           → #privacy-public-btn must be active
   //   ?shot=create-group-one-member   name + exactly ONE invitee               → Create Group must be enabled
   //   ?shot=create-group-zero-members name only, then submits                  → "Select at least 1 member" must render
+  //   ?shot=search-users             runs a real /api/users/search query        → matching staging-demo user must render
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -58,9 +59,11 @@ document.addEventListener('DOMContentLoaded', () => {
   let shotAdminToggleFired = false;
   const SHOT_DESC_EDIT = SHOT === 'desc-edit';
   let shotDescEditFired = false;
+  const SHOT_SEARCH_USERS = SHOT === 'search-users';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
   const SHOT_CREATE_GROUP_NAME = 'Staging demo one-invite group';
+  const SHOT_SEARCH_QUERY = 'citra';
 
   // The signed-in Usernode user, hydrated from /api/state at boot. Server rows
   // for this id are mapped onto the app's long-standing 'user_self' sentinel so
@@ -220,17 +223,94 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   ];
 
-  // Dummy suggested users data
-  const suggestedUsers = [
-    { id: 'user_1', username: 'aksaranft', avatar: 'AN', domain: 'aksaranft.node' },
-    { id: 'user_2', username: 'cryptosmith', avatar: 'CS', domain: 'smith.crypto' },
-    { id: 'user_3', username: 'nodeart', avatar: 'NA', domain: 'art.node' },
-    { id: 'user_4', username: 'vibemaster', avatar: 'VM', domain: 'vibe.eth' },
-    { id: 'user_5', username: 'chainwizard', avatar: 'CW', domain: 'wizard.node' },
-    { id: 'user_6', username: 'nftcollector', avatar: 'NC', domain: 'collector.crypto' },
-    { id: 'user_7', username: 'webbuilder', avatar: 'WB', domain: 'web.node' },
-    { id: 'user_8', username: 'designpro', avatar: 'DP', domain: 'design.eth' }
-  ];
+  // Suggested users, hydrated from the real `users` directory on the server
+  // (GET /api/users/suggested) instead of these fixtures. Populated by
+  // fetchSuggestedUsers(), called at boot and again whenever a screen that
+  // lists users (New Message, Create Group, Add Members) is opened.
+  let suggestedUsers = [];
+
+  // Matches the wallet-address formatting already used on the Profile screen.
+  function formatShortAddress(address) {
+    if (!address) return null;
+    return address.substring(0, 6) + '...' + address.substring(address.length - 4);
+  }
+
+  function shapeDirectoryUser(user) {
+    return {
+      id: user.id,
+      username: user.username,
+      walletAddress: user.walletAddress || null,
+      avatar: getInitialsFromUsername(user.username)
+    };
+  }
+
+  async function fetchSuggestedUsers() {
+    try {
+      const response = await fetch('/api/users/suggested', { headers: authHeaders() });
+      if (!response.ok) return;
+      const data = await response.json();
+      suggestedUsers = (data.users || []).map(shapeDirectoryUser);
+    } catch (err) {
+      console.error('Failed to fetch suggested users:', err);
+    }
+  }
+
+  async function searchUsers(query) {
+    try {
+      const response = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`, { headers: authHeaders() });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return (data.users || []).map(shapeDirectoryUser);
+    } catch (err) {
+      console.error('Failed to search users:', err);
+      return [];
+    }
+  }
+
+  // Shared row renderer for suggested/search users: shortened wallet address,
+  // or the address line omitted entirely when the user has no wallet linked.
+  // `selectable` adds a selection-indicator dot (Create Group / Add Members);
+  // New Message omits it since tapping a row opens a DM directly.
+  function renderUserListItemHtml(user, options) {
+    const opts = options || {};
+    const shortAddress = formatShortAddress(user.walletAddress);
+    const isSelected = !!opts.selected;
+    return `
+      <div class="suggested-user-item${opts.selectable && isSelected ? ' selected' : ''}" data-user-id="${escapeHtml(user.id)}">
+        <div class="user-avatar">${escapeHtml(user.avatar)}</div>
+        <div class="user-content">
+          <div class="user-username">${escapeHtml(user.username)}</div>
+          ${shortAddress ? `<div class="user-domain">${escapeHtml(shortAddress)}</div>` : ''}
+        </div>
+        ${opts.selectable ? `<div class="selection-indicator">${isSelected ? '✓' : ''}</div>` : ''}
+      </div>
+    `;
+  }
+
+  // Opens (or starts) a direct-message conversation with a directory user
+  // tapped from Suggested Users / search results on the New Message screen.
+  function startConversationWith(user) {
+    const convId = 'conv_' + user.id;
+    let conv = conversations.find(c => c.id === convId);
+    if (!conv) {
+      conv = {
+        id: convId,
+        type: 'direct',
+        username: user.username,
+        avatar: user.avatar,
+        lastMessage: '',
+        timestamp: Date.now(),
+        unreadCount: 0,
+        onlineStatus: false,
+        archived: false,
+        pinned: false,
+        mutedByUsers: {},
+        messages: []
+      };
+      conversations.unshift(conv);
+    }
+    window.location.hash = `/conversation/${convId}`;
+  }
 
   // Dummy groups data with messages
   let groups = [
@@ -4505,7 +4585,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function showAddMembersSheet(groupId, group) {
     let selectedMembers = [];
 
-    const availableUsers = suggestedUsers.filter(u => !group.members.find(m => m.id === u.id));
+    let availableUsers = suggestedUsers.filter(u => !group.members.find(m => m.id === u.id));
 
     const overlay = document.createElement('div');
     overlay.className = 'dialog-overlay';
@@ -4513,16 +4593,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const dialog = document.createElement('div');
     dialog.className = 'dialog add-members-sheet-dialog';
 
-    const usersList = availableUsers.map(user => `
-      <div class="suggested-user-item" data-user-id="${user.id}">
-        <div class="user-avatar">${user.avatar}</div>
-        <div class="user-content">
-          <div class="user-username">${user.username}</div>
-          <div class="user-domain">${user.domain}</div>
-        </div>
-        <div class="selection-indicator"></div>
-      </div>
-    `).join('');
+    const usersList = availableUsers.map(user => renderUserListItemHtml(user, { selectable: true })).join('');
 
     dialog.innerHTML = `
       <div class="dialog-header">
@@ -4582,7 +4653,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function toggleUser(userId) {
-      const user = suggestedUsers.find(u => u.id === userId);
+      const user = availableUsers.find(u => u.id === userId);
       if (!user || group.members.find(m => m.id === userId)) return;
 
       if (selectedMembers.find(u => u.id === userId)) {
@@ -4599,19 +4670,14 @@ document.addEventListener('DOMContentLoaded', () => {
     function filterAndDisplay() {
       const query = searchInput.value.toLowerCase();
       const filtered = availableUsers.filter(u =>
-        u.username.toLowerCase().includes(query) || u.domain.toLowerCase().includes(query)
+        u.username.toLowerCase().includes(query) ||
+        (u.walletAddress && u.walletAddress.toLowerCase().includes(query))
       );
 
-      usersListEl.innerHTML = filtered.map(user => `
-        <div class="suggested-user-item ${selectedMembers.find(m => m.id === user.id) ? 'selected' : ''}" data-user-id="${user.id}">
-          <div class="user-avatar">${user.avatar}</div>
-          <div class="user-content">
-            <div class="user-username">${user.username}</div>
-            <div class="user-domain">${user.domain}</div>
-          </div>
-          <div class="selection-indicator">${selectedMembers.find(m => m.id === user.id) ? '✓' : ''}</div>
-        </div>
-      `).join('');
+      usersListEl.innerHTML = filtered.map(user => renderUserListItemHtml(user, {
+        selectable: true,
+        selected: !!selectedMembers.find(m => m.id === user.id)
+      })).join('');
 
       document.querySelectorAll('.suggested-user-item').forEach(item => {
         item.addEventListener('click', () => {
@@ -4628,6 +4694,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const userId = item.dataset.userId;
         toggleUser(userId);
       });
+    });
+
+    // Refresh the directory each time this sheet opens.
+    fetchSuggestedUsers().then(() => {
+      availableUsers = suggestedUsers.filter(u => !group.members.find(m => m.id === u.id));
+      filterAndDisplay();
     });
 
     document.getElementById('cancel-add-members-sheet').addEventListener('click', () => {
@@ -4682,17 +4754,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Render new message page
   function renderNewMessagePage() {
-    const usersList = suggestedUsers.length > 0
-      ? suggestedUsers.map(user => `
-        <div class="suggested-user-item" data-user-id="${user.id}">
-          <div class="user-avatar">${user.avatar}</div>
-          <div class="user-content">
-            <div class="user-username">${user.username}</div>
-            <div class="user-domain">${user.domain}</div>
-          </div>
-        </div>
-      `).join('')
-      : '<div class="empty-state">No suggested users.</div>';
+    function usersListHtml(list) {
+      return list.length > 0
+        ? list.map(user => renderUserListItemHtml(user)).join('')
+        : '<div class="empty-state">No suggested users.</div>';
+    }
 
     pageContainer.innerHTML = `
       <div class="new-message-page">
@@ -4700,7 +4766,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <h1>Guardian</h1>
         </div>
         <div class="search-container">
-          <input type="text" class="search-field" placeholder="🔍 Search wallet, username" />
+          <input type="text" class="search-field" id="new-message-search-field" placeholder="🔍 Search wallet, username" />
         </div>
         <div class="create-scroll">
           <div class="create-options">
@@ -4722,9 +4788,9 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
           </div>
           <div class="suggested-users-section">
-            <div class="section-header">Suggested Users</div>
-            <div class="users-list">
-              ${usersList}
+            <div class="section-header" id="new-message-users-header">Suggested Users</div>
+            <div class="users-list" id="new-message-users-list">
+              ${usersListHtml(suggestedUsers)}
             </div>
           </div>
         </div>
@@ -4748,13 +4814,67 @@ document.addEventListener('DOMContentLoaded', () => {
     // Managed group/channel rows sitting under each create card
     attachManagedListListeners();
 
-    // Add user item handlers
-    document.querySelectorAll('.suggested-user-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const userId = item.dataset.userId;
-        console.log('User tapped:', userId);
+    const usersListEl = document.getElementById('new-message-users-list');
+    const usersHeaderEl = document.getElementById('new-message-users-header');
+    const searchField = document.getElementById('new-message-search-field');
+    let searchTimeout = null;
+    let currentResults = suggestedUsers;
+
+    // Tapping a suggested/search user opens (or starts) a DM with them.
+    function attachUserItemHandlers() {
+      usersListEl.querySelectorAll('.suggested-user-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const userId = item.dataset.userId;
+          const user = currentResults.find(u => u.id === userId);
+          if (user) startConversationWith(user);
+        });
       });
+    }
+    attachUserItemHandlers();
+
+    // Search wallet/username — debounced, backed by the real directory search.
+    searchField.addEventListener('input', (e) => {
+      const query = e.target.value.trim();
+      if (searchTimeout) clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(async () => {
+        if (!query) {
+          currentResults = suggestedUsers;
+          usersHeaderEl.textContent = 'Suggested Users';
+          usersListEl.innerHTML = usersListHtml(currentResults);
+          attachUserItemHandlers();
+          return;
+        }
+        currentResults = await searchUsers(query);
+        usersHeaderEl.textContent = 'Search Results';
+        usersListEl.innerHTML = currentResults.length > 0
+          ? currentResults.map(user => renderUserListItemHtml(user)).join('')
+          : '<div class="empty-state">No users found.</div>';
+        attachUserItemHandlers();
+      }, 300);
     });
+
+    // Refresh Suggested Users with the latest directory each time this screen opens.
+    fetchSuggestedUsers().then(() => {
+      if (searchField.value.trim()) return;
+      currentResults = suggestedUsers;
+      usersListEl.innerHTML = usersListHtml(currentResults);
+      attachUserItemHandlers();
+    });
+
+    // Screenshot-state deep link: run a real search against the staging seed
+    // data so the wallet/username search results are reachable for a screenshot
+    // without needing to type into the field by hand.
+    if (SHOT_SEARCH_USERS) {
+      searchField.value = SHOT_SEARCH_QUERY;
+      (async () => {
+        currentResults = await searchUsers(SHOT_SEARCH_QUERY);
+        usersHeaderEl.textContent = 'Search Results';
+        usersListEl.innerHTML = currentResults.length > 0
+          ? currentResults.map(user => renderUserListItemHtml(user)).join('')
+          : '<div class="empty-state">No users found.</div>';
+        attachUserItemHandlers();
+      })();
+    }
   }
 
   // Render Create Group Page
@@ -4770,15 +4890,7 @@ document.addEventListener('DOMContentLoaded', () => {
       validationError: ''
     };
 
-    const usersList = suggestedUsers.map(user => `
-      <div class="suggested-user-item" data-user-id="${user.id}">
-        <div class="user-avatar">${user.avatar}</div>
-        <div class="user-content">
-          <div class="user-username">${user.username}</div>
-          <div class="user-domain">${user.domain}</div>
-        </div>
-      </div>
-    `).join('');
+    const usersList = suggestedUsers.map(user => renderUserListItemHtml(user, { selectable: true })).join('');
 
     pageContainer.innerHTML = `
       <div class="create-group-page">
@@ -4931,20 +5043,13 @@ document.addEventListener('DOMContentLoaded', () => {
         ? suggestedUsers
         : suggestedUsers.filter(user =>
             user.username.toLowerCase().includes(query) ||
-            user.domain.toLowerCase().includes(query)
+            (user.walletAddress && user.walletAddress.toLowerCase().includes(query))
           );
 
-      const usersList = filteredUsers.map(user => `
-        <div class="suggested-user-item" data-user-id="${user.id}">
-          <div class="user-avatar">${user.avatar}</div>
-          <div class="user-content">
-            <div class="user-username">${user.username}</div>
-            <div class="user-domain">${user.domain}</div>
-          </div>
-        </div>
-      `).join('');
-
-      suggestedUsersList.innerHTML = usersList;
+      suggestedUsersList.innerHTML = filteredUsers.map(user => renderUserListItemHtml(user, {
+        selectable: true,
+        selected: isUserSelected(user.id)
+      })).join('');
 
       // Re-attach event listeners
       document.querySelectorAll('.suggested-user-item').forEach(item => {
@@ -5024,6 +5129,9 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleUser(userId);
       });
     });
+
+    // Refresh Suggested Users with the latest directory each time this screen opens.
+    fetchSuggestedUsers().then(filterAndDisplayUsers);
 
     // Create Group button handler
     async function submitCreateGroup() {
@@ -5674,16 +5782,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let selectedMembers = [];
 
     const usersList = suggestedUsers.filter(u => !group.members.find(m => m.id === u.id))
-      .map(user => `
-        <div class="suggested-user-item" data-user-id="${user.id}">
-          <div class="user-avatar">${user.avatar}</div>
-          <div class="user-content">
-            <div class="user-username">${user.username}</div>
-            <div class="user-domain">${user.domain}</div>
-          </div>
-          <div class="selection-indicator"></div>
-        </div>
-      `).join('');
+      .map(user => renderUserListItemHtml(user, { selectable: true })).join('');
 
     pageContainer.innerHTML = `
       <div class="add-members-page">
@@ -5765,19 +5864,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const query = searchInput.value.toLowerCase();
       const filtered = suggestedUsers.filter(u =>
         !group.members.find(m => m.id === u.id) &&
-        (u.username.toLowerCase().includes(query) || u.domain.toLowerCase().includes(query))
+        (u.username.toLowerCase().includes(query) || (u.walletAddress && u.walletAddress.toLowerCase().includes(query)))
       );
 
-      suggestedList.innerHTML = filtered.map(user => `
-        <div class="suggested-user-item ${selectedMembers.find(m => m.id === user.id) ? 'selected' : ''}" data-user-id="${user.id}">
-          <div class="user-avatar">${user.avatar}</div>
-          <div class="user-content">
-            <div class="user-username">${user.username}</div>
-            <div class="user-domain">${user.domain}</div>
-          </div>
-          <div class="selection-indicator">${selectedMembers.find(m => m.id === user.id) ? '✓' : ''}</div>
-        </div>
-      `).join('');
+      suggestedList.innerHTML = filtered.map(user => renderUserListItemHtml(user, {
+        selectable: true,
+        selected: !!selectedMembers.find(m => m.id === user.id)
+      })).join('');
 
       document.querySelectorAll('.suggested-user-item').forEach(item => {
         item.addEventListener('click', () => {
@@ -5795,6 +5888,9 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleUser(userId);
       });
     });
+
+    // Refresh the directory each time this screen opens.
+    fetchSuggestedUsers().then(filterAndDisplay);
 
     addBtn.addEventListener('click', async () => {
       if (selectedMembers.length === 0) {
@@ -8017,6 +8113,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // the first paint already knows who "You" is and which groups are real.
   (async () => {
     await fetchUserData();
+    await fetchSuggestedUsers();
     await hydrateServerGroups();
     handleNavigation();
   })();
