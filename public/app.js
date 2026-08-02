@@ -994,6 +994,16 @@ document.addEventListener('DOMContentLoaded', () => {
   // instead of always defaulting to the Messages list.
   let previousNavigationHash = '';
   let groupChannelBackTarget = '/messages';
+  // Same idea as groupChannelBackTarget, for the DM conversation screen --
+  // kept as a separate variable since a DM and a group/channel can be open
+  // (and navigated away from) independently.
+  let dmBackTarget = '/messages';
+
+  // True once handleNavigation has processed at least one real in-app hash
+  // change -- false only for the very first render of a fresh tab (no prior
+  // hash at all) or a boot-time deep link (?group=, ?channel=, ?shot=), none
+  // of which push a real history entry to pop back to.
+  let hasRealPriorHistory = false;
 
   // Where should the back button on a group/channel conversation screen return
   // to? Discover when we got here from a Discover card tap, or from the
@@ -1010,6 +1020,19 @@ document.addEventListener('DOMContentLoaded', () => {
       return '/create';
     }
     return '/messages';
+  }
+
+  // Handle an in-screen "<-" back chevron. Real in-app history (the normal
+  // case) pops the actual browser history entry, so Back from here always
+  // lands wherever the user truly came from -- no risk of walking forward
+  // into the screen just left. A boot-time deep link has no real entry to
+  // pop, so fall back to a guessed/fixed target hash instead.
+  function goBack(fallbackHash) {
+    if (hasRealPriorHistory) {
+      history.back();
+    } else {
+      window.location.hash = fallbackHash;
+    }
   }
 
   // Helper: generate unique group ID
@@ -2580,9 +2603,11 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
     `;
 
-    // Add back button handler
+    // Add back button handler. Returns to Discover/Create when this DM was
+    // opened from there, otherwise falls back to Messages -- same heuristic
+    // as the group/channel back buttons.
     document.querySelector('.back-button').addEventListener('click', () => {
-      window.location.hash = '/messages';
+      goBack(dmBackTarget);
     });
 
     // Add DM menu button for more options (pin, mute, clear chat)
@@ -4291,7 +4316,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // from a Discover card (or an invite link), the Create menu when opened
     // from its managed-groups list, otherwise falls back to Messages.
     document.querySelector('.back-button').addEventListener('click', () => {
-      window.location.hash = groupChannelBackTarget;
+      goBack(groupChannelBackTarget);
     });
 
     // Add interactive header controls for group management. Not applicable
@@ -5036,7 +5061,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Back button handler
     backButton.addEventListener('click', () => {
-      window.location.hash = '/create';
+      goBack('/create');
     });
 
     // Avatar placeholder handler - opens file picker
@@ -5244,7 +5269,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Back button
     document.querySelector('.back-button').addEventListener('click', () => {
-      window.location.hash = `/group/${groupId}`;
+      goBack(`/group/${groupId}`);
     });
 
     // Edit name (admin/owner only)
@@ -6545,7 +6570,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // from a Discover card (or an invite link), the Create menu when opened
     // from its managed-channels list, otherwise falls back to Messages.
     document.querySelector('.back-button').addEventListener('click', () => {
-      window.location.hash = groupChannelBackTarget;
+      goBack(groupChannelBackTarget);
     });
 
     // Menu button handler
@@ -7447,7 +7472,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Add back button handler
     document.querySelector('.back-button').addEventListener('click', () => {
-      window.location.hash = '/messages';
+      goBack('/messages');
     });
 
     // Add channel header handlers
@@ -7685,7 +7710,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     backButton.addEventListener('click', () => {
-      window.location.hash = '/create';
+      goBack('/create');
     });
 
     avatarPlaceholder.addEventListener('click', () => {
@@ -7920,7 +7945,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Back button
     document.getElementById('edit-bio-back-btn').addEventListener('click', () => {
-      window.location.hash = '/profile';
+      goBack('/profile');
     });
 
     // Character count update
@@ -7985,6 +8010,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const path = hash.startsWith('/') ? hash.slice(1) : hash;
     const priorHash = previousNavigationHash;
     previousNavigationHash = hash;
+    hasRealPriorHistory = priorHash !== '';
 
     // Parse conversation routes like "conversation/conv_1"
     if (path.startsWith('conversation/')) {
@@ -7993,6 +8019,7 @@ document.addEventListener('DOMContentLoaded', () => {
       navTabs.forEach(tab => tab.classList.remove('active'));
       // Hide bottom nav on conversation screen
       bottomNav.style.display = 'none';
+      dmBackTarget = computeGroupChannelBackTarget(priorHash);
       renderConversationPage(conversationId);
     } else if (path.startsWith('group/')) {
       const parts = path.split('/');
@@ -8071,11 +8098,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Set up nav tab click handlers
+  // Set up nav tab click handlers. Switching bottom-nav tabs is same-level
+  // navigation, not a drill-in, so it replaces the current history entry
+  // instead of pushing a new one -- otherwise the hardware/browser Back
+  // button walks backward through every tab ever visited instead of
+  // returning to wherever the user actually navigated in from.
   navTabs.forEach(tab => {
     tab.addEventListener('click', () => {
       const pageName = tab.dataset.page;
-      window.location.hash = `/${pageName}`;
+      if (window.location.hash === `#/${pageName}`) return;
+      history.replaceState(null, '', `#/${pageName}`);
+      // replaceState doesn't fire 'hashchange', so drive the render directly.
+      handleNavigation();
     });
   });
 
@@ -8088,6 +8122,15 @@ document.addEventListener('DOMContentLoaded', () => {
     await fetchUserData();
     await fetchSuggestedUsers();
     await hydrateServerGroups();
+    // Floor the history stack on Messages (the default landing screen) so it
+    // has an explicit, stable entry instead of the ambiguous empty-hash root
+    // -- skipped when a deep link (shared group/channel, or a ?shot=
+    // screenshot state) already redirected the hash elsewhere above.
+    const bootHash = window.location.hash.slice(1) || 'messages';
+    const bootPath = bootHash.startsWith('/') ? bootHash.slice(1) : bootHash;
+    if (bootPath === 'messages') {
+      history.replaceState(null, '', '#/messages');
+    }
     handleNavigation();
   })();
 });
