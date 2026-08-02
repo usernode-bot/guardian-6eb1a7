@@ -158,6 +158,189 @@ app.get('/api/users/search', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Direct messages (real user-to-user DMs, persisted so both sides see them)
+// ---------------------------------------------------------------------------
+
+const DM_TEXT_MAX_LENGTH = 5000;
+
+// Deterministic id for the 1:1 thread between two real user ids, independent
+// of who's asking, so both sides land on the same conversation_id.
+function dmConversationId(userIdA, userIdB) {
+  return 'dm_' + [String(userIdA), String(userIdB)].sort().join('_');
+}
+
+// Same allow-list as the frontend's safeImageUrl: platform-hosted https URLs
+// or inline data URIs only.
+function safeStoredImageUrl(url) {
+  if (typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (/^https:\/\//i.test(trimmed) || /^data:image\//i.test(trimmed)) {
+    return trimmed.slice(0, 20000);
+  }
+  return null;
+}
+
+function shapeDirectMessage(row, viewerId) {
+  const message = {
+    id: String(row.id),
+    text: row.text || '',
+    timestamp: new Date(row.created_at).getTime(),
+    isOutgoing: row.sender_id === viewerId,
+    senderId: row.sender_id,
+    senderUsername: row.sender_username
+  };
+  if (row.image_url) {
+    message.imageUrl = row.image_url;
+    message.imageId = row.image_id;
+  }
+  if (row.reply_to_message_id) {
+    message.replyTo = {
+      messageId: row.reply_to_message_id,
+      senderName: row.reply_to_sender_name,
+      previewText: row.reply_to_preview_text
+    };
+  }
+  return message;
+}
+
+// GET /api/dm/:otherUserId/messages?since=<messageId> - fetch (or poll for
+// new) messages in the caller's 1:1 thread with otherUserId. Also returns the
+// other user's directory info, so a thread opened for the first time doesn't
+// need a second round trip just to render its header.
+app.get('/api/dm/:otherUserId/messages', async (req, res) => {
+  const { otherUserId } = req.params;
+  if (!otherUserId || otherUserId === req.user.id) {
+    return res.status(400).json({ error: 'Invalid conversation partner' });
+  }
+
+  const since = Number.parseInt(req.query.since, 10);
+  const conversationId = dmConversationId(req.user.id, otherUserId);
+
+  try {
+    const params = [conversationId];
+    let sinceClause = '';
+    if (Number.isFinite(since) && since > 0) {
+      params.push(since);
+      sinceClause = ' AND id > $2';
+    }
+    const result = await pool.query(
+      `SELECT * FROM direct_messages
+        WHERE conversation_id = $1${sinceClause}
+        ORDER BY id ASC
+        LIMIT 500`,
+      params
+    );
+
+    const otherUserRes = await pool.query(
+      'SELECT id, username, usernode_pubkey FROM users WHERE id = $1',
+      [otherUserId]
+    );
+
+    res.json({
+      otherUser: otherUserRes.rows[0]
+        ? shapeUser(otherUserRes.rows[0])
+        : { id: otherUserId, username: otherUserId, walletAddress: null },
+      messages: result.rows.map((row) => shapeDirectMessage(row, req.user.id))
+    });
+  } catch (err) {
+    console.error('[dm] fetch messages failed:', err);
+    res.status(500).json({ error: 'Failed to load messages' });
+  }
+});
+
+// POST /api/dm/:otherUserId/messages - persist a message to a real user. This
+// is the write side the old client-only DM flow never had: without it, a
+// "sent" message only ever existed in the sender's own in-memory array and
+// could never reach the recipient.
+app.post('/api/dm/:otherUserId/messages', async (req, res) => {
+  const { otherUserId } = req.params;
+  if (!otherUserId || otherUserId === req.user.id) {
+    return res.status(400).json({ error: 'Invalid conversation partner' });
+  }
+
+  const body = req.body || {};
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  const imageUrl = safeStoredImageUrl(body.imageUrl);
+  const imageId = typeof body.imageId === 'string' ? body.imageId.slice(0, 64) : null;
+
+  if (!text && !imageUrl) {
+    return res.status(400).json({ error: 'Message text or image is required' });
+  }
+  if (text.length > DM_TEXT_MAX_LENGTH) {
+    return res.status(400).json({ error: `Message must be ${DM_TEXT_MAX_LENGTH} characters or less` });
+  }
+
+  const replyTo = body.replyTo && typeof body.replyTo === 'object' ? body.replyTo : null;
+  const replyToMessageId = replyTo && typeof replyTo.messageId === 'string' ? replyTo.messageId.slice(0, 64) : null;
+  const replyToSenderName = replyTo && typeof replyTo.senderName === 'string' ? replyTo.senderName.slice(0, 80) : null;
+  const replyToPreviewText = replyTo && typeof replyTo.previewText === 'string' ? replyTo.previewText.slice(0, 200) : null;
+
+  const conversationId = dmConversationId(req.user.id, otherUserId);
+
+  try {
+    const otherUserRes = await pool.query('SELECT username FROM users WHERE id = $1', [otherUserId]);
+    const recipientUsername = otherUserRes.rows[0] ? otherUserRes.rows[0].username : otherUserId;
+
+    const result = await pool.query(
+      `INSERT INTO direct_messages
+         (conversation_id, sender_id, sender_username, recipient_id, recipient_username,
+          text, image_url, image_id, reply_to_message_id, reply_to_sender_name, reply_to_preview_text)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING *`,
+      [
+        conversationId,
+        req.user.id,
+        req.user.username || req.user.id,
+        otherUserId,
+        recipientUsername,
+        text,
+        imageUrl,
+        imageId,
+        replyToMessageId,
+        replyToSenderName,
+        replyToPreviewText
+      ]
+    );
+
+    res.status(201).json({ message: shapeDirectMessage(result.rows[0], req.user.id) });
+  } catch (err) {
+    console.error('[dm] send message failed:', err);
+    res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+// GET /api/dm/conversations - the caller's real 1:1 threads (sent or
+// received), newest first, for merging into / polling the Messages inbox.
+app.get('/api/dm/conversations', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT DISTINCT ON (conversation_id) *
+         FROM direct_messages
+        WHERE sender_id = $1 OR recipient_id = $1
+        ORDER BY conversation_id, id DESC`,
+      [req.user.id]
+    );
+
+    const conversationList = result.rows
+      .map((row) => {
+        const otherUserId = row.sender_id === req.user.id ? row.recipient_id : row.sender_id;
+        const otherUsername = row.sender_id === req.user.id ? row.recipient_username : row.sender_username;
+        return {
+          otherUser: { id: otherUserId, username: otherUsername },
+          lastMessage: shapeDirectMessage(row, req.user.id)
+        };
+      })
+      .sort((a, b) => b.lastMessage.timestamp - a.lastMessage.timestamp);
+
+    res.json({ conversations: conversationList });
+  } catch (err) {
+    console.error('[dm] list conversations failed:', err);
+    res.status(500).json({ error: 'Failed to load conversations' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Group helpers
 // ---------------------------------------------------------------------------
 
@@ -797,6 +980,34 @@ async function initDatabase() {
          ON conversation_user_state (user_id)`
     );
 
+    // Real, persisted 1:1 messages between two real users - the piece that
+    // was entirely missing before (DMs were a client-only, in-memory mock).
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS direct_messages (
+        id BIGSERIAL PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        sender_username TEXT NOT NULL,
+        recipient_id TEXT NOT NULL,
+        recipient_username TEXT NOT NULL,
+        text TEXT NOT NULL DEFAULT '',
+        image_url TEXT,
+        image_id TEXT,
+        reply_to_message_id TEXT,
+        reply_to_sender_name TEXT,
+        reply_to_preview_text TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS direct_messages_conversation_idx
+         ON direct_messages (conversation_id, id)`
+    );
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS direct_messages_recipient_idx
+         ON direct_messages (recipient_id, id)`
+    );
+
     await pool.query(
       `CREATE INDEX IF NOT EXISTS groups_visibility_created_idx
          ON groups (visibility, created_at DESC)`
@@ -814,6 +1025,9 @@ async function initDatabase() {
     // Private: a hidden_from_inbox/pinned row ties a real user_id to a
     // specific conversation_id, which can reveal who a user is DMing.
     await pool.query(`COMMENT ON TABLE conversation_user_state IS 'staging:private'`);
+    // Private: DM bodies are 1:1 content between two real users - exactly the
+    // "direct messages, private chats" category the platform calls out.
+    await pool.query(`COMMENT ON TABLE direct_messages IS 'staging:private'`);
 
     console.log('Database initialized');
   } catch (err) {
@@ -924,6 +1138,51 @@ async function seedStagingUsers() {
     console.log('Staging demo users seeded');
   } catch (err) {
     console.error('Staging user seed error:', err);
+  }
+
+  await seedStagingDirectMessages();
+}
+
+// Staging seed for a real DM thread between two seeded demo users, so a
+// staging preview has a persisted 1:1 conversation to look at without first
+// running the ?shot=dm-real-send flow. direct_messages has no natural unique
+// key to ON CONFLICT DO NOTHING against, so idempotency is a existence check
+// on the conversation instead.
+async function seedStagingDirectMessages() {
+  if (!IS_STAGING) return;
+
+  const conversationId = dmConversationId('staging-demo-user-4', 'staging-demo-user-5');
+  try {
+    const existing = await pool.query(
+      'SELECT 1 FROM direct_messages WHERE conversation_id = $1 LIMIT 1',
+      [conversationId]
+    );
+    if (existing.rows.length > 0) return;
+
+    const seedMessages = [
+      {
+        sender: 'staging-demo-user-4', senderName: 'staging-demo-citra',
+        recipient: 'staging-demo-user-5', recipientName: 'staging-demo-dedi',
+        text: 'Hey, are you around for the sync later?', offset: '20 minutes'
+      },
+      {
+        sender: 'staging-demo-user-5', senderName: 'staging-demo-dedi',
+        recipient: 'staging-demo-user-4', recipientName: 'staging-demo-citra',
+        text: 'Yep, see you at 3pm!', offset: '18 minutes'
+      }
+    ];
+
+    for (const msg of seedMessages) {
+      await pool.query(
+        `INSERT INTO direct_messages
+           (conversation_id, sender_id, sender_username, recipient_id, recipient_username, text, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, now() - $7::interval)`,
+        [conversationId, msg.sender, msg.senderName, msg.recipient, msg.recipientName, msg.text, msg.offset]
+      );
+    }
+    console.log('Staging demo direct messages seeded');
+  } catch (err) {
+    console.error('Staging DM seed error:', err);
   }
 }
 

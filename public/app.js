@@ -36,6 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=create-group-one-member   name + exactly ONE invitee               → Create Group must be enabled
   //   ?shot=create-group-zero-members name only, then submits                  → "Select at least 1 member" must render
   //   ?shot=search-users             runs a real /api/users/search query        → matching staging-demo user must render
+  //   ?shot=dm-real-send      starts + sends a real DM to a staging user via the real API → message must persist and render
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -59,11 +60,17 @@ document.addEventListener('DOMContentLoaded', () => {
   let shotAdminToggleFired = false;
   const SHOT_DESC_EDIT = SHOT === 'desc-edit';
   let shotDescEditFired = false;
+  let shotDmRealSendFired = false;
   const SHOT_SEARCH_USERS = SHOT === 'search-users';
+  const SHOT_DM_REAL_SEND = SHOT === 'dm-real-send';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
   const SHOT_CREATE_GROUP_NAME = 'Staging demo one-invite group';
   const SHOT_SEARCH_QUERY = 'citra';
+  const SHOT_DM_REAL_SEND_TEXT = 'Staging demo real DM persistence check';
+  // Real, seeded staging user - the DM partner for the ?shot=dm-real-send deep
+  // link. Matches seedStagingUsers() in server.js.
+  const SHOT_DM_REAL_SEND_USER = { id: 'staging-demo-user-4', username: 'staging-demo-citra' };
 
   // The signed-in Usernode user, hydrated from /api/state at boot. Server rows
   // for this id are mapped onto the app's long-standing 'user_self' sentinel so
@@ -289,8 +296,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Opens (or starts) a direct-message conversation with a directory user
   // tapped from Suggested Users / search results on the New Message screen.
+  // Backed by the real /api/dm endpoints, so both sides of the thread
+  // actually persist - renderConversationPage lazily fetches the history the
+  // first time this (or any) remote conversation is opened.
   function startConversationWith(user) {
-    const convId = 'conv_' + user.id;
+    const convId = 'dm_' + user.id;
     let conv = conversations.find(c => c.id === convId);
     if (!conv) {
       conv = {
@@ -305,11 +315,145 @@ document.addEventListener('DOMContentLoaded', () => {
         archived: false,
         pinned: false,
         mutedByUsers: {},
-        messages: []
+        messages: [],
+        remote: true,
+        remoteUserId: user.id,
+        historyLoaded: false
       };
       conversations.unshift(conv);
     }
     window.location.hash = `/conversation/${convId}`;
+  }
+
+  // Fetch a remote conversation's real message history from the server.
+  // Merges by id rather than overwriting outright, so a message the user just
+  // sent (already pushed locally) survives even if this fetch's snapshot was
+  // taken a moment before the send landed.
+  async function hydrateRemoteMessages(conv) {
+    try {
+      const response = await fetch(`/api/dm/${encodeURIComponent(conv.remoteUserId)}/messages`, {
+        headers: authHeaders()
+      });
+      if (!response.ok) return;
+      const data = await response.json();
+      const existingIds = new Set(conv.messages.map(m => m.id));
+      const fetched = (data.messages || []).filter(m => !existingIds.has(m.id));
+      conv.messages = fetched.concat(conv.messages).sort((a, b) => a.timestamp - b.timestamp);
+      if (data.otherUser && data.otherUser.username) {
+        conv.username = data.otherUser.username;
+      }
+      const last = conv.messages[conv.messages.length - 1];
+      if (last) {
+        conv.lastMessage = truncateText(messagePreviewText(last), 100);
+        conv.timestamp = last.timestamp;
+      }
+    } catch (err) {
+      console.error('Failed to load DM history:', err);
+    }
+  }
+
+  // Poll a currently-open remote thread for messages sent by the other side.
+  // Only started while that thread's page is on screen (see
+  // renderConversationPage / stopActiveThreadPoll).
+  const DM_THREAD_POLL_INTERVAL_MS = 3000;
+  const DM_INBOX_POLL_INTERVAL_MS = 5000;
+  let activeThreadPollIntervalId = null;
+
+  function stopActiveThreadPoll() {
+    if (activeThreadPollIntervalId) {
+      clearInterval(activeThreadPollIntervalId);
+      activeThreadPollIntervalId = null;
+    }
+  }
+
+  async function pollRemoteThread(conv) {
+    if (!conv.historyLoaded) return;
+    const lastMessage = conv.messages[conv.messages.length - 1];
+    const since = lastMessage ? lastMessage.id : '';
+    try {
+      const response = await fetch(
+        `/api/dm/${encodeURIComponent(conv.remoteUserId)}/messages?since=${encodeURIComponent(since)}`,
+        { headers: authHeaders() }
+      );
+      if (!response.ok) return;
+      const data = await response.json();
+      const existingIds = new Set(conv.messages.map(m => m.id));
+      const fresh = (data.messages || []).filter(m => !existingIds.has(m.id));
+      if (!fresh.length) return;
+
+      conv.messages = conv.messages.concat(fresh);
+      const last = conv.messages[conv.messages.length - 1];
+      conv.lastMessage = truncateText(messagePreviewText(last), 100);
+      conv.timestamp = last.timestamp;
+
+      // Only redraw if the user is still looking at this same thread.
+      if (window.location.hash === `#/conversation/${conv.id}`) {
+        renderConversationPage(conv.id);
+      }
+    } catch (err) {
+      console.error('Failed to poll DM thread:', err);
+    }
+  }
+
+  // Merge one real DM conversation (from GET /api/dm/conversations) into the
+  // local conversations list. Returns true if this brought new information a
+  // visible Messages list would need to redraw for.
+  function upsertRemoteConversation(entry) {
+    const convId = 'dm_' + entry.otherUser.id;
+    const previewText = truncateText(messagePreviewText(entry.lastMessage), 100);
+    let conv = conversations.find(c => c.id === convId);
+
+    if (!conv) {
+      conversations.unshift({
+        id: convId,
+        type: 'direct',
+        username: entry.otherUser.username,
+        avatar: getInitialsFromUsername(entry.otherUser.username),
+        lastMessage: previewText,
+        timestamp: entry.lastMessage.timestamp,
+        unreadCount: entry.lastMessage.isOutgoing ? 0 : 1,
+        onlineStatus: false,
+        archived: false,
+        pinned: false,
+        mutedByUsers: {},
+        messages: [],
+        remote: true,
+        remoteUserId: entry.otherUser.id,
+        historyLoaded: false
+      });
+      return true;
+    }
+
+    if (entry.lastMessage.timestamp <= conv.timestamp) return false;
+
+    conv.lastMessage = previewText;
+    conv.timestamp = entry.lastMessage.timestamp;
+    const isThreadOpen = window.location.hash === `#/conversation/${convId}`;
+    if (!entry.lastMessage.isOutgoing && !isThreadOpen) {
+      conv.unreadCount = (conv.unreadCount || 0) + 1;
+    }
+    return true;
+  }
+
+  // Boot-time + periodic hydration of the caller's real DM conversations, so
+  // a recipient sees a thread a real user started with them without having to
+  // search that user up first. Non-fatal, like hydrateServerGroups.
+  async function hydrateRealDmConversations() {
+    try {
+      const response = await fetch('/api/dm/conversations', { headers: authHeaders() });
+      if (!response.ok) return;
+      const data = await response.json();
+      let changed = false;
+      (data.conversations || []).forEach(entry => {
+        if (upsertRemoteConversation(entry)) changed = true;
+      });
+      const onMessagesPage = !window.location.hash || window.location.hash === '#/' || window.location.hash === '#/messages';
+      if (changed && onMessagesPage) {
+        renderMessagesPage();
+      }
+    } catch (err) {
+      console.error('Failed to load DM conversations:', err);
+    }
   }
 
   // Dummy groups data with messages
@@ -2647,6 +2791,23 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    // Clear any poll left running from a previous render of this same page
+    // (e.g. after sending a message) before possibly starting a fresh one.
+    stopActiveThreadPoll();
+
+    // Real conversations don't carry their history until it's fetched - do
+    // that once per thread, then re-render in place once it lands.
+    if (conversation.remote && !conversation.historyLoaded) {
+      conversation.historyLoaded = true;
+      hydrateRemoteMessages(conversation).then(() => {
+        if (window.location.hash === `#/conversation/${conversationId}`) {
+          renderConversationPage(conversationId, renderOptions);
+        }
+      });
+    } else if (conversation.remote) {
+      activeThreadPollIntervalId = setInterval(() => pollRemoteThread(conversation), DM_THREAD_POLL_INTERVAL_MS);
+    }
+
     const messagesList = conversation.messages.filter(msg => !(msg.hiddenFor && msg.hiddenFor.user_self)).map(msg => {
       let messageHTML = `<div class="message-swipe-wrapper ${msg.isOutgoing ? 'wrapper-outgoing' : 'wrapper-incoming'}" data-message-id="${msg.id}">`;
       messageHTML += `<div class="message-reply-icon" aria-hidden="true">↩️</div>`;
@@ -2755,6 +2916,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // Must stay last: the send re-renders this page underneath us.
     if (SHOT_SEND_STAY && !fromSend) sendShotMessage(conversationRoot);
 
+    // Screenshot-state: send one real message through the real POST endpoint,
+    // proving it round-trips through the server rather than just the local
+    // array. Guarded by a fired flag (not !fromSend) because the lazy history
+    // fetch above re-renders this same page a second time before any send
+    // happens, which would otherwise double-send.
+    if (SHOT_DM_REAL_SEND && !shotDmRealSendFired) {
+      shotDmRealSendFired = true;
+      sendShotMessage(conversationRoot, SHOT_DM_REAL_SEND_TEXT);
+    }
+
     // Screenshot-state: click the real ⋮ button so the deep link exercises the
     // actual event listener wiring, not just the dialog-rendering function.
     if (SHOT_DM_MENU) menuButton?.click();
@@ -2763,12 +2934,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // Screenshot-state helper: drive the real composer the same way a tap does, so
   // a check can assert the thread survives sending rather than only that it
   // renders. A send that bounced the user out would leave the Messages list here.
-  function sendShotMessage(root) {
+  function sendShotMessage(root, text) {
     const scope = root || document;
     const input = scope.querySelector('.composer-input');
     const button = scope.querySelector('.send-button');
     if (!input || !button) return;
-    input.value = SHOT_SEND_TEXT;
+    input.value = text || SHOT_SEND_TEXT;
     input.dispatchEvent(new Event('input', { bubbles: true }));
     button.click();
   }
@@ -4189,13 +4360,61 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    sendButton.addEventListener('click', () => {
+    sendButton.addEventListener('click', async () => {
       const text = composerInput.value.trim();
       const readyImage = imageAttachment.getReadyImage();
       // An image on its own is a valid message - text is optional now
       if (!text && !readyImage) return;
 
-      // Create new message with optional reply metadata
+      const replyPayload = replyState.targetMessageId
+        ? {
+          messageId: replyState.targetMessageId,
+          senderName: replyState.targetSenderName,
+          previewText: replyState.targetPreviewText
+        }
+        : null;
+
+      // Real 1:1 conversations are backed by the server - persist there first
+      // so both sides of the thread actually see the message, instead of it
+      // only ever existing in this browser's local array.
+      if (conversation.remote) {
+        sendButton.disabled = true;
+        try {
+          const response = await fetch(`/api/dm/${encodeURIComponent(conversation.remoteUserId)}/messages`, {
+            method: 'POST',
+            headers: authHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({
+              text,
+              imageUrl: readyImage ? readyImage.url : undefined,
+              imageId: readyImage ? readyImage.id : undefined,
+              replyTo: replyPayload
+            })
+          });
+          if (!response.ok) throw new Error(`Send failed with status ${response.status}`);
+          const data = await response.json();
+          const newMessage = data.message;
+
+          conversation.messages.push(newMessage);
+          composerInput.value = '';
+          composerInput.style.height = '48px';
+          clearReplyState();
+          imageAttachment.clearPendingImage();
+          updateConversationLastMessage(
+            conversation.id,
+            truncateText(messagePreviewText(newMessage), 100),
+            newMessage.timestamp
+          );
+          rerender();
+        } catch (err) {
+          console.error('Failed to send DM:', err);
+          showToast("Message couldn't be sent. Try again.", { type: 'error' });
+        } finally {
+          sendButton.disabled = false;
+        }
+        return;
+      }
+
+      // Local/mock conversations and groups (not yet backed by the server).
       const newMessage = {
         id: `msg_${Date.now()}`,
         senderId: 'user_self',
@@ -4209,14 +4428,7 @@ document.addEventListener('DOMContentLoaded', () => {
         newMessage.imageId = readyImage.id;
       }
 
-      // Attach reply metadata if replying
-      if (replyState.targetMessageId) {
-        newMessage.replyTo = {
-          messageId: replyState.targetMessageId,
-          senderName: replyState.targetSenderName,
-          previewText: replyState.targetPreviewText
-        };
-      }
+      if (replyPayload) newMessage.replyTo = replyPayload;
 
       // Add message to conversation
       conversation.messages.push(newMessage);
@@ -8005,6 +8217,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const priorHash = previousNavigationHash;
     previousNavigationHash = hash;
 
+    // Stop any live-thread poll from the conversation screen we're leaving -
+    // renderConversationPage below restarts it if we're navigating INTO one.
+    stopActiveThreadPoll();
+
     // Parse conversation routes like "conversation/conv_1"
     if (path.startsWith('conversation/')) {
       const conversationId = path.split('/')[1];
@@ -8115,6 +8331,16 @@ document.addEventListener('DOMContentLoaded', () => {
     await fetchUserData();
     await fetchSuggestedUsers();
     await hydrateServerGroups();
-    handleNavigation();
+    await hydrateRealDmConversations();
+    setInterval(hydrateRealDmConversations, DM_INBOX_POLL_INTERVAL_MS);
+
+    // Screenshot-state: jump straight into a real DM thread with a seeded
+    // staging user - the hash change this triggers fires handleNavigation via
+    // the listener above, so it isn't also called in this branch.
+    if (SHOT_DM_REAL_SEND) {
+      startConversationWith(SHOT_DM_REAL_SEND_USER);
+    } else {
+      handleNavigation();
+    }
   })();
 });

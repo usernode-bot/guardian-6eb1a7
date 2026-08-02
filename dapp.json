@@ -574,6 +574,16 @@
       "name": "Message link renders as clickable anchor",
       "path": "/#/conversation/conv_2",
       "expectSelector": ".message-link"
+    },
+    {
+      "name": "Real DM send round-trips through the server and renders",
+      "path": "/?shot=dm-real-send",
+      "expectText": "Staging demo real DM persistence check"
+    },
+    {
+      "name": "Real DM send appears as an outgoing message bubble",
+      "path": "/?shot=dm-real-send",
+      "expectSelector": ".message.outgoing"
     }
   ]
 }
