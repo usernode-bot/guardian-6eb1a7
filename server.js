@@ -337,14 +337,19 @@ app.get('/api/groups', async (req, res) => {
 });
 
 // GET /api/groups/:groupId - Fetch group details. Public groups are readable by
-// anyone; a private group 404s for non-members so its existence never leaks.
+// anyone. A private group is still fetchable by its exact id (that's what an
+// invite link hands a non-member -- possessing the id is the authorization),
+// but a non-member only gets a minimal preview shape with no member list, and
+// private groups still never appear in the scope=discover listing above.
 app.get('/api/groups/:groupId', async (req, res) => {
   try {
     const group = await loadGroupWithMembers(req.params.groupId);
     if (!group) return res.status(404).json({ error: 'Group not found' });
     if (group.visibility === 'private') {
       const role = await memberRole(group.id, req.user.id);
-      if (!role) return res.status(404).json({ error: 'Group not found' });
+      if (!role) {
+        return res.json({ group: { ...group, members: [] } });
+      }
     }
     res.json({ group });
   } catch (err) {

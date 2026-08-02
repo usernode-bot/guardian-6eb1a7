@@ -367,12 +367,12 @@
     },
     {
       "name": "Group detail screen loads",
-      "path": "/#/discover/group/discover_group_1",
+      "path": "/#/group/discover_group_1",
       "expectText": "Tech Enthusiasts"
     },
     {
       "name": "Channel detail screen loads",
-      "path": "/#/discover/channel/discover_channel_1",
+      "path": "/#/channel/discover_channel_1",
       "expectText": "Announcements"
     },
     {
@@ -527,13 +527,18 @@
     },
     {
       "name": "Seeded public group detail loads",
-      "path": "/#/discover/group/group_staging_public_1",
+      "path": "/#/group/group_staging_public_1",
       "expectText": "Staging Demo Public Group"
     },
     {
       "name": "Seeded public group offers Join",
-      "path": "/#/discover/group/group_staging_public_1",
-      "expectSelector": "#join-button"
+      "path": "/#/group/group_staging_public_1",
+      "expectSelector": "#group-join-action-btn"
+    },
+    {
+      "name": "Seeded private group is reachable by direct route",
+      "path": "/#/group/group_staging_private_1",
+      "expectText": "Staging Demo Private Group"
     },
     {
       "name": "Attach image button appears in DM composer",
