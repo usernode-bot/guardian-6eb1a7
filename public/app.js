@@ -300,6 +300,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // actually persist - renderConversationPage lazily fetches the history the
   // first time this (or any) remote conversation is opened.
   function startConversationWith(user) {
+    if (currentUser && user.id === currentUser.id) {
+      showToast("You can't start a conversation with yourself", { type: 'error' });
+      return;
+    }
     const convId = 'dm_' + user.id;
     let conv = conversations.find(c => c.id === convId);
     if (!conv) {
@@ -7348,13 +7352,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Deliver one post to every selected target. Each forwarded message carries
   // `forwardedFrom` so the DM/group renderers can show the attribution line.
-  // Returns the number of chats written to, for the toast.
-  function forwardPostToTargets(channel, post, targets, note) {
+  // Returns { delivered, failed } counts for the toast.
+  async function forwardPostToTargets(channel, post, targets, note) {
     const baseTimestamp = Date.now();
     const trimmedNote = (note || '').trim();
     let delivered = 0;
+    let failed = 0;
 
-    targets.forEach((target, index) => {
+    for (let index = 0; index < targets.length; index++) {
+      const target = targets[index];
       // Offset by index so two targets in the same millisecond can't collide.
       const timestamp = baseTimestamp + index;
       const forwardedFrom = {
@@ -7366,8 +7372,53 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (target.kind === 'dm') {
         const conversation = conversations.find(c => c.id === target.id);
-        if (!conversation) return;
+        if (!conversation) continue;
         if (!conversation.messages) conversation.messages = [];
+
+        if (conversation.remote) {
+          // Real 1:1 conversations are backed by the server - a forward has to
+          // actually persist there, or it silently never reaches the recipient
+          // (and vanishes from the sender's own view on the next poll/reload).
+          // The server schema has no forwardedFrom column, so fold the
+          // attribution into the message text itself.
+          try {
+            const forwardText = `↗ Forwarded from ${channel.name}\n${post.text}`;
+            const response = await fetch(`/api/dm/${encodeURIComponent(conversation.remoteUserId)}/messages`, {
+              method: 'POST',
+              headers: authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ text: forwardText })
+            });
+            if (!response.ok) throw new Error(`Forward failed with status ${response.status}`);
+            const data = await response.json();
+            conversation.messages.push(data.message);
+            let lastTimestamp = data.message.timestamp;
+
+            if (trimmedNote) {
+              const noteResponse = await fetch(`/api/dm/${encodeURIComponent(conversation.remoteUserId)}/messages`, {
+                method: 'POST',
+                headers: authHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ text: trimmedNote })
+              });
+              if (noteResponse.ok) {
+                const noteData = await noteResponse.json();
+                conversation.messages.push(noteData.message);
+                lastTimestamp = noteData.message.timestamp;
+              }
+            }
+
+            updateThreadLastMessage(
+              conversation,
+              false,
+              '↗ ' + (trimmedNote || post.text).substring(0, 100),
+              lastTimestamp
+            );
+            delivered++;
+          } catch (err) {
+            console.error('Failed to forward to DM:', err);
+            failed++;
+          }
+          continue;
+        }
 
         conversation.messages.push({
           id: `msg_fwd_${timestamp}_${index}`,
@@ -7393,11 +7444,11 @@ document.addEventListener('DOMContentLoaded', () => {
           trimmedNote ? timestamp + 1 : timestamp
         );
         delivered++;
-        return;
+        continue;
       }
 
       const group = groups.find(g => g.id === target.id);
-      if (!group) return;
+      if (!group) continue;
       if (!group.messages) group.messages = [];
 
       group.messages.push({
@@ -7426,9 +7477,9 @@ document.addEventListener('DOMContentLoaded', () => {
         trimmedNote ? timestamp + 1 : timestamp
       );
       delivered++;
-    });
+    }
 
-    return delivered;
+    return { delivered, failed };
   }
 
   // "Forward to" sheet — pick any number of DMs and joined groups, optionally add
@@ -7547,13 +7598,25 @@ document.addEventListener('DOMContentLoaded', () => {
       if (e.target === overlay) closeSheet();
     });
 
-    sendButton.addEventListener('click', () => {
+    sendButton.addEventListener('click', async () => {
       if (!selected.size) return;
       const targets = Array.from(selected.values());
-      const count = forwardPostToTargets(channel, post, targets, noteInput.value);
+      sendButton.disabled = true;
+      const { delivered, failed } = await forwardPostToTargets(channel, post, targets, noteInput.value);
+      sendButton.disabled = false;
       closeSheet();
-      const label = count === 1 ? targets[0].name : `${count} chats`;
-      showToast(`Forwarded to ${label}`, { type: 'success' });
+      if (delivered > 0) {
+        const label = (targets.length === 1 && delivered === 1)
+          ? targets[0].name
+          : `${delivered} chat${delivered === 1 ? '' : 's'}`;
+        showToast(`Forwarded to ${label}`, { type: 'success' });
+      }
+      if (failed > 0) {
+        showToast(
+          failed === 1 ? "Couldn't forward to 1 chat" : `Couldn't forward to ${failed} chats`,
+          { type: 'error' }
+        );
+      }
     });
 
     // Screenshot-state: pre-select the first two targets so the deep link lands
