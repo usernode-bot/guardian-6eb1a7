@@ -18,6 +18,12 @@ document.addEventListener('DOMContentLoaded', () => {
     window.location.hash = `/group/${sharedGroupId}`;
   }
 
+  // Shared-channel deep link. Same idea as ?group= above, for `<origin>/?channel=<id>`.
+  const sharedChannelId = urlParams.get('channel');
+  if (sharedChannelId) {
+    window.location.hash = `/channel/${sharedChannelId}`;
+  }
+
   // Screenshot-state deep links. Each boots a long, deterministic thread so
   // interaction-gated UI is reachable from a plain URL. Pure UI state — nothing
   // is persisted, and none of it is gated on the environment.
@@ -989,6 +995,23 @@ document.addEventListener('DOMContentLoaded', () => {
   let previousNavigationHash = '';
   let groupChannelBackTarget = '/messages';
 
+  // Where should the back button on a group/channel conversation screen return
+  // to? Discover when we got here from a Discover card tap, or from the
+  // ?group=/?channel= invite-link translation (priorHash is '' the very first
+  // time handleNavigation runs, which only happens for that boot-time
+  // redirect or a direct deep link -- both are "came from outside", so treat
+  // them the same as Discover); the Create menu when opened from there;
+  // Messages otherwise (e.g. from within an existing conversation).
+  function computeGroupChannelBackTarget(priorHash) {
+    if (priorHash === '' || priorHash === '/discover' || priorHash.startsWith('/discover?')) {
+      return '/discover';
+    }
+    if (priorHash === '/create') {
+      return '/create';
+    }
+    return '/messages';
+  }
+
   // Helper: generate unique group ID
   function generateGroupId() {
     return 'group_' + Date.now();
@@ -1492,9 +1515,11 @@ document.addEventListener('DOMContentLoaded', () => {
   function filterDiscoverCommunities(tab) {
     let filteredGroups = discoverGroups
       .filter(g => !groups.some(jg => jg.id === g.id))
+      .filter(g => g.visibility !== 'private')
       .map(g => ({ ...g, type: 'group' }));
     let filteredChans = discoverChannels
       .filter(c => !channels.some(jc => jc.id === c.id))
+      .filter(c => c.visibility !== 'private')
       .map(c => ({ ...c, type: 'channel' }));
 
     if (tab === 'groups') {
@@ -1613,29 +1638,20 @@ document.addEventListener('DOMContentLoaded', () => {
       name: discoverChannel.name,
       description: discoverChannel.description,
       avatar: discoverChannel.avatar,
-      visibility: discoverChannel.visibility,
-      createdAt: Date.now(),
+      isPublic: discoverChannel.visibility === 'public',
       creatorId: 'user_other',
-      memberCount: discoverChannel.memberCount + 1,
-      currentUserIsMember: true,
-      currentUserIsAdmin: false,
-      currentUserCanSend: true,
-      members: [{ id: 'user_self', username: 'You', role: 'member', avatar: 'Y' }],
-      messages: [
-        {
-          id: 'msg_' + Date.now(),
-          senderId: 'system',
-          senderName: 'System',
-          text: 'You followed this channel.',
-          timestamp: Date.now(),
-          isOutgoing: false,
-          isSystemMessage: true
-        }
-      ]
+      createdAt: Date.now(),
+      // Channels use `followerCount`/`followers`/`posts` (a broadcast feed),
+      // not the `memberCount`/`messages` shape discoverChannels items have --
+      // an empty feed here is what renderChannelView already shows as "No
+      // posts yet".
+      followerCount: (discoverChannel.memberCount || 0) + 1,
+      followers: { 'user_self': true },
+      mutedByUsers: {},
+      posts: []
     };
 
     channels.push(newChannel);
-    channelUnreadCounts[channelId] = 0;
 
     const newConversation = {
       id: `conv_channel_${channelId}`,
@@ -1776,9 +1792,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const groupId = card.dataset.groupId;
         const channelId = card.dataset.channelId;
         if (groupId) {
-          window.location.hash = `/discover/group/${groupId}`;
+          window.location.hash = `/group/${groupId}`;
         } else if (channelId) {
-          window.location.hash = `/discover/channel/${channelId}`;
+          window.location.hash = `/channel/${channelId}`;
         }
       });
     });
@@ -1803,9 +1819,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const groupId = card.dataset.groupId;
         const channelId = card.dataset.channelId;
         if (groupId) {
-          window.location.hash = `/discover/group/${groupId}`;
+          window.location.hash = `/group/${groupId}`;
         } else if (channelId) {
-          window.location.hash = `/discover/channel/${channelId}`;
+          window.location.hash = `/channel/${channelId}`;
         }
       });
     });
@@ -1831,149 +1847,6 @@ document.addEventListener('DOMContentLoaded', () => {
         tab.classList.add('active');
       }
     });
-  }
-
-  // Render group detail screen
-  async function renderGroupDetailScreen(groupId) {
-    let group = groups.find(g => g.id === groupId);
-    if (!group) {
-      group = discoverGroups.find(g => g.id === groupId);
-    }
-    if (!group) {
-      // Not in local state — it may be a server-backed group reached by URL.
-      // A private group 404s here for non-members, so this never leaks one.
-      try {
-        const response = await fetch(`/api/groups/${groupId}`, { headers: authHeaders() });
-        if (response.ok) {
-          const payload = await response.json();
-          if (payload.group) {
-            group = {
-              id: payload.group.id,
-              name: payload.group.name,
-              description: payload.group.description || '',
-              avatar: payload.group.avatar || generateDefaultAvatar(payload.group.name),
-              memberCount: payload.group.memberCount,
-              visibility: payload.group.visibility,
-              creatorId: payload.group.creatorId,
-              members: [],
-              joinRequests: [],
-              createdAt: payload.group.createdAt,
-              source: 'server'
-            };
-            if (group.visibility === 'public' && !discoverGroups.some(g => g.id === group.id)) {
-              discoverGroups.push(Object.assign({ isFeatured: false, isNew: !!payload.group.isNew }, group));
-            }
-          }
-        }
-      } catch (error) {
-        console.warn('Could not load group:', error);
-      }
-    }
-    if (!group) {
-      window.location.hash = '/discover';
-      return;
-    }
-
-    const isJoined = groups.some(g => g.id === groupId);
-    const isPrivate = group.visibility === 'private';
-    const hasPendingRequest = !isJoined && isPrivate && (group.joinRequests || []).some(r => r.userId === 'user_self');
-
-    let actionButtonHTML;
-    if (isJoined) {
-      actionButtonHTML = '<button class="detail-button" disabled>Already Joined</button>';
-    } else if (isPrivate) {
-      actionButtonHTML = hasPendingRequest
-        ? '<button class="detail-button" id="request-pending-button" disabled>Request Pending</button>'
-        : '<button class="detail-button" id="request-join-button">Request to Join</button>';
-    } else {
-      actionButtonHTML = '<button class="detail-button" id="join-button">Join Group</button>';
-    }
-
-    pageContainer.innerHTML = `
-      <div class="detail-screen">
-        <div class="detail-header">
-          <button class="back-button" aria-label="Back">←</button>
-          <h1>Group Details</h1>
-        </div>
-        <div class="detail-content">
-          <div class="detail-avatar">${escapeHtml(group.avatar)}</div>
-          <h2>${escapeHtml(group.name)}</h2>
-          <div class="detail-badge">${isPrivate ? '🔒 Private' : '🌐 Public'}</div>
-          <p class="detail-description">${escapeHtml(group.description)}</p>
-          <div class="detail-stat">${group.memberCount} members</div>
-          ${actionButtonHTML}
-        </div>
-      </div>
-    `;
-
-    document.querySelector('.back-button').addEventListener('click', () => {
-      window.location.hash = '/discover';
-    });
-
-    const joinBtn = document.getElementById('join-button');
-    if (joinBtn) {
-      joinBtn.addEventListener('click', async () => {
-        joinBtn.disabled = true;
-        await joinDiscoverGroup(groupId);
-        window.location.hash = '/discover';
-      });
-    }
-
-    const requestJoinBtn = document.getElementById('request-join-button');
-    if (requestJoinBtn) {
-      requestJoinBtn.addEventListener('click', async () => {
-        await requestToJoinGroup(groupId);
-        renderGroupDetailScreen(groupId);
-        showToast('Request sent', { type: 'success' });
-      });
-    }
-
-    navTabs.forEach(tab => tab.classList.remove('active'));
-  }
-
-  // Render channel detail screen
-  function renderDiscoverChannelDetailScreen(channelId) {
-    let channel = channels.find(c => c.id === channelId);
-    if (!channel) {
-      channel = discoverChannels.find(c => c.id === channelId);
-    }
-    if (!channel) {
-      window.location.hash = '/discover';
-      return;
-    }
-
-    const isFollowed = channels.some(c => c.id === channelId);
-
-    pageContainer.innerHTML = `
-      <div class="detail-screen">
-        <div class="detail-header">
-          <button class="back-button" aria-label="Back">←</button>
-          <h1>Channel Details</h1>
-        </div>
-        <div class="detail-content">
-          <div class="detail-avatar">${channel.avatar}</div>
-          <h2>${channel.name}</h2>
-          <div class="detail-badge">${channel.visibility === 'private' ? '🔒 Private' : '🌐 Public'}</div>
-          <p class="detail-description">${channel.description}</p>
-          <div class="detail-stat">${channel.memberCount} followers</div>
-          ${!isFollowed ? `<button class="detail-button" id="follow-button">Follow Channel</button>` : '<button class="detail-button" disabled>Already Following</button>'}
-        </div>
-      </div>
-    `;
-
-    document.querySelector('.back-button').addEventListener('click', () => {
-      window.location.hash = '/discover';
-    });
-
-    const followBtn = document.getElementById('follow-button');
-    if (followBtn) {
-      followBtn.addEventListener('click', () => {
-        followDiscoverChannel(channelId);
-        window.location.hash = '/discover';
-      });
-    }
-
-    navTabs.forEach(tab => tab.classList.remove('active'));
   }
 
   // Render messages page with tabs
@@ -4264,15 +4137,60 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Render group conversation screen
-  function renderGroupConversationPage(groupId, renderOptions) {
+  async function renderGroupConversationPage(groupId, renderOptions) {
     const fromSend = !!(renderOptions && renderOptions.fromSend);
-    const group = groups.find(g => g.id === groupId);
+    let group = groups.find(g => g.id === groupId);
+    const isMember = !!group;
+
+    if (!group) {
+      group = discoverGroups.find(g => g.id === groupId);
+    }
+    if (!group) {
+      // Not in local state -- reached via a Discover click or an invite link.
+      // A private group still resolves by exact id here (see the relaxed
+      // GET /api/groups/:groupId on the server) -- possessing the id is
+      // itself the authorization -- it just comes back with no member list.
+      try {
+        const response = await fetch(`/api/groups/${groupId}`, { headers: authHeaders() });
+        if (response.ok) {
+          const payload = await response.json();
+          if (payload.group) {
+            group = {
+              id: payload.group.id,
+              name: payload.group.name,
+              description: payload.group.description || '',
+              avatar: payload.group.avatar || generateDefaultAvatar(payload.group.name),
+              memberCount: payload.group.memberCount,
+              visibility: payload.group.visibility,
+              creatorId: payload.group.creatorId,
+              members: [],
+              joinRequests: [],
+              createdAt: payload.group.createdAt,
+              source: 'server'
+            };
+            // Cache it locally so Join/Request to Join keep working from this
+            // screen without another round trip. This is a "known groups"
+            // cache, not the Discover listing itself -- filterDiscoverCommunities
+            // still keeps private groups out of the visible Discover feed.
+            if (!discoverGroups.some(g => g.id === group.id)) {
+              discoverGroups.push(Object.assign({ isFeatured: false, isNew: !!payload.group.isNew }, group));
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('Could not load group:', error);
+      }
+    }
     if (!group) {
       renderPage('messages');
       return;
     }
 
-    const messagesList = group.messages.map(msg => {
+    const isPrivate = group.visibility === 'private';
+    const hasPendingRequest = !isMember && isPrivate && (group.joinRequests || []).some(r => r.userId === 'user_self');
+    const messages = group.messages || [];
+
+    const messagesList = messages.map(msg => {
       let messageHTML = `<div class="message-swipe-wrapper ${msg.isOutgoing ? 'wrapper-outgoing' : 'wrapper-incoming'}" data-message-id="${msg.id}">`;
       messageHTML += `<div class="message-reply-icon" aria-hidden="true">↩️</div>`;
       messageHTML += `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming has-avatar'}" data-message-id="${msg.id}">`;
@@ -4333,6 +4251,17 @@ document.addEventListener('DOMContentLoaded', () => {
       return messageHTML;
     }).join('');
 
+    let actionAreaHTML;
+    if (isMember) {
+      actionAreaHTML = composerMarkup();
+    } else if (hasPendingRequest) {
+      actionAreaHTML = `<button class="group-preview-action-button" id="group-join-action-btn" disabled>Request Pending</button>`;
+    } else if (isPrivate) {
+      actionAreaHTML = `<button class="group-preview-action-button" id="group-join-action-btn">Request to Join</button>`;
+    } else {
+      actionAreaHTML = `<button class="group-preview-action-button" id="group-join-action-btn">Join Group</button>`;
+    }
+
     pageContainer.innerHTML = `
       <div class="conversation-page">
         <div class="conversation-page-header">
@@ -4344,7 +4273,7 @@ document.addEventListener('DOMContentLoaded', () => {
               <div class="header-member-count">${group.memberCount} members</div>
             </div>
           </div>
-          <button class="menu-button" aria-label="More options">⋮</button>
+          ${isMember ? `<button class="menu-button" aria-label="More options">⋮</button>` : ''}
         </div>
         <div class="messages-area">
           <div class="messages-container">
@@ -4353,20 +4282,22 @@ document.addEventListener('DOMContentLoaded', () => {
           ${scrollToLatestFabHTML()}
         </div>
         <div class="composer-container">
-          ${composerMarkup()}
+          ${actionAreaHTML}
         </div>
       </div>
     `;
 
-    // Add back button handler. Returns to the Create menu when this chat was
-    // opened from its managed-groups list, otherwise falls back to Messages.
+    // Add back button handler. Returns to Discover when this chat was opened
+    // from a Discover card (or an invite link), the Create menu when opened
+    // from its managed-groups list, otherwise falls back to Messages.
     document.querySelector('.back-button').addEventListener('click', () => {
       window.location.hash = groupChannelBackTarget;
     });
 
-    // Add interactive header controls for group management
+    // Add interactive header controls for group management. Not applicable
+    // for a non-member preview — there's no Group Info/edit surface to jump to.
     const headerInfo = document.getElementById(`group-header-info-${groupId}`);
-    if (headerInfo) {
+    if (headerInfo && isMember) {
       headerInfo.style.cursor = 'pointer';
       // Admins/owners get a quick edit shortcut on tap; everyone else is
       // taken to the Group Info screen (view-only for them, and where
@@ -4408,6 +4339,25 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
+    // Wire the Join/Request action button shown in place of the composer
+    // for a non-member. Re-renders this same page in place on success so
+    // the user lands straight in the conversation instead of bouncing to
+    // Discover (joinDiscoverGroup/requestToJoinGroup both internally call
+    // renderDiscoverPage(), but nothing awaits between that DOM write and
+    // this one, so there's no visible flicker).
+    const joinActionButton = document.getElementById('group-join-action-btn');
+    if (joinActionButton && !hasPendingRequest) {
+      joinActionButton.addEventListener('click', async () => {
+        joinActionButton.disabled = true;
+        if (isPrivate) {
+          await requestToJoinGroup(groupId);
+        } else {
+          await joinDiscoverGroup(groupId);
+        }
+        renderGroupConversationPage(groupId);
+      });
+    }
+
     // Scroll to latest message after DOM renders. The screenshot deep link parks
     // the list at the top so the FAB is visible — but after SENDING we always
     // jump to the bottom so the user sees the message they just wrote.
@@ -4428,19 +4378,26 @@ document.addEventListener('DOMContentLoaded', () => {
     // Floating "jump to newest message" button
     setupScrollToLatestFab(groupRoot);
 
-    // Set up message long-press interactions
-    setupMessageLongPress(group, 'group');
-    setupMessageSwipeToReply(group, 'group');
+    // Set up message long-press interactions (no-op for a non-member preview,
+    // which has no editable messages, but harmless to skip explicitly)
+    if (isMember) {
+      setupMessageLongPress(group, 'group');
+      setupMessageSwipeToReply(group, 'group');
+    }
     setupForwardAttributionLinks(groupRoot);
 
     // Set up image lightbox for image messages
     setupImageLightbox();
 
-    // Set up send button and reply state management
-    setupComposer(group, { isGroup: true });
+    // Set up send button and reply state management -- only relevant once
+    // the viewer is actually a member; non-members see the Join/Request
+    // button wired above instead.
+    if (isMember) {
+      setupComposer(group, { isGroup: true });
+    }
 
     // Must stay last: the send re-renders this page underneath us.
-    if (SHOT_SEND_STAY && !fromSend) sendShotMessage(groupRoot);
+    if (isMember && SHOT_SEND_STAY && !fromSend) sendShotMessage(groupRoot);
   }
 
   // Show group menu with all options (members, edit description, leave)
@@ -5316,50 +5273,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Share Group (all members)
     document.getElementById('share-group-button').addEventListener('click', () => {
-      const link = `${window.location.origin}/?group=${groupId}`;
-
-      const copyFallback = () => {
-        const textarea = document.createElement('textarea');
-        textarea.value = link;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.focus();
-        textarea.select();
-
-        let copied = false;
-        try {
-          copied = document.execCommand('copy');
-        } catch (err) {
-          copied = false;
-        }
-        document.body.removeChild(textarea);
-
-        if (copied) {
-          showToast('Link copied to clipboard', { type: 'success' });
-        } else {
-          // Clipboard access is unavailable (e.g. embedded iframe without
-          // clipboard-write permission) - fall back to a native prompt so
-          // the user can still copy the link manually instead of hitting
-          // a dead-end error.
-          window.prompt('Copy this link to share the group:', link);
-        }
-      };
-
-      if (navigator.share) {
-        navigator.share({
-          title: group.name,
-          url: link
-        }).catch(err => console.log('Share cancelled or failed'));
-      } else if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(link).then(() => {
-          showToast('Link copied to clipboard', { type: 'success' });
-        }).catch(() => {
-          copyFallback();
-        });
-      } else {
-        copyFallback();
-      }
+      shareLink(group.name, `${window.location.origin}/?group=${groupId}`);
     });
 
     // Add members
@@ -6551,7 +6465,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Render Channel View page
   function renderChannelView(channelId) {
-    const channel = channels.find(c => c.id === channelId);
+    let channel = channels.find(c => c.id === channelId);
+
+    if (!channel) {
+      // Not followed yet -- reached via a Discover click. discoverChannels
+      // items only carry `memberCount`; normalize the fields the rest of
+      // this view (and postCardHTML) expect from a real `channels` entry.
+      const discoverChannel = discoverChannels.find(c => c.id === channelId);
+      if (discoverChannel) {
+        channel = Object.assign({
+          followers: {},
+          followerCount: discoverChannel.memberCount || 0,
+          posts: [],
+          creatorId: null,
+          mutedByUsers: {}
+        }, discoverChannel);
+      }
+    }
     if (!channel) {
       window.location.hash = '/messages';
       return;
@@ -6559,6 +6489,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const isOwner = channel.creatorId === 'user_self';
     const isFollowing = !!channel.followers['user_self'];
+    // A menu with Copy Link/Mute/Unfollow only makes sense once the viewer
+    // actually has a relationship to the channel (owns it or follows it) --
+    // a bare Discover preview has neither.
+    const canShowMenu = isOwner || isFollowing;
 
     // channel.posts is newest-first (publishPost unshifts), so the natural
     // top-of-list position already shows the latest post — no scrolling needed.
@@ -6576,7 +6510,7 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
           </div>
           ${(!isFollowing && !isOwner) ? `<button class="channel-follow-pill" aria-label="Follow channel">Follow</button>` : ''}
-          <button class="menu-button" aria-label="More options">⋮</button>
+          ${canShowMenu ? `<button class="menu-button" aria-label="More options">⋮</button>` : ''}
         </div>
         <div class="channel-feed">
           ${postsList || `
@@ -6607,8 +6541,9 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
     `;
 
-    // Back button handler. Returns to the Create menu when this channel was
-    // opened from its managed-channels list, otherwise falls back to Messages.
+    // Back button handler. Returns to Discover when this channel was opened
+    // from a Discover card (or an invite link), the Create menu when opened
+    // from its managed-channels list, otherwise falls back to Messages.
     document.querySelector('.back-button').addEventListener('click', () => {
       window.location.hash = groupChannelBackTarget;
     });
@@ -6626,7 +6561,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const followPill = document.querySelector('.channel-follow-pill');
     if (followPill) {
       followPill.addEventListener('click', () => {
-        followChannel(channelId);
+        if (channels.some(c => c.id === channelId)) {
+          followChannel(channelId);
+        } else {
+          followDiscoverChannel(channelId);
+        }
         showToast('Following channel', { type: 'success' });
         renderChannelView(channelId);
       });
@@ -6895,6 +6834,11 @@ document.addEventListener('DOMContentLoaded', () => {
           <span class="option-label">Edit Channel</span>
           <span class="option-chevron">›</span>
         </button>
+        <button class="menu-option" id="share-channel-btn">
+          <span class="option-icon">🔗</span>
+          <span class="option-label">Share Channel</span>
+          <span class="option-chevron">›</span>
+        </button>
         <button class="menu-option leave-option" id="delete-channel-btn">
           <span class="option-icon">🗑️</span>
           <span class="option-label">Delete Channel</span>
@@ -6902,9 +6846,9 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
     } else {
       menuHTML += `
-        <button class="menu-option" id="copy-link-btn">
+        <button class="menu-option" id="share-channel-btn">
           <span class="option-icon">🔗</span>
-          <span class="option-label">Copy Link</span>
+          <span class="option-label">Share Channel</span>
           <span class="option-chevron">›</span>
         </button>
         <button class="menu-option" id="mute-notifications-btn">
@@ -6930,6 +6874,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (e.target === overlay) overlay.remove();
     });
 
+    document.getElementById('share-channel-btn')?.addEventListener('click', () => {
+      overlay.remove();
+      shareLink(channel.name, `${window.location.origin}/?channel=${channelId}`);
+    });
+
     if (isOwner) {
       document.getElementById('delete-channel-btn')?.addEventListener('click', () => {
         overlay.remove();
@@ -6940,14 +6889,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       });
     } else {
-      document.getElementById('copy-link-btn')?.addEventListener('click', () => {
-        const link = `channel/${channelId}`;
-        navigator.clipboard.writeText(link).then(() => {
-          overlay.remove();
-          showToast('Link copied to clipboard', { type: 'success' });
-        });
-      });
-
       document.getElementById('mute-notifications-btn')?.addEventListener('click', () => {
         const isMuted = channel.mutedByUsers['user_self'];
         toggleMuteChannel(channelId, !isMuted);
@@ -7388,6 +7329,46 @@ document.addEventListener('DOMContentLoaded', () => {
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) overlay.remove();
     });
+  }
+
+  // Share a link via the native share sheet, falling back to clipboard, then
+  // a copy-friendly textarea, then a plain prompt if nothing else works.
+  function shareLink(title, link) {
+    const copyFallback = () => {
+      const textarea = document.createElement('textarea');
+      textarea.value = link;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+
+      let copied = false;
+      try {
+        copied = document.execCommand('copy');
+      } catch (err) {
+        copied = false;
+      }
+      document.body.removeChild(textarea);
+
+      if (copied) {
+        showToast('Link copied to clipboard', { type: 'success' });
+      } else {
+        window.prompt('Copy this link to share:', link);
+      }
+    };
+
+    if (navigator.share) {
+      navigator.share({ title, url: link }).catch(err => console.log('Share cancelled or failed'));
+    } else if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(link).then(() => {
+        showToast('Link copied to clipboard', { type: 'success' });
+      }).catch(() => {
+        copyFallback();
+      });
+    } else {
+      copyFallback();
+    }
   }
 
   // Show toast notification
@@ -8018,18 +7999,20 @@ document.addEventListener('DOMContentLoaded', () => {
       const groupId = parts[1];
       const action = parts[2];
 
-      // Gate the group's chat/info/management screens to members only. Non-members
-      // (or unknown group IDs) are redirected to the info/detail screen instead.
+      // The info/add-members/join-requests screens are still member/admin-only.
+      // The base chat route below renders for non-members too (Discover clicks
+      // and invite links both land there), showing a Join/Request action bar
+      // in place of the composer.
       const joinedGroup = groups.find(g => g.id === groupId);
       const isMember = !!joinedGroup && joinedGroup.members.some(m => m.id === 'user_self');
 
-      if (!isMember) {
-        window.location.hash = `/discover/group/${groupId}`;
+      if (action && !isMember) {
+        window.location.hash = `/group/${groupId}`;
         return;
       }
 
       // Add Members and Join Requests are restricted to owner/admin
-      const myRole = (joinedGroup.members.find(m => m.id === 'user_self') || {}).role;
+      const myRole = isMember ? (joinedGroup.members.find(m => m.id === 'user_self') || {}).role : null;
       const canManageMembers = myRole === 'owner' || myRole === 'admin';
 
       // Remove active from all nav tabs when on group screen
@@ -8048,7 +8031,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } else if (action === 'join-requests') {
         renderJoinRequestsPage(groupId);
       } else {
-        groupChannelBackTarget = (priorHash === '/create') ? '/create' : '/messages';
+        groupChannelBackTarget = computeGroupChannelBackTarget(priorHash);
         renderGroupConversationPage(groupId);
       }
     } else if (path.startsWith('channel/')) {
@@ -8058,7 +8041,7 @@ document.addEventListener('DOMContentLoaded', () => {
       navTabs.forEach(tab => tab.classList.remove('active'));
       // Hide bottom nav on channel screen
       bottomNav.style.display = 'none';
-      groupChannelBackTarget = (priorHash === '/create') ? '/create' : '/messages';
+      groupChannelBackTarget = computeGroupChannelBackTarget(priorHash);
       renderChannelView(channelId);
     } else if (path === 'create-group') {
       // Hide bottom nav on create group screen
@@ -8078,16 +8061,6 @@ document.addEventListener('DOMContentLoaded', () => {
       // Remove active from all nav tabs
       navTabs.forEach(tab => tab.classList.remove('active'));
       renderProfileEditBioPage();
-    } else if (path.startsWith('discover/group/')) {
-      const groupId = path.split('/')[2];
-      bottomNav.style.display = 'none';
-      navTabs.forEach(tab => tab.classList.remove('active'));
-      renderGroupDetailScreen(groupId);
-    } else if (path.startsWith('discover/channel/')) {
-      const channelId = path.split('/')[2];
-      bottomNav.style.display = 'none';
-      navTabs.forEach(tab => tab.classList.remove('active'));
-      renderDiscoverChannelDetailScreen(channelId);
     } else if (path === 'discover' || path.startsWith('discover?')) {
       bottomNav.style.display = 'flex';
       renderDiscoverPage();
