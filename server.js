@@ -61,6 +61,8 @@ const PUBLIC_API_PATHS = new Set(['/health', '/api/state']);
 // per-user data, so every group route must run against a verified req.user.
 // /api/conversations is deliberately NOT listed here either: conversation
 // pin/read/hide state is per-user, so it must run against a verified req.user.
+// /api/messages and /api/direct-conversations aren't listed either: message
+// history and who a user is DMing are both per-user data.
 const PUBLIC_PREFIXES = ['/explorer-api/'];
 
 app.use((req, res, next) => {
@@ -722,6 +724,241 @@ app.put('/api/conversations/:id/state', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Messaging (DM / group / channel) helpers
+// ---------------------------------------------------------------------------
+
+// Canonical id for a real (non-mock) direct conversation between two real
+// users: the two user ids sorted, so either participant resolves to the same
+// row regardless of who "started" it. This is the fix for the DM half of the
+// message-delivery bug -- the frontend's `conv_<peerId>` id is a per-browser
+// construct, not a shared identity, so persistence has to be keyed on
+// something both sides agree on.
+async function getOrCreateDirectConversation(userIdA, userIdB) {
+  const [a, b] = [userIdA, userIdB].sort();
+  const existing = await pool.query(
+    'SELECT id FROM direct_conversations WHERE user_id_a = $1 AND user_id_b = $2',
+    [a, b]
+  );
+  if (existing.rowCount > 0) return existing.rows[0].id;
+
+  const id = 'dm_' + crypto.randomBytes(12).toString('hex');
+  await pool.query(
+    `INSERT INTO direct_conversations (id, user_id_a, user_id_b)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (user_id_a, user_id_b) DO NOTHING`,
+    [id, a, b]
+  );
+  const row = await pool.query(
+    'SELECT id FROM direct_conversations WHERE user_id_a = $1 AND user_id_b = $2',
+    [a, b]
+  );
+  return row.rows[0].id;
+}
+
+// Same OR-match sentinel pattern as getGroupRole above: a channel seeded with
+// creator_user_id 'user_self' is "owned" by whichever real user is currently
+// logged in, matching the frontend's channels fixture semantics exactly.
+async function getChannelRole(channelId, userId) {
+  const chResult = await pool.query('SELECT creator_user_id FROM channels WHERE id = $1', [channelId]);
+  if (chResult.rows.length === 0) return null;
+  return (chResult.rows[0].creator_user_id === userId || chResult.rows[0].creator_user_id === 'user_self')
+    ? 'owner'
+    : 'follower';
+}
+
+function shapeMessage(row) {
+  const msg = {
+    id: row.id,
+    senderId: row.sender_user_id,
+    senderName: row.sender_username,
+    text: row.text || '',
+    timestamp: new Date(row.created_at).getTime()
+  };
+  if (row.image_url) {
+    msg.imageUrl = row.image_url;
+    msg.imageId = row.image_id;
+  }
+  if (row.reply_to_message_id) {
+    msg.replyToMessageId = row.reply_to_message_id;
+    msg.replyToSenderName = row.reply_to_sender_name;
+    msg.replyToPreviewText = row.reply_to_preview_text;
+  }
+  return msg;
+}
+
+const MAX_MESSAGE_TEXT_LENGTH = 4000;
+
+// Shared insert, used by all three surfaces. The message id is client-chosen
+// (the same id the sender is already rendering optimistically) so a retry --
+// or the sender's own next poll -- is naturally idempotent instead of
+// creating a duplicate bubble.
+async function insertMessage(conversationType, conversationId, sender, body) {
+  const id = typeof (body && body.id) === 'string' && body.id.trim()
+    ? body.id.trim().slice(0, 100)
+    : `msg_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+  const text = typeof (body && body.text) === 'string' ? body.text.slice(0, MAX_MESSAGE_TEXT_LENGTH) : '';
+  const imageUrl = typeof (body && body.imageUrl) === 'string' ? body.imageUrl : null;
+  const imageId = typeof (body && body.imageId) === 'string' ? body.imageId : null;
+  const replyTo = body && body.replyTo && typeof body.replyTo === 'object' ? body.replyTo : null;
+
+  await pool.query(
+    `INSERT INTO messages
+       (id, conversation_type, conversation_id, sender_user_id, sender_username,
+        text, image_url, image_id, reply_to_message_id, reply_to_sender_name, reply_to_preview_text)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     ON CONFLICT (id) DO NOTHING`,
+    [
+      id, conversationType, conversationId, sender.id, sender.username || sender.id,
+      text, imageUrl, imageId,
+      replyTo ? String(replyTo.messageId || '').slice(0, 100) || null : null,
+      replyTo ? String(replyTo.senderName || '').slice(0, 80) : null,
+      replyTo ? String(replyTo.previewText || '').slice(0, 200) : null
+    ]
+  );
+  const row = await pool.query('SELECT * FROM messages WHERE id = $1', [id]);
+  return shapeMessage(row.rows[0]);
+}
+
+async function listMessages(conversationType, conversationId) {
+  const result = await pool.query(
+    `SELECT * FROM messages WHERE conversation_type = $1 AND conversation_id = $2
+      ORDER BY created_at ASC LIMIT 500`,
+    [conversationType, conversationId]
+  );
+  return result.rows.map(shapeMessage);
+}
+
+// ---------------------------------------------------------------------------
+// Messaging API Endpoints
+// ---------------------------------------------------------------------------
+
+// GET /api/direct-conversations - list the caller's real DM conversations
+// (peer identity + last message), so the inbox survives a reload instead of
+// only ever existing in that tab's in-memory `conversations` array.
+app.get('/api/direct-conversations', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT dc.id, dc.user_id_a, dc.user_id_b,
+              u.username AS peer_username, u.usernode_pubkey AS peer_pubkey,
+              lm.text AS last_text, lm.sender_user_id AS last_sender_id, lm.created_at AS last_at
+         FROM direct_conversations dc
+         JOIN users u ON u.id = (CASE WHEN dc.user_id_a = $1 THEN dc.user_id_b ELSE dc.user_id_a END)
+         LEFT JOIN LATERAL (
+           SELECT text, sender_user_id, created_at FROM messages
+            WHERE conversation_type = 'direct' AND conversation_id = dc.id
+            ORDER BY created_at DESC LIMIT 1
+         ) lm ON true
+        WHERE dc.user_id_a = $1 OR dc.user_id_b = $1
+        ORDER BY COALESCE(lm.created_at, dc.created_at) DESC`,
+      [req.user.id]
+    );
+    res.json({
+      conversations: result.rows.map((row) => ({
+        peerId: row.user_id_a === req.user.id ? row.user_id_b : row.user_id_a,
+        peerUsername: row.peer_username,
+        peerWalletAddress: row.peer_pubkey || null,
+        lastMessage: row.last_text || null,
+        lastMessageSenderId: row.last_sender_id || null,
+        lastMessageAt: row.last_at ? new Date(row.last_at).getTime() : null
+      }))
+    });
+  } catch (err) {
+    console.error('[messages] direct-conversations list failed:', err);
+    res.status(500).json({ error: 'Failed to load conversations' });
+  }
+});
+
+// GET /api/messages/direct/:peerId - full history of the caller's DM thread
+// with peerId. Scoped by construction: the conversation row is looked up (or
+// simply doesn't exist yet) for req.user + peerId, so there's no conversation
+// id a caller could pass to read someone else's thread.
+app.get('/api/messages/direct/:peerId', async (req, res) => {
+  try {
+    const [a, b] = [req.user.id, req.params.peerId].sort();
+    const convRes = await pool.query(
+      'SELECT id FROM direct_conversations WHERE user_id_a = $1 AND user_id_b = $2',
+      [a, b]
+    );
+    if (convRes.rowCount === 0) return res.json({ messages: [] });
+    res.json({ messages: await listMessages('direct', convRes.rows[0].id) });
+  } catch (err) {
+    console.error('[messages] direct fetch failed:', err);
+    res.status(500).json({ error: 'Failed to load messages' });
+  }
+});
+
+// POST /api/messages/direct/:peerId - send a DM. Any authenticated user can
+// message any other; the conversation row is created on first send.
+app.post('/api/messages/direct/:peerId', async (req, res) => {
+  const peerId = req.params.peerId;
+  if (peerId === req.user.id) return res.status(400).json({ error: "Can't message yourself" });
+  try {
+    const conversationId = await getOrCreateDirectConversation(req.user.id, peerId);
+    const message = await insertMessage('direct', conversationId, req.user, req.body);
+    res.status(201).json({ message });
+  } catch (err) {
+    console.error('[messages] direct send failed:', err);
+    res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+// GET /api/messages/group/:groupId - only members can read a group's history.
+app.get('/api/messages/group/:groupId', async (req, res) => {
+  try {
+    const role = await getGroupRole(req.params.groupId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Group not found' });
+    res.json({ messages: await listMessages('group', req.params.groupId) });
+  } catch (err) {
+    console.error('[messages] group fetch failed:', err);
+    res.status(500).json({ error: 'Failed to load messages' });
+  }
+});
+
+// POST /api/messages/group/:groupId - any member can post (owners/admins are
+// not special here, matching the composer already being shown to every
+// member in renderGroupConversationPage).
+app.post('/api/messages/group/:groupId', async (req, res) => {
+  try {
+    const role = await getGroupRole(req.params.groupId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Group not found' });
+    const message = await insertMessage('group', req.params.groupId, req.user, req.body);
+    res.status(201).json({ message });
+  } catch (err) {
+    console.error('[messages] group send failed:', err);
+    res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+// GET /api/messages/channel/:channelId - channel posts are broadcast content;
+// any authenticated user can read them (matches renderChannelView showing the
+// feed to owners, followers and Discover previews alike).
+app.get('/api/messages/channel/:channelId', async (req, res) => {
+  try {
+    const role = await getChannelRole(req.params.channelId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Channel not found' });
+    res.json({ messages: await listMessages('channel', req.params.channelId) });
+  } catch (err) {
+    console.error('[messages] channel fetch failed:', err);
+    res.status(500).json({ error: 'Failed to load messages' });
+  }
+});
+
+// POST /api/messages/channel/:channelId - owner only, matching publishPost's
+// existing `channel.creatorId !== 'user_self'` guard on the client.
+app.post('/api/messages/channel/:channelId', async (req, res) => {
+  try {
+    const role = await getChannelRole(req.params.channelId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Channel not found' });
+    if (role !== 'owner') return res.status(403).json({ error: 'Only the channel owner can post' });
+    const message = await insertMessage('channel', req.params.channelId, req.user, req.body);
+    res.status(201).json({ message });
+  } catch (err) {
+    console.error('[messages] channel send failed:', err);
+    res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
 // Initialize database schema
 async function initDatabase() {
   try {
@@ -786,6 +1023,64 @@ async function initDatabase() {
     `);
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS direct_conversations (
+        id TEXT PRIMARY KEY,
+        user_id_a TEXT NOT NULL,
+        user_id_b TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (user_id_a, user_id_b)
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS channels (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        avatar TEXT NOT NULL DEFAULT '',
+        creator_user_id TEXT NOT NULL,
+        creator_username TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS channel_followers (
+        channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL,
+        followed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (channel_id, user_id)
+      );
+    `);
+
+    // The single message store for all three surfaces (DM/group/channel),
+    // discriminated by (conversation_type, conversation_id). This is the
+    // table that never existed before -- sent messages only ever lived in
+    // each browser's in-memory JS array, so nothing was ever delivered to
+    // another user or survived a reload.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        conversation_type TEXT NOT NULL CHECK (conversation_type IN ('direct', 'group', 'channel')),
+        conversation_id TEXT NOT NULL,
+        sender_user_id TEXT NOT NULL,
+        sender_username TEXT NOT NULL,
+        text TEXT NOT NULL DEFAULT '',
+        image_url TEXT,
+        image_id TEXT,
+        reply_to_message_id TEXT,
+        reply_to_sender_name TEXT,
+        reply_to_preview_text TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS messages_conversation_idx
+         ON messages (conversation_type, conversation_id, created_at)`
+    );
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS conversation_user_state (
         conversation_id TEXT NOT NULL,
         user_id TEXT NOT NULL,
@@ -819,6 +1114,36 @@ async function initDatabase() {
     // Private: a hidden_from_inbox/pinned row ties a real user_id to a
     // specific conversation_id, which can reveal who a user is DMing.
     await pool.query(`COMMENT ON TABLE conversation_user_state IS 'staging:private'`);
+    // Private: reveals who is DMing whom, and the DM content itself.
+    await pool.query(`COMMENT ON TABLE direct_conversations IS 'staging:private'`);
+    await pool.query(`COMMENT ON TABLE messages IS 'staging:private'`);
+    // Private: mirrors the groups table -- channel identity/membership is
+    // treated the same way even though the demo channels themselves are
+    // reseeded unconditionally below (matching the fixtures already shipped
+    // to every client regardless of environment).
+    await pool.query(`COMMENT ON TABLE channels IS 'staging:private'`);
+    await pool.query(`COMMENT ON TABLE channel_followers IS 'staging:private'`);
+
+    // These 4 ids/names/creators mirror the `channels` fixture array baked
+    // into public/app.js (shipped unconditionally, not just in staging), so
+    // this seed runs in every environment to give that same fixture data a
+    // real row to persist messages against. channel_1/channel_3 keep a
+    // creator no real logged-in user ever matches (their composer is never
+    // shown), same as the client already models them.
+    const channelSeeds = [
+      { id: 'channel_1', name: 'Solana Indonesia', creatorId: 'user_4', creatorUsername: 'user_4' },
+      { id: 'channel_2', name: 'Web3 Builders', creatorId: 'user_self', creatorUsername: 'user_self' },
+      { id: 'channel_3', name: 'Design Tips', creatorId: 'user_8', creatorUsername: 'user_8' },
+      { id: 'channel_4', name: 'Builder Notes', creatorId: 'user_self', creatorUsername: 'user_self' }
+    ];
+    for (const seed of channelSeeds) {
+      await pool.query(
+        `INSERT INTO channels (id, name, creator_user_id, creator_username)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (id) DO NOTHING`,
+        [seed.id, seed.name, seed.creatorId, seed.creatorUsername]
+      );
+    }
 
     console.log('Database initialized');
   } catch (err) {
