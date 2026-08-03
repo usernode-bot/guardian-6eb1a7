@@ -44,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=create-group-zero-members name only, then submits                  → "Select at least 1 member" must render
   //   ?shot=search-users             runs a real /api/users/search query        → matching staging-demo user must render
   //   ?shot=requests-tab             opens Messages straight into the Requests tab → seeded pending request must render
+  //   ?shot=dc-preview                sends a real DM to a staging peer on load  → Messages list preview must show its text, not be blank
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -70,10 +71,15 @@ document.addEventListener('DOMContentLoaded', () => {
   let shotDescEditFired = false;
   const SHOT_SEARCH_USERS = SHOT === 'search-users';
   const SHOT_REQUESTS_TAB = SHOT === 'requests-tab';
+  const SHOT_DC_PREVIEW = SHOT === 'dc-preview';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
   const SHOT_CREATE_GROUP_NAME = 'Staging demo one-invite group';
   const SHOT_SEARCH_QUERY = 'citra';
+  // Any staging-seeded user works as the DM peer here -- seedStagingUsers()
+  // always creates this one regardless of which account the test itself runs as.
+  const SHOT_DC_PREVIEW_PEER_ID = 'staging-demo-user-6';
+  const SHOT_DC_PREVIEW_TEXT = 'Shot dc preview check';
 
   // The signed-in Usernode user, hydrated from /api/state at boot. Server rows
   // for this id are mapped onto the app's long-standing 'user_self' sentinel so
@@ -806,6 +812,7 @@ document.addEventListener('DOMContentLoaded', () => {
       followerCount: 12500,
       followers: { 'user_self': true, 'user_1': true, 'user_2': true },
       mutedByUsers: {},
+      admins: [],
       posts: [
         {
           id: 'post_1',
@@ -851,6 +858,9 @@ document.addEventListener('DOMContentLoaded', () => {
       followerCount: 245,
       followers: { 'user_self': true },
       mutedByUsers: {},
+      // Staging demo data: one existing admin so the Channel Info page's
+      // Admins list and owner-only "Remove" control both have something to show.
+      admins: [{ id: 'user_1', username: 'aksaranft', avatar: 'AK', walletAddress: null }],
       posts: [
         {
           id: 'post_3',
@@ -874,6 +884,7 @@ document.addEventListener('DOMContentLoaded', () => {
       followerCount: 2000,
       followers: {},
       mutedByUsers: {},
+      admins: [],
       posts: [
         {
           id: 'post_4',
@@ -899,6 +910,7 @@ document.addEventListener('DOMContentLoaded', () => {
       followerCount: 18,
       followers: { 'user_self': true },
       mutedByUsers: {},
+      admins: [],
       posts: [
         {
           id: 'post_6',
@@ -913,6 +925,31 @@ document.addEventListener('DOMContentLoaded', () => {
       ]
     }
   ];
+
+  // Screenshot-state seed: pad channel_1's feed so it actually scrolls, same
+  // reasoning as the DM/group padding above (SHOT_LONG_THREAD is declared
+  // before `channels` exists, so this seed has to live down here instead).
+  // channel.posts is newest-first in storage, so filler posts are appended to
+  // the END (older than the seeded posts) rather than concatenated at the
+  // front like the DM/group arrays above.
+  if (SHOT_LONG_THREAD) {
+    const demoChannel = channels.find(c => c.id === 'channel_1');
+    if (demoChannel) {
+      const paddedPosts = [];
+      for (let i = 0; i < 24; i++) {
+        paddedPosts.push({
+          id: `shot_post_${i + 1}`,
+          channelId: 'channel_1',
+          authorId: 'user_4',
+          text: `Staging demo post #${i + 1} in this channel.`,
+          timestamp: Date.now() - (49 + i) * 60 * 60 * 1000,
+          reactions: {},
+          isPinned: false
+        });
+      }
+      demoChannel.posts = demoChannel.posts.concat(paddedPosts);
+    }
+  }
 
   // The fixed reaction set offered on channel posts. Single source of truth for
   // BOTH the picker order and the chip order, so chips never reshuffle as counts
@@ -1225,7 +1262,13 @@ document.addEventListener('DOMContentLoaded', () => {
             username: dc.peerUsername,
             avatar: generateDefaultAvatar(dc.peerUsername),
             lastMessage: '',
-            timestamp: Date.now(),
+            // 0, not Date.now() -- the check below only applies dc.lastMessage
+            // when it's newer than what's already known. A freshly-created
+            // conv has no "known" activity yet, so seeding this with the
+            // current time would make every real dc.lastMessageAt (always in
+            // the past) lose that comparison and the preview/timestamp would
+            // never populate.
+            timestamp: 0,
             unreadCount: 0,
             onlineStatus: false,
             archived: false,
@@ -2218,22 +2261,23 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const newConversation = {
-      id: 'conv_' + request.senderId,
-      type: 'direct',
-      username: request.senderName,
-      avatar: request.avatar,
-      lastMessage: request.messagePreview,
-      timestamp: request.timestamp,
-      unreadCount: 0,
-      archived: false,
-      pinned: false,
-      onlineStatus: false,
-      mutedByUsers: {},
-      messages: []
-    };
-
-    conversations.unshift(newConversation);
+    const convId = 'conv_' + request.senderId;
+    if (!conversations.find(c => c.id === convId)) {
+      conversations.unshift({
+        id: convId,
+        type: 'direct',
+        username: request.senderName,
+        avatar: request.avatar,
+        lastMessage: request.messagePreview,
+        timestamp: request.timestamp,
+        unreadCount: 0,
+        archived: false,
+        pinned: false,
+        onlineStatus: false,
+        mutedByUsers: {},
+        messages: []
+      });
+    }
     requests = requests.filter(r => r.id !== requestId);
     renderMessagesPage();
   }
@@ -3044,10 +3088,16 @@ document.addEventListener('DOMContentLoaded', () => {
     return sortCommunitiesByRecency(groups.filter(isCurrentUserGroupManager), 'group');
   }
 
-  // Channels the user created. Channels have no admin role — every ownership
-  // check in this file is creatorId-based — so creator is the whole predicate.
+  // Whether 'user_self' is the creator or an admin of the given channel.
+  function isCurrentUserChannelAdmin(channel) {
+    if (!channel) return false;
+    if (channel.creatorId === 'user_self') return true;
+    return !!(channel.admins && channel.admins.some(a => a.id === 'user_self'));
+  }
+
+  // Channels the user created or administers.
   function getManagedChannels() {
-    return sortCommunitiesByRecency(channels.filter(c => c.creatorId === 'user_self'), 'channel');
+    return sortCommunitiesByRecency(channels.filter(isCurrentUserChannelAdmin), 'channel');
   }
 
   // 'Owner' / 'Admin' badge text, matching the wording used on the members list.
@@ -3055,6 +3105,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const role = getSelfGroupRole(group);
     if (group.creatorId === 'user_self' || role === 'owner') return 'Owner';
     return role === 'admin' ? 'Admin' : '';
+  }
+
+  // 'Owner' / 'Admin' badge text for the managed-channels list.
+  function getManagedChannelRoleLabel(channel) {
+    if (channel.creatorId === 'user_self') return 'Owner';
+    return isCurrentUserChannelAdmin(channel) ? 'Admin' : '';
   }
 
   // Avatars are either two-letter initials (seeded data) or a data-URL from
@@ -3086,7 +3142,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const rows = items.map((item, index) => {
       const hidden = index >= MANAGED_LIST_PREVIEW_COUNT ? ' is-hidden' : '';
-      const roleLabel = isChannel ? 'Owner' : getManagedGroupRoleLabel(item);
+      const roleLabel = isChannel ? getManagedChannelRoleLabel(item) : getManagedGroupRoleLabel(item);
       const meta = isChannel
         ? `${(item.followerCount || 0).toLocaleString()} followers`
         : `${item.memberCount || 0} members`;
@@ -6401,6 +6457,7 @@ document.addEventListener('DOMContentLoaded', () => {
       followerCount: 1,
       followers: { 'user_self': true },
       mutedByUsers: {},
+      admins: [],
       posts: []
     };
 
@@ -6720,6 +6777,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Render Channel View page
   async function renderChannelView(channelId, renderOptions) {
+    const fromPublish = !!(renderOptions && renderOptions.fromPublish);
     const fromSend = !!(renderOptions && renderOptions.fromSend);
     let channel = channels.find(c => c.id === channelId);
 
@@ -6734,7 +6792,8 @@ document.addEventListener('DOMContentLoaded', () => {
           followerCount: discoverChannel.memberCount || 0,
           posts: [],
           creatorId: null,
-          mutedByUsers: {}
+          mutedByUsers: {},
+          admins: []
         }, discoverChannel);
       }
     }
@@ -6746,15 +6805,18 @@ document.addEventListener('DOMContentLoaded', () => {
     await hydrateChannelPosts(channelId, channel);
 
     const isOwner = channel.creatorId === 'user_self';
+    const isAdmin = isCurrentUserChannelAdmin(channel);
     const isFollowing = !!channel.followers['user_self'];
     // A menu with Copy Link/Mute/Unfollow only makes sense once the viewer
     // actually has a relationship to the channel (owns it or follows it) --
     // a bare Discover preview has neither.
-    const canShowMenu = isOwner || isFollowing;
+    const canShowMenu = isOwner || isAdmin || isFollowing;
 
-    // channel.posts is newest-first (publishPost unshifts), so the natural
-    // top-of-list position already shows the latest post — no scrolling needed.
-    const postsList = channel.posts.map(post => postCardHTML(channel, post)).join('');
+    // channel.posts is newest-first in storage (publishPost unshifts, and the
+    // lastMessage/unread logic elsewhere reads posts[0] as "the newest") — but
+    // the feed now DISPLAYS oldest-first, same chronological order as DM/group
+    // chat, so the newest post lands at the bottom like a chat thread.
+    const postsList = channel.posts.slice().reverse().map(post => postCardHTML(channel, post)).join('');
 
     pageContainer.innerHTML = `
       <div class="conversation-page channel-page">
@@ -6770,14 +6832,17 @@ document.addEventListener('DOMContentLoaded', () => {
           ${(!isFollowing && !isOwner) ? `<button class="channel-follow-pill" aria-label="Follow channel">Follow</button>` : ''}
           ${canShowMenu ? `<button class="menu-button" aria-label="More options">⋮</button>` : ''}
         </div>
-        <div class="channel-feed">
-          ${postsList || `
-            <div class="empty-state channel-empty-state">
-              <div class="channel-empty-icon" aria-hidden="true">📭</div>
-              <div class="channel-empty-title">No posts yet</div>
-              <div class="channel-empty-hint">${isOwner ? 'Publish your first post below.' : 'Check back soon for updates.'}</div>
-            </div>
-          `}
+        <div class="messages-area">
+          <div class="channel-feed messages-container">
+            ${postsList || `
+              <div class="empty-state channel-empty-state">
+                <div class="channel-empty-icon" aria-hidden="true">📭</div>
+                <div class="channel-empty-title">No posts yet</div>
+                <div class="channel-empty-hint">${isOwner ? 'Publish your first post below.' : 'Check back soon for updates.'}</div>
+              </div>
+            `}
+          </div>
+          ${scrollToLatestFabHTML()}
         </div>
         ${isOwner ? `
           <div class="channel-footer">
@@ -6810,7 +6875,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const menuButton = document.querySelector('.menu-button');
     if (menuButton) {
       menuButton.addEventListener('click', () => {
-        showChannelMenu(channelId, channel, isOwner);
+        showChannelMenu(channelId, channel, isOwner, isAdmin);
       });
     }
 
@@ -6830,6 +6895,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const feed = document.querySelector('.channel-feed');
+
+    // Scroll to the latest post on open, and keep the feed pinned there while
+    // any post images are still decoding — same behavior as DM/group threads.
+    // The screenshot deep link parks the feed at the top so the FAB is visible —
+    // but after PUBLISHING we always jump to the bottom so the owner sees the
+    // post they just wrote.
+    const channelRoot = pageContainer.querySelector('.conversation-page');
+    const parkedAtBottom = !(SHOT_SCROLL_FAB && !fromPublish);
+    setTimeout(() => {
+      if (feed) {
+        feed.scrollTop = parkedAtBottom ? feed.scrollHeight : 0;
+        keepThreadPinnedThroughImageLoads(feed, parkedAtBottom);
+      }
+    }, 0);
+
+    // Floating "jump to newest post" button — reuses the same FAB component
+    // and scroll logic as the DM/group chat views.
+    setupScrollToLatestFab(channelRoot);
 
     // Emoji picker state — at most one open at a time, scoped to this render.
     let openPickerPostId = null;
@@ -7036,7 +7119,7 @@ document.addEventListener('DOMContentLoaded', () => {
         composerInput.value = '';
         composerInput.style.height = '40px';
         imageAttachment.clearPendingImage();
-        renderChannelView(channelId, { fromSend: true });
+        renderChannelView(channelId, { fromPublish: true, fromSend: true });
         showToast('Post published', { type: 'success' });
       });
 
@@ -7081,7 +7164,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Show channel menu
-  function showChannelMenu(channelId, channel, isOwner) {
+  function showChannelMenu(channelId, channel, isOwner, isAdmin) {
+    const canManage = isOwner || isAdmin;
     const overlay = document.createElement('div');
     overlay.className = 'dialog-overlay';
 
@@ -7096,7 +7180,7 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="dialog-content group-menu-content">
     `;
 
-    if (isOwner) {
+    if (canManage) {
       menuHTML += `
         <button class="menu-option" id="edit-channel-btn">
           <span class="option-icon">✏️</span>
@@ -7107,10 +7191,6 @@ document.addEventListener('DOMContentLoaded', () => {
           <span class="option-icon">🔗</span>
           <span class="option-label">Share Channel</span>
           <span class="option-chevron">›</span>
-        </button>
-        <button class="menu-option leave-option" id="delete-channel-btn">
-          <span class="option-icon">🗑️</span>
-          <span class="option-label">Delete Channel</span>
         </button>
       `;
     } else {
@@ -7132,6 +7212,15 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
     }
 
+    if (isOwner) {
+      menuHTML += `
+        <button class="menu-option leave-option" id="delete-channel-btn">
+          <span class="option-icon">🗑️</span>
+          <span class="option-label">Delete Channel</span>
+        </button>
+      `;
+    }
+
     menuHTML += `</div>`;
     dialog.innerHTML = menuHTML;
     overlay.appendChild(dialog);
@@ -7148,14 +7237,10 @@ document.addEventListener('DOMContentLoaded', () => {
       shareLink(channel.name, `${window.location.origin}/?channel=${channelId}`);
     });
 
-    if (isOwner) {
-      document.getElementById('delete-channel-btn')?.addEventListener('click', () => {
+    if (canManage) {
+      document.getElementById('edit-channel-btn')?.addEventListener('click', () => {
         overlay.remove();
-        showConfirmDialog('Delete Channel', `Delete "${channel.name}"? This cannot be undone.`, () => {
-          deleteChannel(channelId);
-          window.location.hash = '/messages';
-          showToast('Channel deleted', { type: 'success' });
-        });
+        window.location.hash = `/channel/${channelId}/info`;
       });
     } else {
       document.getElementById('mute-notifications-btn')?.addEventListener('click', () => {
@@ -7171,6 +7256,17 @@ document.addEventListener('DOMContentLoaded', () => {
         unfollowChannel(channelId);
         window.location.hash = '/messages';
         showToast('Unfollowed channel', { type: 'success' });
+      });
+    }
+
+    if (isOwner) {
+      document.getElementById('delete-channel-btn')?.addEventListener('click', () => {
+        overlay.remove();
+        showConfirmDialog('Delete Channel', `Delete "${channel.name}"? This cannot be undone.`, () => {
+          deleteChannel(channelId);
+          window.location.hash = '/messages';
+          showToast('Channel deleted', { type: 'success' });
+        });
       });
     }
   }
@@ -7655,6 +7751,474 @@ document.addEventListener('DOMContentLoaded', () => {
       toast.classList.remove('show');
       setTimeout(() => toast.remove(), 300);
     }, 3000);
+  }
+
+  // Render Channel Info page — avatar/name/description editing plus the
+  // Admins list, for owners and admins. Members with by role, mirroring
+  // renderGroupInfoPage, but built against the real channel shape (no
+  // `channel.members` roster exists — see isCurrentUserChannelAdmin).
+  function renderChannelInfoPage(channelId) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel) {
+      window.location.hash = '/messages';
+      return;
+    }
+
+    const isOwner = channel.creatorId === 'user_self';
+    const isAdmin = isCurrentUserChannelAdmin(channel);
+    if (!isOwner && !isAdmin) {
+      window.location.hash = `/channel/${channelId}`;
+      return;
+    }
+
+    const adminRows = (channel.admins || []).map(admin => `
+      <div class="channel-member-item" data-admin-id="${admin.id}">
+        <div class="member-avatar">${renderCommunityAvatar(admin.avatar, admin.username)}</div>
+        <div class="member-info">
+          <div class="member-name">${admin.username}</div>
+          <div class="member-role-badge">Admin</div>
+        </div>
+        ${isOwner ? `<button class="member-admin-toggle-btn" data-admin-id="${admin.id}">Remove</button>` : ''}
+      </div>
+    `).join('');
+
+    pageContainer.innerHTML = `
+      <div class="channel-info-page">
+        <div class="channel-info-header">
+          <button class="back-button" aria-label="Back to channel">←</button>
+          <h1>Channel Info</h1>
+          <div style="width: 32px;"></div>
+        </div>
+
+        <div class="channel-info-content">
+          <div class="channel-avatar-section">
+            <div class="channel-avatar-large" id="channel-avatar-large">${renderCommunityAvatar(channel.avatar, channel.name)}</div>
+            <button class="edit-avatar-button" id="edit-channel-avatar-button">Change Photo</button>
+          </div>
+
+          <div class="channel-details-section">
+            <div class="detail-item">
+              <div class="detail-label">Channel Name</div>
+              <div class="detail-value" id="channel-name-value">${channel.name}</div>
+              <button class="detail-edit-button" id="edit-channel-name-button">Edit</button>
+            </div>
+
+            <div class="detail-item">
+              <div class="detail-label">Description</div>
+              <div class="detail-value" id="channel-description-value">${channel.description || 'No description'}</div>
+              <button class="detail-edit-button" id="edit-channel-description-button">Edit</button>
+            </div>
+
+            <div class="detail-item">
+              <div class="detail-label">Visibility</div>
+              <div class="view-only-badge">${channel.isPublic ? 'Public' : 'Private'}</div>
+            </div>
+          </div>
+
+          <div class="members-section">
+            <div class="section-title">Admins (${(channel.admins || []).length + 1})</div>
+            <button class="add-members-button" id="add-channel-admins-button">+ Add Admins</button>
+            <div class="members-list" id="channel-admins-list">
+              <div class="channel-member-item">
+                <div class="member-avatar">👑</div>
+                <div class="member-info">
+                  <div class="member-name">You${isOwner ? '' : ' (Owner)'}</div>
+                  <div class="member-role-badge">Owner</div>
+                </div>
+              </div>
+              ${adminRows}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.querySelector('.back-button').addEventListener('click', () => {
+      window.location.hash = `/channel/${channelId}`;
+    });
+
+    document.getElementById('edit-channel-name-button').addEventListener('click', () => {
+      showEditChannelNameDialog(channelId, channel.name);
+    });
+
+    document.getElementById('edit-channel-description-button').addEventListener('click', () => {
+      showEditChannelDescriptionDialog(channelId, channel.description);
+    });
+
+    document.getElementById('edit-channel-avatar-button').addEventListener('click', () => {
+      showEditChannelAvatarDialog(channelId, channel);
+    });
+
+    document.getElementById('add-channel-admins-button').addEventListener('click', () => {
+      window.location.hash = `/channel/${channelId}/add-admins`;
+    });
+
+    document.querySelectorAll('#channel-admins-list .member-admin-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeChannelAdmin(channelId, btn.dataset.adminId);
+      });
+    });
+  }
+
+  // Remove an existing admin from a channel (owner only).
+  function removeChannelAdmin(channelId, adminId) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel || channel.creatorId !== 'user_self') return;
+
+    const admin = (channel.admins || []).find(a => a.id === adminId);
+    if (!admin) return;
+
+    channel.admins = channel.admins.filter(a => a.id !== adminId);
+    renderChannelInfoPage(channelId);
+    showToast(`${admin.username} is no longer an admin`, { type: 'success' });
+  }
+
+  // Show edit channel name dialog - stays on the Channel Info page
+  function showEditChannelNameDialog(channelId, currentName) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Edit Channel Name</h2>
+      </div>
+      <div class="dialog-content">
+        <input type="text" id="edit-channel-name-input" class="form-input" value="${currentName}" maxlength="50" />
+        <div class="char-count"><span id="channel-name-char-count">0</span>/50</div>
+        <div class="validation-error" id="edit-channel-name-error"></div>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="cancel-edit-channel-name">Cancel</button>
+        <button class="button-primary" id="save-edit-channel-name">Save</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const input = document.getElementById('edit-channel-name-input');
+    const charCount = document.getElementById('channel-name-char-count');
+    const errorEl = document.getElementById('edit-channel-name-error');
+
+    input.addEventListener('input', () => {
+      charCount.textContent = input.value.length;
+    });
+    charCount.textContent = currentName.length;
+
+    document.getElementById('cancel-edit-channel-name').addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    document.getElementById('save-edit-channel-name').addEventListener('click', () => {
+      const newName = input.value.trim();
+      if (!newName) {
+        errorEl.textContent = 'Channel name is required';
+        return;
+      }
+
+      channel.name = newName;
+
+      const conversation = conversations.find(c => c.channelId === channelId);
+      if (conversation) conversation.name = newName;
+
+      overlay.remove();
+      showToast('Channel name updated', { type: 'success' });
+      renderChannelInfoPage(channelId);
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+
+    input.focus();
+  }
+
+  // Show edit channel description dialog - stays on the Channel Info page
+  function showEditChannelDescriptionDialog(channelId, currentDescription) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Edit Description</h2>
+      </div>
+      <div class="dialog-content">
+        <textarea id="edit-channel-desc-input" class="form-input" maxlength="250" placeholder="Add a description...">${currentDescription || ''}</textarea>
+        <div class="char-count"><span id="channel-desc-char-count">0</span>/250</div>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="cancel-edit-channel-desc">Cancel</button>
+        <button class="button-primary" id="save-edit-channel-desc">Save</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const textarea = document.getElementById('edit-channel-desc-input');
+    const charCount = document.getElementById('channel-desc-char-count');
+
+    textarea.addEventListener('input', () => {
+      charCount.textContent = textarea.value.length;
+    });
+    charCount.textContent = (currentDescription || '').length;
+
+    document.getElementById('cancel-edit-channel-desc').addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    document.getElementById('save-edit-channel-desc').addEventListener('click', () => {
+      channel.description = textarea.value.trim();
+      overlay.remove();
+      showToast('Description updated', { type: 'success' });
+      renderChannelInfoPage(channelId);
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+
+    textarea.focus();
+  }
+
+  // Show change channel photo dialog - stays on the Channel Info page
+  function showEditChannelAvatarDialog(channelId, channelData) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Change Channel Photo</h2>
+      </div>
+      <div class="dialog-content">
+        <div id="channel-avatar-preview" class="avatar-preview">
+          <div class="avatar-placeholder-large">${channelData.avatar}</div>
+        </div>
+        <input type="file" id="channel-avatar-file-picker" accept="image/*" style="display: none;" />
+        <button class="button-secondary" id="select-channel-photo-button">Select Photo</button>
+        <div class="validation-error" id="channel-avatar-error"></div>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-secondary" id="cancel-channel-avatar">Cancel</button>
+        <button class="button-primary" id="save-channel-avatar" disabled>Use Photo</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    let selectedFile = null;
+    const filePicker = document.getElementById('channel-avatar-file-picker');
+    const preview = document.getElementById('channel-avatar-preview');
+    const selectBtn = document.getElementById('select-channel-photo-button');
+    const saveBtn = document.getElementById('save-channel-avatar');
+
+    selectBtn.addEventListener('click', () => {
+      filePicker.click();
+    });
+
+    filePicker.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        selectedFile = file;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          preview.innerHTML = `<img src="${event.target.result}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />`;
+          saveBtn.disabled = false;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    document.getElementById('cancel-channel-avatar').addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    saveBtn.addEventListener('click', () => {
+      if (!selectedFile) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const channel = channels.find(c => c.id === channelId);
+        if (!channel) return;
+
+        channel.avatar = event.target.result;
+
+        const conversation = conversations.find(c => c.channelId === channelId);
+        if (conversation) conversation.avatar = event.target.result;
+
+        overlay.remove();
+        showToast('Photo updated', { type: 'success' });
+        renderChannelInfoPage(channelId);
+      };
+      reader.readAsDataURL(selectedFile);
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+  }
+
+  // Show Add Admins screen — search/select from the real user directory,
+  // same pattern as renderAddMembersPage. Channels have no server backing,
+  // so this is a pure in-memory mutation of channel.admins.
+  function renderChannelAddAdminsPage(channelId) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel) {
+      window.location.hash = '/messages';
+      return;
+    }
+
+    const isOwner = channel.creatorId === 'user_self';
+    const isAdmin = isCurrentUserChannelAdmin(channel);
+    if (!isOwner && !isAdmin) {
+      window.location.hash = `/channel/${channelId}`;
+      return;
+    }
+
+    let selectedAdmins = [];
+
+    const isAlreadyManaging = (userId) => userId === channel.creatorId ||
+      (channel.admins || []).some(a => a.id === userId);
+
+    const usersList = suggestedUsers.filter(u => !isAlreadyManaging(u.id))
+      .map(user => renderUserListItemHtml(user, { selectable: true })).join('');
+
+    pageContainer.innerHTML = `
+      <div class="add-members-page">
+        <div class="create-group-header">
+          <button class="back-button" aria-label="Back to channel info">←</button>
+          <h1>Add Admins</h1>
+        </div>
+
+        <div class="form-section">
+          <input type="text" class="form-input" placeholder="🔍 Search username" id="search-channel-admins-add" />
+        </div>
+
+        <div class="members-chips-container" id="channel-admins-chips-container"></div>
+
+        <div class="suggested-users-section-create">
+          <div class="section-header">Available Users</div>
+          <div class="users-list" id="suggested-channel-admins-list">
+            ${usersList}
+          </div>
+        </div>
+
+        <div class="validation-error" id="add-channel-admins-error"></div>
+
+        <button class="create-group-button" id="add-channel-admins-button">Add Admins</button>
+      </div>
+    `;
+
+    document.querySelector('.back-button').addEventListener('click', () => {
+      window.location.hash = `/channel/${channelId}/info`;
+    });
+
+    const searchInput = document.getElementById('search-channel-admins-add');
+    const chipsContainer = document.getElementById('channel-admins-chips-container');
+    const suggestedList = document.getElementById('suggested-channel-admins-list');
+    const addBtn = document.getElementById('add-channel-admins-button');
+    const errorEl = document.getElementById('add-channel-admins-error');
+
+    function renderChips() {
+      if (selectedAdmins.length === 0) {
+        chipsContainer.innerHTML = '';
+        return;
+      }
+
+      chipsContainer.innerHTML = selectedAdmins.map(user => `
+        <div class="member-chip">
+          <div class="chip-avatar">${user.avatar}</div>
+          <span>${user.username}</span>
+          <button class="chip-remove" data-user-id="${user.id}" aria-label="Remove ${user.username}">×</button>
+        </div>
+      `).join('');
+
+      document.querySelectorAll('.chip-remove').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          const userId = btn.dataset.userId;
+          selectedAdmins = selectedAdmins.filter(u => u.id !== userId);
+          renderChips();
+          filterAndDisplay();
+        });
+      });
+    }
+
+    function toggleUser(userId) {
+      const user = suggestedUsers.find(u => u.id === userId);
+      if (!user) return;
+
+      if (selectedAdmins.find(u => u.id === userId)) {
+        selectedAdmins = selectedAdmins.filter(u => u.id !== userId);
+      } else {
+        selectedAdmins.push(user);
+      }
+
+      renderChips();
+      filterAndDisplay();
+      errorEl.innerHTML = '';
+    }
+
+    function filterAndDisplay() {
+      const query = searchInput.value.toLowerCase();
+      const filtered = suggestedUsers.filter(u =>
+        !isAlreadyManaging(u.id) &&
+        (u.username.toLowerCase().includes(query) || (u.walletAddress && u.walletAddress.toLowerCase().includes(query)))
+      );
+
+      suggestedList.innerHTML = filtered.map(user => renderUserListItemHtml(user, {
+        selectable: true,
+        selected: !!selectedAdmins.find(a => a.id === user.id)
+      })).join('');
+
+      document.querySelectorAll('.suggested-user-item').forEach(item => {
+        item.addEventListener('click', () => {
+          toggleUser(item.dataset.userId);
+        });
+      });
+    }
+
+    searchInput.addEventListener('input', filterAndDisplay);
+
+    document.querySelectorAll('.suggested-user-item').forEach(item => {
+      item.addEventListener('click', () => {
+        toggleUser(item.dataset.userId);
+      });
+    });
+
+    // Refresh the directory each time this screen opens.
+    fetchSuggestedUsers().then(filterAndDisplay);
+
+    addBtn.addEventListener('click', () => {
+      if (selectedAdmins.length === 0) {
+        errorEl.textContent = 'Select at least 1 person';
+        return;
+      }
+
+      channel.admins = (channel.admins || []).concat(selectedAdmins.map(u => ({
+        id: u.id,
+        username: u.username,
+        avatar: u.avatar,
+        walletAddress: u.walletAddress || null
+      })));
+
+      window.location.hash = `/channel/${channelId}/info`;
+      showToast(`Added ${selectedAdmins.length} admin(s)`, { type: 'success' });
+    });
   }
 
   // Render channel conversation screen
@@ -8311,14 +8875,34 @@ document.addEventListener('DOMContentLoaded', () => {
         renderGroupConversationPage(groupId);
       }
     } else if (path.startsWith('channel/')) {
-      const channelId = path.split('/')[1];
+      const parts = path.split('/');
+      const channelId = parts[1];
+      const action = parts[2];
+
+      // The info/add-admins screens are owner/admin-only. The base view route
+      // below stays open to everyone (Discover clicks and follow/mute all
+      // happen there).
+      const targetChannel = channels.find(c => c.id === channelId);
+      const canManageChannel = isCurrentUserChannelAdmin(targetChannel);
+
+      if (action && !canManageChannel) {
+        window.location.hash = `/channel/${channelId}`;
+        return;
+      }
 
       // Remove active from all nav tabs when on channel screen
       navTabs.forEach(tab => tab.classList.remove('active'));
       // Hide bottom nav on channel screen
       bottomNav.style.display = 'none';
-      groupChannelBackTarget = computeGroupChannelBackTarget(priorHash);
-      renderChannelView(channelId);
+
+      if (action === 'info') {
+        renderChannelInfoPage(channelId);
+      } else if (action === 'add-admins') {
+        renderChannelAddAdminsPage(channelId);
+      } else {
+        groupChannelBackTarget = computeGroupChannelBackTarget(priorHash);
+        renderChannelView(channelId);
+      }
     } else if (path === 'create-group') {
       // Hide bottom nav on create group screen
       bottomNav.style.display = 'none';
@@ -8364,6 +8948,21 @@ document.addEventListener('DOMContentLoaded', () => {
     await fetchUserData();
     await fetchSuggestedUsers();
     await hydrateServerGroups();
+    // Screenshot-state: deliver a real DM before hydrating, so the Messages
+    // list's server-backed preview/timestamp pick it up on first paint --
+    // regression check for a bug where a freshly-hydrated conversation's
+    // preview stayed blank forever.
+    if (SHOT_DC_PREVIEW) {
+      try {
+        await fetch(`/api/messages/direct/${SHOT_DC_PREVIEW_PEER_ID}`, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ id: `shot_dc_${Date.now()}`, text: SHOT_DC_PREVIEW_TEXT })
+        });
+      } catch (error) {
+        console.warn('Could not deliver shot dc-preview message:', error);
+      }
+    }
     await hydrateServerDirectConversations();
     await hydrateMessageRequests();
     handleNavigation();
