@@ -43,6 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=create-group-one-member   name + exactly ONE invitee               → Create Group must be enabled
   //   ?shot=create-group-zero-members name only, then submits                  → "Select at least 1 member" must render
   //   ?shot=search-users             runs a real /api/users/search query        → matching staging-demo user must render
+  //   ?shot=dc-preview                sends a real DM to a staging peer on load  → Messages list preview must show its text, not be blank
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -68,10 +69,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_DESC_EDIT = SHOT === 'desc-edit';
   let shotDescEditFired = false;
   const SHOT_SEARCH_USERS = SHOT === 'search-users';
+  const SHOT_DC_PREVIEW = SHOT === 'dc-preview';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
   const SHOT_CREATE_GROUP_NAME = 'Staging demo one-invite group';
   const SHOT_SEARCH_QUERY = 'citra';
+  // Any staging-seeded user works as the DM peer here -- seedStagingUsers()
+  // always creates this one regardless of which account the test itself runs as.
+  const SHOT_DC_PREVIEW_PEER_ID = 'staging-demo-user-6';
+  const SHOT_DC_PREVIEW_TEXT = 'Shot dc preview check';
 
   // The signed-in Usernode user, hydrated from /api/state at boot. Server rows
   // for this id are mapped onto the app's long-standing 'user_self' sentinel so
@@ -1220,7 +1226,13 @@ document.addEventListener('DOMContentLoaded', () => {
             username: dc.peerUsername,
             avatar: generateDefaultAvatar(dc.peerUsername),
             lastMessage: '',
-            timestamp: Date.now(),
+            // 0, not Date.now() -- the check below only applies dc.lastMessage
+            // when it's newer than what's already known. A freshly-created
+            // conv has no "known" activity yet, so seeding this with the
+            // current time would make every real dc.lastMessageAt (always in
+            // the past) lose that comparison and the preview/timestamp would
+            // never populate.
+            timestamp: 0,
             unreadCount: 0,
             onlineStatus: false,
             archived: false,
@@ -2199,22 +2211,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const request = requests.find(r => r.id === requestId);
     if (!request) return;
 
-    const newConversation = {
-      id: 'conv_' + request.senderId,
-      type: 'direct',
-      username: request.senderName,
-      avatar: request.avatar,
-      lastMessage: request.messagePreview,
-      timestamp: request.timestamp,
-      unreadCount: 0,
-      archived: false,
-      pinned: false,
-      onlineStatus: false,
-      mutedByUsers: {},
-      messages: []
-    };
-
-    conversations.unshift(newConversation);
+    const convId = 'conv_' + request.senderId;
+    if (!conversations.find(c => c.id === convId)) {
+      conversations.unshift({
+        id: convId,
+        type: 'direct',
+        username: request.senderName,
+        avatar: request.avatar,
+        lastMessage: request.messagePreview,
+        timestamp: request.timestamp,
+        unreadCount: 0,
+        archived: false,
+        pinned: false,
+        onlineStatus: false,
+        mutedByUsers: {},
+        messages: []
+      });
+    }
     requests = requests.filter(r => r.id !== requestId);
     renderMessagesPage();
   }
@@ -8327,6 +8340,21 @@ document.addEventListener('DOMContentLoaded', () => {
     await fetchUserData();
     await fetchSuggestedUsers();
     await hydrateServerGroups();
+    // Screenshot-state: deliver a real DM before hydrating, so the Messages
+    // list's server-backed preview/timestamp pick it up on first paint --
+    // regression check for a bug where a freshly-hydrated conversation's
+    // preview stayed blank forever.
+    if (SHOT_DC_PREVIEW) {
+      try {
+        await fetch(`/api/messages/direct/${SHOT_DC_PREVIEW_PEER_ID}`, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ id: `shot_dc_${Date.now()}`, text: SHOT_DC_PREVIEW_TEXT })
+        });
+      } catch (error) {
+        console.warn('Could not deliver shot dc-preview message:', error);
+      }
+    }
     await hydrateServerDirectConversations();
     handleNavigation();
   })();
