@@ -101,6 +101,21 @@
       "expectSelector": ".composer-container .composer-input"
     },
     {
+      "name": "Scroll-to-latest FAB renders in channel view",
+      "path": "/?shot=scroll-fab#/channel/channel_1",
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"]"
+    },
+    {
+      "name": "Scroll-to-latest FAB is painted on screen when scrolled up in channel view",
+      "path": "/?shot=scroll-fab#/channel/channel_1",
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"].is-visible[data-fab-onscreen=\"true\"]"
+    },
+    {
+      "name": "Scroll-to-latest FAB hides when channel feed sits at the bottom",
+      "path": "/?shot=scroll-fab-bottom#/channel/channel_1",
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"][data-fab-onscreen=\"false\"]"
+    },
+    {
       "name": "Sending a direct message keeps the user in the conversation",
       "path": "/?shot=send-stay#/conversation/conv_1",
       "expectSelector": ".conversation-page .composer-container .composer-input"
@@ -604,6 +619,56 @@
       "name": "Message link renders as clickable anchor",
       "path": "/#/conversation/conv_2",
       "expectSelector": ".message-link"
+    },
+    {
+      "name": "Edit Channel button opens the Channel Info page",
+      "path": "/#/channel/channel_2/info",
+      "expectText": "Channel Info"
+    },
+    {
+      "name": "Channel Info page displays the channel name",
+      "path": "/#/channel/channel_2/info",
+      "expectText": "Web3 Builders"
+    },
+    {
+      "name": "Channel Info page shows edit buttons for owner/admin",
+      "path": "/#/channel/channel_2/info",
+      "expectSelector": ".detail-edit-button"
+    },
+    {
+      "name": "Channel Info page lists the seeded admin",
+      "path": "/#/channel/channel_2/info",
+      "expectText": "aksaranft"
+    },
+    {
+      "name": "Channel Info page shows a Remove control for the owner",
+      "path": "/#/channel/channel_2/info",
+      "expectSelector": ".member-admin-toggle-btn"
+    },
+    {
+      "name": "Channel Info page offers Add Admins",
+      "path": "/#/channel/channel_2/info",
+      "expectSelector": "#add-channel-admins-button"
+    },
+    {
+      "name": "Non-admin viewer is redirected away from Channel Info",
+      "path": "/#/channel/channel_1/info",
+      "expectText": "Solana Indonesia"
+    },
+    {
+      "name": "Add Admins page loads for a channel owner",
+      "path": "/#/channel/channel_2/add-admins",
+      "expectText": "Add Admins"
+    },
+    {
+      "name": "Add Admins page shows search input",
+      "path": "/#/channel/channel_2/add-admins",
+      "expectSelector": "#search-channel-admins-add"
+    },
+    {
+      "name": "Add Admins page displays available users",
+      "path": "/#/channel/channel_2/add-admins",
+      "expectSelector": ".suggested-user-item"
     }
   ]
 }
