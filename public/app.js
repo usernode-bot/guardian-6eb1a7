@@ -907,6 +907,31 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   ];
 
+  // Screenshot-state seed: pad channel_1's feed so it actually scrolls, same
+  // reasoning as the DM/group padding above (SHOT_LONG_THREAD is declared
+  // before `channels` exists, so this seed has to live down here instead).
+  // channel.posts is newest-first in storage, so filler posts are appended to
+  // the END (older than the seeded posts) rather than concatenated at the
+  // front like the DM/group arrays above.
+  if (SHOT_LONG_THREAD) {
+    const demoChannel = channels.find(c => c.id === 'channel_1');
+    if (demoChannel) {
+      const paddedPosts = [];
+      for (let i = 0; i < 24; i++) {
+        paddedPosts.push({
+          id: `shot_post_${i + 1}`,
+          channelId: 'channel_1',
+          authorId: 'user_4',
+          text: `Staging demo post #${i + 1} in this channel.`,
+          timestamp: Date.now() - (49 + i) * 60 * 60 * 1000,
+          reactions: {},
+          isPinned: false
+        });
+      }
+      demoChannel.posts = demoChannel.posts.concat(paddedPosts);
+    }
+  }
+
   // The fixed reaction set offered on channel posts. Single source of truth for
   // BOTH the picker order and the chip order, so chips never reshuffle as counts
   // change. Index 0 ('❤️') is what the primary like button toggles.
@@ -6464,7 +6489,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Render Channel View page
-  function renderChannelView(channelId) {
+  function renderChannelView(channelId, renderOptions) {
+    const fromPublish = !!(renderOptions && renderOptions.fromPublish);
     let channel = channels.find(c => c.id === channelId);
 
     if (!channel) {
@@ -6494,9 +6520,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // a bare Discover preview has neither.
     const canShowMenu = isOwner || isFollowing;
 
-    // channel.posts is newest-first (publishPost unshifts), so the natural
-    // top-of-list position already shows the latest post — no scrolling needed.
-    const postsList = channel.posts.map(post => postCardHTML(channel, post)).join('');
+    // channel.posts is newest-first in storage (publishPost unshifts, and the
+    // lastMessage/unread logic elsewhere reads posts[0] as "the newest") — but
+    // the feed now DISPLAYS oldest-first, same chronological order as DM/group
+    // chat, so the newest post lands at the bottom like a chat thread.
+    const postsList = channel.posts.slice().reverse().map(post => postCardHTML(channel, post)).join('');
 
     pageContainer.innerHTML = `
       <div class="conversation-page channel-page">
@@ -6512,14 +6540,17 @@ document.addEventListener('DOMContentLoaded', () => {
           ${(!isFollowing && !isOwner) ? `<button class="channel-follow-pill" aria-label="Follow channel">Follow</button>` : ''}
           ${canShowMenu ? `<button class="menu-button" aria-label="More options">⋮</button>` : ''}
         </div>
-        <div class="channel-feed">
-          ${postsList || `
-            <div class="empty-state channel-empty-state">
-              <div class="channel-empty-icon" aria-hidden="true">📭</div>
-              <div class="channel-empty-title">No posts yet</div>
-              <div class="channel-empty-hint">${isOwner ? 'Publish your first post below.' : 'Check back soon for updates.'}</div>
-            </div>
-          `}
+        <div class="messages-area">
+          <div class="channel-feed messages-container">
+            ${postsList || `
+              <div class="empty-state channel-empty-state">
+                <div class="channel-empty-icon" aria-hidden="true">📭</div>
+                <div class="channel-empty-title">No posts yet</div>
+                <div class="channel-empty-hint">${isOwner ? 'Publish your first post below.' : 'Check back soon for updates.'}</div>
+              </div>
+            `}
+          </div>
+          ${scrollToLatestFabHTML()}
         </div>
         ${isOwner ? `
           <div class="channel-footer">
@@ -6572,6 +6603,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const feed = document.querySelector('.channel-feed');
+
+    // Scroll to the latest post on open, and keep the feed pinned there while
+    // any post images are still decoding — same behavior as DM/group threads.
+    // The screenshot deep link parks the feed at the top so the FAB is visible —
+    // but after PUBLISHING we always jump to the bottom so the owner sees the
+    // post they just wrote.
+    const channelRoot = pageContainer.querySelector('.conversation-page');
+    const parkedAtBottom = !(SHOT_SCROLL_FAB && !fromPublish);
+    setTimeout(() => {
+      if (feed) {
+        feed.scrollTop = parkedAtBottom ? feed.scrollHeight : 0;
+        keepThreadPinnedThroughImageLoads(feed, parkedAtBottom);
+      }
+    }, 0);
+
+    // Floating "jump to newest post" button — reuses the same FAB component
+    // and scroll logic as the DM/group chat views.
+    setupScrollToLatestFab(channelRoot);
 
     // Emoji picker state — at most one open at a time, scoped to this render.
     let openPickerPostId = null;
@@ -6778,7 +6827,7 @@ document.addEventListener('DOMContentLoaded', () => {
         composerInput.value = '';
         composerInput.style.height = '40px';
         imageAttachment.clearPendingImage();
-        renderChannelView(channelId);
+        renderChannelView(channelId, { fromPublish: true });
         showToast('Post published', { type: 'success' });
       });
     }

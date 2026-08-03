@@ -101,6 +101,21 @@
       "expectSelector": ".composer-container .composer-input"
     },
     {
+      "name": "Scroll-to-latest FAB renders in channel view",
+      "path": "/?shot=scroll-fab#/channel/channel_1",
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"]"
+    },
+    {
+      "name": "Scroll-to-latest FAB is painted on screen when scrolled up in channel view",
+      "path": "/?shot=scroll-fab#/channel/channel_1",
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"].is-visible[data-fab-onscreen=\"true\"]"
+    },
+    {
+      "name": "Scroll-to-latest FAB hides when channel feed sits at the bottom",
+      "path": "/?shot=scroll-fab-bottom#/channel/channel_1",
+      "expectSelector": "[data-testid=\"scroll-to-latest-fab\"][data-fab-onscreen=\"false\"]"
+    },
+    {
       "name": "Sending a direct message keeps the user in the conversation",
       "path": "/?shot=send-stay#/conversation/conv_1",
       "expectSelector": ".conversation-page .composer-container .composer-input"
