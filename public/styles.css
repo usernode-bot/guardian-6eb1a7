@@ -337,6 +337,16 @@ html, body {
   opacity: 0.6;
 }
 
+.pending-request-banner {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  background-color: #fff8e1;
+  border-bottom: 1px solid #f0e0b0;
+  color: #8a6d1e;
+  font-size: 12px;
+  text-align: center;
+}
+
 /* Wraps the scrolling message list so the scroll-to-latest FAB can be
    anchored to the bottom-right of the list area, above the composer. */
 .messages-area {

@@ -43,6 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=create-group-one-member   name + exactly ONE invitee               → Create Group must be enabled
   //   ?shot=create-group-zero-members name only, then submits                  → "Select at least 1 member" must render
   //   ?shot=search-users             runs a real /api/users/search query        → matching staging-demo user must render
+  //   ?shot=requests-tab             opens Messages straight into the Requests tab → seeded pending request must render
   //   ?shot=dc-preview                sends a real DM to a staging peer on load  → Messages list preview must show its text, not be blank
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
@@ -69,6 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_DESC_EDIT = SHOT === 'desc-edit';
   let shotDescEditFired = false;
   const SHOT_SEARCH_USERS = SHOT === 'search-users';
+  const SHOT_REQUESTS_TAB = SHOT === 'requests-tab';
   const SHOT_DC_PREVIEW = SHOT === 'dc-preview';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
@@ -568,25 +570,28 @@ document.addEventListener('DOMContentLoaded', () => {
     clearDMChat('conv_1');
   }
 
-  // Message requests data
-  let requests = [
-    {
-      id: 'req_1',
-      senderId: 'user_new_1',
-      senderName: 'Taylor Blake',
-      avatar: 'TB',
-      messagePreview: 'Hi! I saw your profile and would love to connect.',
-      timestamp: Date.now() - 30 * 60 * 1000
-    },
-    {
-      id: 'req_2',
-      senderId: 'user_new_2',
-      senderName: 'Jordan River',
-      avatar: 'JR',
-      messagePreview: 'Great to see you here! Let\'s chat sometime.',
-      timestamp: Date.now() - 2 * 60 * 60 * 1000
+  // Message requests: incoming DMs from someone the user hasn't accepted yet.
+  // Hydrated from GET /api/message-requests by hydrateMessageRequests() below
+  // instead of these fixtures.
+  let requests = [];
+
+  async function hydrateMessageRequests() {
+    try {
+      const response = await fetch('/api/message-requests', { headers: authHeaders() });
+      if (!response.ok) return;
+      const data = await response.json();
+      requests = (data.requests || []).map(r => ({
+        id: r.id,
+        senderId: r.senderId,
+        senderName: r.senderUsername,
+        avatar: getInitialsFromUsername(r.senderUsername),
+        messagePreview: r.messagePreview || '',
+        timestamp: r.timestamp
+      }));
+    } catch (err) {
+      console.error('Failed to fetch message requests:', err);
     }
-  ];
+  }
 
   // Discover communities data
   let discoverGroups = [
@@ -1277,6 +1282,9 @@ document.addEventListener('DOMContentLoaded', () => {
           conv.lastMessage = truncateText(dc.lastMessage, 100);
           conv.timestamp = dc.lastMessageAt || conv.timestamp;
         }
+        // 'pending_sent' means the caller started this thread and the other
+        // side hasn't accepted yet -- renderConversationPage shows a banner.
+        conv.requestStatus = dc.requestStatus;
       });
     } catch (error) {
       console.warn('Could not load direct conversations:', error);
@@ -1617,10 +1625,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return `
           <div class="request-item" data-request-id="${item.id}">
             <div class="request-header">
-              <div class="request-avatar">${item.avatar}</div>
+              <div class="request-avatar">${escapeHtml(item.avatar)}</div>
               <div class="request-content">
-                <div class="request-name">${item.senderName}</div>
-                <div class="request-message">${truncateText(item.messagePreview, 60)}</div>
+                <div class="request-name">${escapeHtml(item.senderName)}</div>
+                <div class="request-message">${escapeHtml(truncateText(item.messagePreview, 60))}</div>
               </div>
             </div>
             <div class="request-actions">
@@ -2088,10 +2096,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return `
           <div class="request-item" data-request-id="${item.id}">
             <div class="request-header">
-              <div class="request-avatar">${item.avatar}</div>
+              <div class="request-avatar">${escapeHtml(item.avatar)}</div>
               <div class="request-content">
-                <div class="request-name">${item.senderName}</div>
-                <div class="request-message">${truncateText(item.messagePreview, 60)}</div>
+                <div class="request-name">${escapeHtml(item.senderName)}</div>
+                <div class="request-message">${escapeHtml(truncateText(item.messagePreview, 60))}</div>
               </div>
             </div>
             <div class="request-actions">
@@ -2238,9 +2246,20 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Accept request and create conversation
-  function acceptRequest(requestId) {
+  async function acceptRequest(requestId) {
     const request = requests.find(r => r.id === requestId);
     if (!request) return;
+
+    try {
+      const response = await fetch(`/api/message-requests/${requestId}/accept`, {
+        method: 'POST',
+        headers: authHeaders()
+      });
+      if (!response.ok) return;
+    } catch (err) {
+      console.error('Failed to accept message request:', err);
+      return;
+    }
 
     const convId = 'conv_' + request.senderId;
     if (!conversations.find(c => c.id === convId)) {
@@ -2264,7 +2283,18 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Decline request
-  function declineRequest(requestId) {
+  async function declineRequest(requestId) {
+    try {
+      const response = await fetch(`/api/message-requests/${requestId}/decline`, {
+        method: 'POST',
+        headers: authHeaders()
+      });
+      if (!response.ok) return;
+    } catch (err) {
+      console.error('Failed to decline message request:', err);
+      return;
+    }
+
     requests = requests.filter(r => r.id !== requestId);
     renderMessagesPage();
   }
@@ -2750,6 +2780,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const peerId = directPeerId(conversationId);
     await hydrateThreadMessages('direct', peerId, conversation);
+    // Refresh requestStatus too, so re-opening this thread right after sending
+    // the first message (or after the peer accepts/replies) shows an accurate
+    // pending banner instead of a stale one from boot-time hydration.
+    if (peerId) await hydrateServerDirectConversations();
 
     const messagesList = conversation.messages.filter(msg => !(msg.hiddenFor && msg.hiddenFor.user_self)).map(msg => {
       let messageHTML = `<div class="message-swipe-wrapper ${msg.isOutgoing ? 'wrapper-outgoing' : 'wrapper-incoming'}" data-message-id="${msg.id}">`;
@@ -2799,6 +2833,9 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           <button class="menu-button" aria-label="More options">⋮</button>
         </div>
+        ${conversation.requestStatus === 'pending_sent'
+          ? `<div class="pending-request-banner">Request sent · waiting for them to accept</div>`
+          : ''}
         <div class="messages-area">
           <div class="messages-container">
             ${messagesList}
@@ -8751,7 +8788,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Special handling for messages page
     if (pageName === 'messages') {
-      renderMessagesPage();
+      renderMessagesPage(SHOT_REQUESTS_TAB ? 'requests' : null);
     } else if (pageName === 'create') {
       renderNewMessagePage();
     } else if (pageName === 'discover') {
@@ -8927,6 +8964,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
     await hydrateServerDirectConversations();
+    await hydrateMessageRequests();
     handleNavigation();
   })();
 });
