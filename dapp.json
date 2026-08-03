@@ -241,6 +241,11 @@
       "expectText": "staging-demo-citra"
     },
     {
+      "name": "Messages list shows a freshly-delivered DM's real preview text, not blank",
+      "path": "/?shot=dc-preview",
+      "expectText": "Shot dc preview check"
+    },
+    {
       "name": "Create Group page loads",
       "path": "/#/create-group",
       "expectText": "Create Group"
