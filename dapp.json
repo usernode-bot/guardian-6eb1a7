@@ -604,6 +604,21 @@
       "name": "Message link renders as clickable anchor",
       "path": "/#/conversation/conv_2",
       "expectSelector": ".message-link"
+    },
+    {
+      "name": "Requests tab shows a pending message request from a real (seeded) sender",
+      "path": "/?shot=requests-tab",
+      "expectText": "staging-demo-citra"
+    },
+    {
+      "name": "Pending message request shows a preview of the first message",
+      "path": "/?shot=requests-tab",
+      "expectText": "Hi! I saw your profile and wanted to connect."
+    },
+    {
+      "name": "Pending message request offers Accept/Decline actions",
+      "path": "/?shot=requests-tab",
+      "expectSelector": ".request-accept"
     }
   ]
 }
