@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=scroll-fab        thread parked at the TOP    → FAB must be on screen
   //   ?shot=scroll-fab-bottom thread parked at the BOTTOM → FAB must be hidden
   //   ?shot=send-stay         sends one message on load   → thread must survive
+  //   ?shot=channel-send-stay publishes one post on load (owned channel only) → post must render
   //   ?shot=message-deleted   forces group_1's seeded deleted messages         → placeholder must render
   //   ?shot=dm-menu           clicks the DM header's ⋮ button on load          → options menu must render
   //   ?shot=dm-cleared        clears conv_1's chat via the real Clear Chat fn  → list preview must read "No messages yet"
@@ -50,6 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_SCROLL_FAB = SHOT === 'scroll-fab';
   const SHOT_SCROLL_FAB_BOTTOM = SHOT === 'scroll-fab-bottom';
   const SHOT_SEND_STAY = SHOT === 'send-stay';
+  const SHOT_CHANNEL_SEND_STAY = SHOT === 'channel-send-stay';
   const SHOT_MESSAGE_DELETED = SHOT === 'message-deleted';
   const SHOT_DM_MENU = SHOT === 'dm-menu';
   const SHOT_DM_CLEARED = SHOT === 'dm-cleared';
@@ -1102,8 +1104,9 @@ document.addEventListener('DOMContentLoaded', () => {
       joinRequests: [],
       createdAt: timestamp,
       source: 'server',
-      // Messages are not persisted yet, so a server group's thread opens on the
-      // synthetic system message only.
+      // Real history is hydrated from the server when the thread is opened
+      // (see hydrateThreadMessages) -- this local seed just gives a
+      // brand-new group's thread a system message before that first fetch.
       messages: existing
         ? existing.messages
         : [groupSystemMessage(systemMessageText || 'Group created.', timestamp)]
@@ -1226,6 +1229,187 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
       console.warn('Could not load server groups:', error);
     }
+  }
+
+  // Hydrate the inbox with real DM conversations the caller has actually sent
+  // or received a message in. Without this, a real conv_<peerId> conversation
+  // -- created purely in-memory by startConversationWith -- vanishes from the
+  // Messages list the moment the page reloads, even though the messages
+  // themselves are now persisted server-side.
+  async function hydrateServerDirectConversations() {
+    try {
+      const response = await fetch('/api/direct-conversations', { headers: authHeaders() });
+      if (!response.ok) return;
+      const payload = await response.json();
+      (payload.conversations || []).forEach(dc => {
+        const convId = 'conv_' + dc.peerId;
+        let conv = conversations.find(c => c.id === convId);
+        if (!conv) {
+          conv = {
+            id: convId,
+            type: 'direct',
+            username: dc.peerUsername,
+            avatar: generateDefaultAvatar(dc.peerUsername),
+            lastMessage: '',
+            timestamp: Date.now(),
+            unreadCount: 0,
+            onlineStatus: false,
+            archived: false,
+            pinned: false,
+            mutedByUsers: {},
+            messages: []
+          };
+          conversations.unshift(conv);
+        }
+        if (dc.lastMessage !== null && (dc.lastMessageAt || 0) >= (conv.timestamp || 0)) {
+          conv.lastMessage = truncateText(dc.lastMessage, 100);
+          conv.timestamp = dc.lastMessageAt || conv.timestamp;
+        }
+      });
+    } catch (error) {
+      console.warn('Could not load direct conversations:', error);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Message delivery (DM / group / channel) -- fetch + poll on top of the
+  // existing local-only optimistic send. Any fetch/poll failure (401 when
+  // unauthenticated, network error, etc.) is swallowed and falls back to
+  // whatever's already rendered locally, same as fetchSuggestedUsers/
+  // hydrateServerGroups above -- so screenshot/test deep links that never
+  // carry a real token keep behaving exactly as before.
+  // ---------------------------------------------------------------------------
+
+  // A DM conversation's id is always `conv_<peerId>` (see startConversationWith
+  // above), for both real and mock/fixture conversations alike -- the server
+  // just won't find a real peer or a real conversation row for a mock id, so
+  // the fetch below harmlessly resolves to an empty thread.
+  function directPeerId(conversationId) {
+    return typeof conversationId === 'string' && conversationId.startsWith('conv_')
+      ? conversationId.slice('conv_'.length)
+      : null;
+  }
+
+  function shapeIncomingMessage(serverMsg) {
+    const msg = {
+      id: serverMsg.id,
+      senderId: serverMsg.senderId,
+      senderName: serverMsg.senderName,
+      text: serverMsg.text || '',
+      timestamp: serverMsg.timestamp,
+      isOutgoing: !!(currentUser && serverMsg.senderId === currentUser.id)
+    };
+    if (serverMsg.imageUrl) {
+      msg.imageUrl = serverMsg.imageUrl;
+      msg.imageId = serverMsg.imageId;
+    }
+    if (serverMsg.replyToMessageId) {
+      msg.replyTo = {
+        messageId: serverMsg.replyToMessageId,
+        senderName: serverMsg.replyToSenderName,
+        previewText: serverMsg.replyToPreviewText
+      };
+    }
+    return msg;
+  }
+
+  // Merge server history into a DM/group thread's local `.messages` array.
+  // Dedupes by id -- an outgoing message's id is client-chosen (see
+  // setupComposer) and echoed back unchanged, so the optimistic bubble never
+  // doubles up once the poll below sees it land. Returns whether anything new
+  // was merged, so callers know whether a re-render is worth doing.
+  async function hydrateThreadMessages(type, id, thread) {
+    if (!id) return false;
+    try {
+      const response = await fetch(`/api/messages/${type}/${encodeURIComponent(id)}`, { headers: authHeaders() });
+      if (!response.ok) return false;
+      const payload = await response.json();
+      let changed = false;
+      (payload.messages || []).forEach(serverMsg => {
+        if (thread.messages.some(m => m.id === serverMsg.id)) return;
+        thread.messages.push(shapeIncomingMessage(serverMsg));
+        changed = true;
+      });
+      if (changed) thread.messages.sort((a, b) => a.timestamp - b.timestamp);
+      return changed;
+    } catch (error) {
+      console.warn(`Could not load ${type} messages:`, error);
+      return false;
+    }
+  }
+
+  // Same idea as hydrateThreadMessages, but into a channel's `.posts` (newest
+  // first, since publishPost unshifts) rather than a chat thread's `.messages`.
+  async function hydrateChannelPosts(channelId, channel) {
+    try {
+      const response = await fetch(`/api/messages/channel/${encodeURIComponent(channelId)}`, { headers: authHeaders() });
+      if (!response.ok) return false;
+      const payload = await response.json();
+      let changed = false;
+      (payload.messages || []).forEach(serverMsg => {
+        if (channel.posts.some(p => p.id === serverMsg.id)) return;
+        const post = {
+          id: serverMsg.id,
+          channelId: channelId,
+          authorId: serverMsg.senderId,
+          text: serverMsg.text || '',
+          timestamp: serverMsg.timestamp,
+          reactions: {},
+          isPinned: false
+        };
+        if (serverMsg.imageUrl) {
+          post.imageUrl = serverMsg.imageUrl;
+          post.imageId = serverMsg.imageId;
+        }
+        channel.posts.push(post);
+        changed = true;
+      });
+      if (changed) channel.posts.sort((a, b) => b.timestamp - a.timestamp);
+      return changed;
+    } catch (error) {
+      console.warn('Could not load channel posts:', error);
+      return false;
+    }
+  }
+
+  // At most one thread polls at a time -- only one conversation/group/channel
+  // screen is ever open at once, so there's nothing to key this by.
+  let activeThreadPollTimer = null;
+  const THREAD_POLL_INTERVAL_MS = 4000;
+
+  function stopThreadPolling() {
+    if (activeThreadPollTimer) {
+      clearInterval(activeThreadPollTimer);
+      activeThreadPollTimer = null;
+    }
+  }
+
+  function startThreadPolling(hydrateFn, onChanged) {
+    stopThreadPolling();
+    activeThreadPollTimer = setInterval(async () => {
+      const changed = await hydrateFn();
+      if (changed) onChanged();
+    }, THREAD_POLL_INTERVAL_MS);
+  }
+
+  // Best-effort delivery of an already-optimistically-rendered DM/group
+  // message. The bubble is already on screen from the local push in
+  // setupComposer -- this just makes the OTHER participant actually see it
+  // too (and lets it survive a reload), instead of it living only in this
+  // tab's JS heap.
+  function deliverThreadMessage(type, id, message) {
+    if (!id) return;
+    fetch(`/api/messages/${type}/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        id: message.id,
+        text: message.text,
+        imageUrl: message.imageUrl,
+        imageId: message.imageId,
+        replyTo: message.replyTo
+      })
+    }).catch(error => console.warn(`Could not deliver ${type} message:`, error));
   }
 
   // Format relative timestamp for conversation list
@@ -2091,7 +2275,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     showConfirmDialog(
       'Delete Chat',
-      `Delete your chat with ${conv.username}? This only removes it from your inbox — ${conv.username} will still see the conversation.`,
+      `Delete your chat with ${escapeHtml(conv.username)}? This only removes it from your inbox — ${escapeHtml(conv.username)} will still see the conversation.`,
       async () => {
         conv.hiddenFromInbox = true;
         try {
@@ -2543,13 +2727,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function renderConversationPage(conversationId, renderOptions) {
+  async function renderConversationPage(conversationId, renderOptions) {
     const fromSend = !!(renderOptions && renderOptions.fromSend);
     const conversation = conversations.find(c => c.id === conversationId);
     if (!conversation) {
       renderPage('messages');
       return;
     }
+
+    const peerId = directPeerId(conversationId);
+    await hydrateThreadMessages('direct', peerId, conversation);
 
     const messagesList = conversation.messages.filter(msg => !(msg.hiddenFor && msg.hiddenFor.user_self)).map(msg => {
       let messageHTML = `<div class="message-swipe-wrapper ${msg.isOutgoing ? 'wrapper-outgoing' : 'wrapper-incoming'}" data-message-id="${msg.id}">`;
@@ -2559,11 +2746,11 @@ document.addEventListener('DOMContentLoaded', () => {
       // Add quoted message section if this is a reply
       if (msg.replyTo) {
         messageHTML += `
-          <div class="message-quote" data-quoted-message-id="${msg.replyTo.messageId}">
+          <div class="message-quote" data-quoted-message-id="${escapeAttr(msg.replyTo.messageId)}">
             <div class="quote-border"></div>
             <div class="quote-content">
-              <div class="quote-sender">${msg.replyTo.senderName}</div>
-              <div class="quote-text">${msg.replyTo.previewText}</div>
+              <div class="quote-sender">${escapeHtml(msg.replyTo.senderName)}</div>
+              <div class="quote-text">${escapeHtml(msg.replyTo.previewText)}</div>
             </div>
           </div>
         `;
@@ -2594,7 +2781,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="conversation-header-info">
             <div class="conversation-avatar-header">${conversation.avatar}</div>
             <div class="header-text">
-              <div class="header-username">${conversation.username}</div>
+              <div class="header-username">${escapeHtml(conversation.username)}</div>
             </div>
           </div>
           <button class="menu-button" aria-label="More options">⋮</button>
@@ -2656,6 +2843,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // Set up send button and reply state management
     setupComposer(conversation, { isGroup: false });
 
+    // Poll for messages the other participant sends while this thread stays
+    // open -- there's no websocket/push infra in this app, so this is the
+    // only way an incoming message ever shows up without a manual reload.
+    startThreadPolling(
+      () => hydrateThreadMessages('direct', peerId, conversation),
+      () => renderConversationPage(conversationId)
+    );
+
     // Must stay last: the send re-renders this page underneath us.
     if (SHOT_SEND_STAY && !fromSend) sendShotMessage(conversationRoot);
 
@@ -2667,10 +2862,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // Screenshot-state helper: drive the real composer the same way a tap does, so
   // a check can assert the thread survives sending rather than only that it
   // renders. A send that bounced the user out would leave the Messages list here.
-  function sendShotMessage(root) {
+  function sendShotMessage(root, buttonSelector) {
     const scope = root || document;
     const input = scope.querySelector('.composer-input');
-    const button = scope.querySelector('.send-button');
+    const button = scope.querySelector(buttonSelector || '.send-button');
     if (!input || !button) return;
     input.value = SHOT_SEND_TEXT;
     input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -2720,7 +2915,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     dialog.innerHTML = `
       <div class="dialog-header">
-        <h2>${conversation.username}</h2>
+        <h2>${escapeHtml(conversation.username)}</h2>
         <button class="close-dialog-button">✕</button>
       </div>
       <div class="dialog-content group-menu-content">
@@ -2776,7 +2971,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('clear-dm-chat-btn')?.addEventListener('click', () => {
       overlay.remove();
-      showConfirmDialog('Clear Chat', `Clear all messages with ${conversation.username}? This only removes them for you.`, () => {
+      showConfirmDialog('Clear Chat', `Clear all messages with ${escapeHtml(conversation.username)}? This only removes them for you.`, () => {
         clearDMChat(conversationId);
         renderConversationPage(conversationId);
         showToast('Chat cleared', { type: 'success' });
@@ -4113,7 +4308,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Create new message with optional reply metadata
       const newMessage = {
-        id: `msg_${Date.now()}`,
+        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         senderId: 'user_self',
         text: text,
         timestamp: Date.now(),
@@ -4150,6 +4345,15 @@ document.addEventListener('DOMContentLoaded', () => {
         truncateText(messagePreviewText(newMessage), 100),
         newMessage.timestamp
       );
+
+      // Deliver to the server so the other participant actually receives it
+      // (and so it survives a reload) -- best-effort, the bubble above is
+      // already shown regardless of whether this succeeds.
+      if (isGroup) {
+        deliverThreadMessage('group', conversation.id, newMessage);
+      } else {
+        deliverThreadMessage('direct', directPeerId(conversation.id), newMessage);
+      }
 
       // Re-render the SAME screen we're on, so the user stays in the thread.
       rerender();
@@ -4231,7 +4435,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const isPrivate = group.visibility === 'private';
     const hasPendingRequest = !isMember && isPrivate && (group.joinRequests || []).some(r => r.userId === 'user_self');
-    const messages = group.messages || [];
+    group.messages = group.messages || [];
+    await hydrateThreadMessages('group', groupId, group);
+    const messages = group.messages;
 
     const messagesList = messages.map(msg => {
       let messageHTML = `<div class="message-swipe-wrapper ${msg.isOutgoing ? 'wrapper-outgoing' : 'wrapper-incoming'}" data-message-id="${msg.id}">`;
@@ -4248,11 +4454,11 @@ document.addEventListener('DOMContentLoaded', () => {
         : `message-bubble${messageBubbleClass(msg)}`;
 
       const quoteHTML = msg.replyTo ? `
-        <div class="message-quote" data-quoted-message-id="${msg.replyTo.messageId}">
+        <div class="message-quote" data-quoted-message-id="${escapeAttr(msg.replyTo.messageId)}">
           <div class="quote-border"></div>
           <div class="quote-content">
-            <div class="quote-sender">${msg.replyTo.senderName}</div>
-            <div class="quote-text">${msg.replyTo.previewText}</div>
+            <div class="quote-sender">${escapeHtml(msg.replyTo.senderName)}</div>
+            <div class="quote-text">${escapeHtml(msg.replyTo.previewText)}</div>
           </div>
         </div>
       ` : '';
@@ -4276,9 +4482,9 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>`;
       } else {
         messageHTML += `
-          <div class="message-avatar">${msg.senderName ? msg.senderName.charAt(0).toUpperCase() : ''}</div>
+          <div class="message-avatar">${msg.senderName ? escapeHtml(msg.senderName.charAt(0).toUpperCase()) : ''}</div>
           <div class="message-content">
-            <div class="message-sender-name">${msg.senderName}</div>
+            <div class="message-sender-name">${escapeHtml(msg.senderName)}</div>
             ${quoteHTML}
             ${forwardHTML}
             ${renderPinBadge(msg)}
@@ -4437,6 +4643,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // button wired above instead.
     if (isMember) {
       setupComposer(group, { isGroup: true });
+      startThreadPolling(
+        () => hydrateThreadMessages('group', groupId, group),
+        () => renderGroupConversationPage(groupId)
+      );
     }
 
     // Must stay last: the send re-renders this page underneath us.
@@ -6227,7 +6437,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return null;
     }
 
-    const postId = 'post_' + Date.now();
+    const postId = 'post_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
     const timestamp = Date.now();
 
     const newPost = {
@@ -6246,6 +6456,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     channel.posts.unshift(newPost);
+
+    // Deliver to the server so followers actually see it (and it survives a
+    // reload) -- best-effort, the card above is already shown regardless.
+    fetch(`/api/messages/channel/${encodeURIComponent(channelId)}`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ id: postId, text, imageUrl: newPost.imageUrl, imageId: newPost.imageId })
+    }).catch(error => console.warn('Could not deliver channel post:', error));
 
     // Update last post in conversation
     const conv = conversations.find(c => c.type === 'channel' && c.channelId === channelId);
@@ -6508,8 +6726,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Render Channel View page
-  function renderChannelView(channelId, renderOptions) {
+  async function renderChannelView(channelId, renderOptions) {
     const fromPublish = !!(renderOptions && renderOptions.fromPublish);
+    const fromSend = !!(renderOptions && renderOptions.fromSend);
     let channel = channels.find(c => c.id === channelId);
 
     if (!channel) {
@@ -6532,6 +6751,8 @@ document.addEventListener('DOMContentLoaded', () => {
       window.location.hash = '/messages';
       return;
     }
+
+    await hydrateChannelPosts(channelId, channel);
 
     const isOwner = channel.creatorId === 'user_self';
     const isAdmin = isCurrentUserChannelAdmin(channel);
@@ -6848,9 +7069,12 @@ document.addEventListener('DOMContentLoaded', () => {
         composerInput.value = '';
         composerInput.style.height = '40px';
         imageAttachment.clearPendingImage();
-        renderChannelView(channelId, { fromPublish: true });
+        renderChannelView(channelId, { fromPublish: true, fromSend: true });
         showToast('Post published', { type: 'success' });
       });
+
+      // Must stay last: the publish click above re-renders this page underneath us.
+      if (SHOT_CHANNEL_SEND_STAY && !fromSend) sendShotMessage(document, '.publish-button');
     }
 
     // Image lightbox for post images - the feed is the channel's own scroll
@@ -6879,6 +7103,14 @@ document.addEventListener('DOMContentLoaded', () => {
       feed?.querySelector('.post-card .post-menu-button')?.click();
       document.getElementById('edit-post-btn')?.click();
     }
+
+    // Poll for new posts while this channel stays open -- owners AND
+    // followers both need this, since a follower is exactly who's waiting to
+    // see the owner's next post show up without a manual reload.
+    startThreadPolling(
+      () => hydrateChannelPosts(channelId, channel),
+      () => renderChannelView(channelId)
+    );
   }
 
   // Show channel menu
@@ -8532,6 +8764,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Handle navigation via hash
   function handleNavigation() {
+    // Any navigation leaves whatever thread was polling -- the destination
+    // page starts its own polling if it's itself a conversation/group/channel
+    // screen. Without this, an old thread's poll would keep firing and its
+    // onChanged callback would yank the user back into that thread's render
+    // out from under whatever screen they navigated to.
+    stopThreadPolling();
+
     const hash = window.location.hash.slice(1) || 'messages';
     const path = hash.startsWith('/') ? hash.slice(1) : hash;
     const priorHash = previousNavigationHash;
@@ -8659,6 +8898,7 @@ document.addEventListener('DOMContentLoaded', () => {
     await fetchUserData();
     await fetchSuggestedUsers();
     await hydrateServerGroups();
+    await hydrateServerDirectConversations();
     handleNavigation();
   })();
 });

@@ -126,6 +126,11 @@
       "expectText": "Shot send stay check"
     },
     {
+      "name": "Sent direct message persists after a reload (proves server delivery, not just optimistic render)",
+      "path": "/#/conversation/conv_1",
+      "expectText": "Shot send stay check"
+    },
+    {
       "name": "DM header's ⋮ menu opens and shows its options",
       "path": "/?shot=dm-menu#/conversation/conv_1",
       "expectText": "Pin Conversation"
@@ -153,6 +158,11 @@
     {
       "name": "Sent group message appears in the thread",
       "path": "/?shot=send-stay#/group/group_1",
+      "expectText": "Shot send stay check"
+    },
+    {
+      "name": "Sent group message persists after a reload (proves server delivery, not just optimistic render)",
+      "path": "/#/group/group_1",
       "expectText": "Shot send stay check"
     },
     {
@@ -429,6 +439,21 @@
       "name": "Owned channel keeps the publish composer",
       "path": "/#/channel/channel_2",
       "expectSelector": ".channel-footer .composer-input"
+    },
+    {
+      "name": "Publishing a channel post keeps the user on the channel view",
+      "path": "/?shot=channel-send-stay#/channel/channel_2",
+      "expectSelector": ".channel-page .composer-container .composer-input"
+    },
+    {
+      "name": "Published channel post appears in the feed",
+      "path": "/?shot=channel-send-stay#/channel/channel_2",
+      "expectText": "Shot send stay check"
+    },
+    {
+      "name": "Published channel post persists after a reload (proves server delivery, not just optimistic render)",
+      "path": "/#/channel/channel_2",
+      "expectText": "Shot send stay check"
     },
     {
       "name": "Reaction picker opens from a long-press on the post card",
