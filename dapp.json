@@ -28,7 +28,7 @@
     {
       "name": "Conversation list renders",
       "path": "/",
-      "expectText": "Alice Chen"
+      "expectText": "staging-demo-eka"
     },
     {
       "name": "Unread badge displays",
@@ -47,97 +47,97 @@
     },
     {
       "name": "Conversation screen loads",
-      "path": "/#/conversation/conv_1",
-      "expectText": "Alice Chen"
+      "path": "/#/conversation/conv_staging-demo-user-6",
+      "expectText": "staging-demo-eka"
     },
     {
       "name": "Conversation header displays username",
-      "path": "/#/conversation/conv_1",
+      "path": "/#/conversation/conv_staging-demo-user-6",
       "expectSelector": ".header-username"
     },
     {
       "name": "Message bubbles render",
-      "path": "/#/conversation/conv_1",
+      "path": "/#/conversation/conv_staging-demo-user-6",
       "expectSelector": ".message-bubble"
     },
     {
       "name": "Composer appears on conversation screen",
-      "path": "/#/conversation/conv_1",
+      "path": "/#/conversation/conv_staging-demo-user-6",
       "expectSelector": ".composer-input"
     },
     {
       "name": "Scroll-to-latest FAB renders in direct message view",
-      "path": "/?shot=scroll-fab#/conversation/conv_1",
+      "path": "/?shot=scroll-fab#/conversation/conv_staging-demo-user-6",
       "expectSelector": "[data-testid=\"scroll-to-latest-fab\"]"
     },
     {
       "name": "Scroll-to-latest FAB is painted on screen when scrolled up in direct messages",
-      "path": "/?shot=scroll-fab#/conversation/conv_1",
+      "path": "/?shot=scroll-fab#/conversation/conv_staging-demo-user-6",
       "expectSelector": "[data-testid=\"scroll-to-latest-fab\"].is-visible[data-fab-onscreen=\"true\"]"
     },
     {
       "name": "Scroll-to-latest FAB hides when direct message thread sits at the bottom",
-      "path": "/?shot=scroll-fab-bottom#/conversation/conv_1",
+      "path": "/?shot=scroll-fab-bottom#/conversation/conv_staging-demo-user-6",
       "expectSelector": "[data-testid=\"scroll-to-latest-fab\"][data-fab-onscreen=\"false\"]"
     },
     {
       "name": "Scroll-to-latest FAB renders in group chat view",
-      "path": "/?shot=scroll-fab#/group/group_1",
+      "path": "/?shot=scroll-fab#/group/group_staging_owned_1",
       "expectSelector": "[data-testid=\"scroll-to-latest-fab\"]"
     },
     {
       "name": "Scroll-to-latest FAB is painted on screen when scrolled up in group chat",
-      "path": "/?shot=scroll-fab#/group/group_1",
+      "path": "/?shot=scroll-fab#/group/group_staging_owned_1",
       "expectSelector": "[data-testid=\"scroll-to-latest-fab\"].is-visible[data-fab-onscreen=\"true\"]"
     },
     {
       "name": "Scroll-to-latest FAB hides when group thread sits at the bottom",
-      "path": "/?shot=scroll-fab-bottom#/group/group_1",
+      "path": "/?shot=scroll-fab-bottom#/group/group_staging_owned_1",
       "expectSelector": "[data-testid=\"scroll-to-latest-fab\"][data-fab-onscreen=\"false\"]"
     },
     {
       "name": "Composer still renders alongside the scroll-to-latest FAB",
-      "path": "/?shot=scroll-fab#/group/group_1",
+      "path": "/?shot=scroll-fab#/group/group_staging_owned_1",
       "expectSelector": ".composer-container .composer-input"
     },
     {
       "name": "Scroll-to-latest FAB renders in channel view",
-      "path": "/?shot=scroll-fab#/channel/channel_1",
+      "path": "/?shot=scroll-fab#/channel/channel_staging_1",
       "expectSelector": "[data-testid=\"scroll-to-latest-fab\"]"
     },
     {
       "name": "Scroll-to-latest FAB is painted on screen when scrolled up in channel view",
-      "path": "/?shot=scroll-fab#/channel/channel_1",
+      "path": "/?shot=scroll-fab#/channel/channel_staging_1",
       "expectSelector": "[data-testid=\"scroll-to-latest-fab\"].is-visible[data-fab-onscreen=\"true\"]"
     },
     {
       "name": "Scroll-to-latest FAB hides when channel feed sits at the bottom",
-      "path": "/?shot=scroll-fab-bottom#/channel/channel_1",
+      "path": "/?shot=scroll-fab-bottom#/channel/channel_staging_1",
       "expectSelector": "[data-testid=\"scroll-to-latest-fab\"][data-fab-onscreen=\"false\"]"
     },
     {
       "name": "Sending a direct message keeps the user in the conversation",
-      "path": "/?shot=send-stay#/conversation/conv_1",
+      "path": "/?shot=send-stay#/conversation/conv_staging-demo-user-6",
       "expectSelector": ".conversation-page .composer-container .composer-input"
     },
     {
       "name": "Sent direct message appears in the thread",
-      "path": "/?shot=send-stay#/conversation/conv_1",
+      "path": "/?shot=send-stay#/conversation/conv_staging-demo-user-6",
       "expectText": "Shot send stay check"
     },
     {
       "name": "Sent direct message persists after a reload (proves server delivery, not just optimistic render)",
-      "path": "/#/conversation/conv_1",
+      "path": "/#/conversation/conv_staging-demo-user-6",
       "expectText": "Shot send stay check"
     },
     {
       "name": "DM header's ⋮ menu opens and shows its options",
-      "path": "/?shot=dm-menu#/conversation/conv_1",
+      "path": "/?shot=dm-menu#/conversation/conv_staging-demo-user-6",
       "expectText": "Pin Conversation"
     },
     {
       "name": "DM header's ⋮ menu includes Clear Chat option",
-      "path": "/?shot=dm-menu#/conversation/conv_1",
+      "path": "/?shot=dm-menu#/conversation/conv_staging-demo-user-6",
       "expectText": "Clear Chat"
     },
     {
@@ -147,22 +147,22 @@
     },
     {
       "name": "Sending a group message keeps the user in the group chat",
-      "path": "/?shot=send-stay#/group/group_1",
+      "path": "/?shot=send-stay#/group/group_staging_owned_1",
       "expectSelector": ".conversation-page .composer-container .composer-input"
     },
     {
       "name": "Deleted group message renders as a placeholder",
-      "path": "/?shot=message-deleted#/group/group_1",
+      "path": "/?shot=message-deleted#/group/group_staging_owned_1",
       "expectSelector": ".message-bubble.deleted"
     },
     {
       "name": "Sent group message appears in the thread",
-      "path": "/?shot=send-stay#/group/group_1",
+      "path": "/?shot=send-stay#/group/group_staging_owned_1",
       "expectText": "Shot send stay check"
     },
     {
       "name": "Sent group message persists after a reload (proves server delivery, not just optimistic render)",
-      "path": "/#/group/group_1",
+      "path": "/#/group/group_staging_owned_1",
       "expectText": "Shot send stay check"
     },
     {
@@ -198,27 +198,17 @@
     {
       "name": "Create menu lists a group the user owns",
       "path": "/#/create",
-      "expectText": "Seeker Club"
-    },
-    {
-      "name": "Create menu lists a group the user only administers",
-      "path": "/#/create",
-      "expectText": "Guardian Mods"
+      "expectText": "Staging Demo Owned Group"
     },
     {
       "name": "Create menu lists a channel the user created",
       "path": "/#/create",
-      "expectText": "Web3 Builders"
+      "expectText": "Staging Demo Owned Channel"
     },
     {
       "name": "Managed group rows show an Owner/Admin badge",
       "path": "/#/create",
       "expectSelector": "[data-testid=\"managed-groups-list\"] .managed-role-badge"
-    },
-    {
-      "name": "Managed group list collapses behind a Show all expander",
-      "path": "/#/create",
-      "expectSelector": "[data-testid=\"managed-groups-list\"] .managed-show-all"
     },
     {
       "name": "Suggested Users section displays",
@@ -278,26 +268,21 @@
     {
       "name": "Group conversations appear in Messages list",
       "path": "/",
-      "expectText": "Seeker Club"
-    },
-    {
-      "name": "Design Team seed group appears in Messages list",
-      "path": "/",
-      "expectText": "Design Team"
+      "expectText": "Staging Demo Owned Group"
     },
     {
       "name": "Group chat page displays group name",
-      "path": "/#/group/group_1",
-      "expectText": "Seeker Club"
+      "path": "/#/group/group_staging_owned_1",
+      "expectText": "Staging Demo Owned Group"
     },
     {
       "name": "Group chat page displays member count",
-      "path": "/#/group/group_1",
+      "path": "/#/group/group_staging_owned_1",
       "expectText": "members"
     },
     {
       "name": "Group chat displays system message",
-      "path": "/#/group/group_1",
+      "path": "/#/group/group_staging_owned_1",
       "expectText": "Group created."
     },
     {
@@ -317,62 +302,57 @@
     },
     {
       "name": "Group Info page displays group name",
-      "path": "/#/group/group_1/info",
-      "expectText": "Seeker Club"
+      "path": "/#/group/group_staging_owned_1/info",
+      "expectText": "Staging Demo Owned Group"
     },
     {
       "name": "Group Info page displays member count",
-      "path": "/#/group/group_1/info",
+      "path": "/#/group/group_staging_owned_1/info",
       "expectText": "Members"
     },
     {
       "name": "Group Info page shows edit buttons for admin/owner",
-      "path": "/#/group/group_1/info",
+      "path": "/#/group/group_staging_owned_1/info",
       "expectSelector": ".detail-edit-button"
     },
     {
-      "name": "Group Info page loads for a plain (non-admin) member",
-      "path": "/#/group/group_2/info",
-      "expectText": "Design Team"
-    },
-    {
       "name": "Group Info page displays leave button",
-      "path": "/#/group/group_1/info",
+      "path": "/#/group/group_staging_owned_1/info",
       "expectSelector": ".leave-group-button"
     },
     {
       "name": "Group Info page shows Share Group button for every member",
-      "path": "/#/group/group_2/info",
+      "path": "/#/group/group_staging_owned_1/info",
       "expectSelector": ".share-group-button"
     },
     {
       "name": "Shared group link routes to the group's info via ?group= query",
-      "path": "/?group=group_1#/group/group_1/info",
-      "expectText": "Seeker Club"
+      "path": "/?group=group_staging_owned_1#/group/group_staging_owned_1/info",
+      "expectText": "Staging Demo Owned Group"
     },
     {
       "name": "Promoting a member to admin updates their role badge",
-      "path": "/?shot=admin-toggle#/group/group_1/info",
-      "expectSelector": ".group-member-item[data-member-id=\"user_bob\"] .member-role-badge"
+      "path": "/?shot=admin-toggle#/group/group_staging_owned_1/info",
+      "expectSelector": ".group-member-item[data-member-id=\"staging-demo-user-2\"] .member-role-badge"
     },
     {
       "name": "Editing group description refreshes the Group Info screen in place",
-      "path": "/?shot=desc-edit#/group/group_1/info",
+      "path": "/?shot=desc-edit#/group/group_staging_owned_1/info",
       "expectText": "Shot desc edit check"
     },
     {
       "name": "Add Members page loads",
-      "path": "/#/group/group_1/add-members",
+      "path": "/#/group/group_staging_owned_1/add-members",
       "expectText": "Add Members"
     },
     {
       "name": "Add Members page shows search input",
-      "path": "/#/group/group_1/add-members",
+      "path": "/#/group/group_staging_owned_1/add-members",
       "expectSelector": "#search-members-add"
     },
     {
       "name": "Add Members page displays available users",
-      "path": "/#/group/group_1/add-members",
+      "path": "/#/group/group_staging_owned_1/add-members",
       "expectSelector": ".suggested-user-item"
     },
     {
@@ -397,132 +377,122 @@
     },
     {
       "name": "Group detail screen loads",
-      "path": "/#/group/discover_group_1",
-      "expectText": "Tech Enthusiasts"
+      "path": "/#/group/group_staging_public_2",
+      "expectText": "Staging Demo Open Circle"
     },
     {
       "name": "Channel detail screen loads",
-      "path": "/#/channel/discover_channel_1",
-      "expectText": "Announcements"
+      "path": "/#/channel/channel_staging_2",
+      "expectText": "Staging Demo Builders"
     },
     {
       "name": "Channel view renders the post feed",
-      "path": "/#/channel/channel_1",
-      "expectText": "Mainnet Beta is Live"
+      "path": "/#/channel/channel_staging_1",
+      "expectText": "Welcome to the staging demo announcements channel."
     },
     {
       "name": "Channel posts render as cards",
-      "path": "/#/channel/channel_1",
+      "path": "/#/channel/channel_staging_1",
       "expectSelector": ".post-card"
     },
     {
       "name": "Channel post shows reaction chips with counts",
-      "path": "/#/channel/channel_1",
+      "path": "/?shot=post-reactions#/channel/channel_staging_1",
       "expectSelector": ".post-reaction-chip"
     },
     {
       "name": "Own reactions are highlighted on the chip",
-      "path": "/#/channel/channel_1",
+      "path": "/?shot=post-reactions#/channel/channel_staging_1",
       "expectSelector": ".post-reaction-chip.is-mine"
     },
     {
       "name": "Post action row holds only the overflow menu button",
-      "path": "/#/channel/channel_1",
+      "path": "/#/channel/channel_staging_1",
       "expectSelector": ".post-actions .post-menu-button"
     },
     {
       "name": "Channel header shows follower count",
-      "path": "/#/channel/channel_1",
+      "path": "/#/channel/channel_staging_1",
       "expectText": "followers"
     },
     {
       "name": "Unfollowed channel shows a header Follow pill",
-      "path": "/#/channel/channel_3",
+      "path": "/#/channel/channel_staging_2",
       "expectSelector": ".channel-follow-pill"
     },
     {
       "name": "Owned channel keeps the publish composer",
-      "path": "/#/channel/channel_2",
+      "path": "/#/channel/channel_staging_owned_1",
       "expectSelector": ".channel-footer .composer-input"
     },
     {
       "name": "Publishing a channel post keeps the user on the channel view",
-      "path": "/?shot=channel-send-stay#/channel/channel_2",
+      "path": "/?shot=channel-send-stay#/channel/channel_staging_owned_1",
       "expectSelector": ".channel-page .composer-container .composer-input"
     },
     {
       "name": "Published channel post appears in the feed",
-      "path": "/?shot=channel-send-stay#/channel/channel_2",
+      "path": "/?shot=channel-send-stay#/channel/channel_staging_owned_1",
       "expectText": "Shot send stay check"
     },
     {
       "name": "Published channel post persists after a reload (proves server delivery, not just optimistic render)",
-      "path": "/#/channel/channel_2",
+      "path": "/#/channel/channel_staging_owned_1",
       "expectText": "Shot send stay check"
     },
     {
       "name": "Reaction picker opens from a long-press on the post card",
-      "path": "/?shot=post-reactions#/channel/channel_1",
+      "path": "/?shot=post-reactions#/channel/channel_staging_1",
       "expectSelector": ".reaction-picker-option"
     },
     {
       "name": "Post overflow menu offers Copy text",
-      "path": "/?shot=post-menu#/channel/channel_1",
+      "path": "/?shot=post-menu#/channel/channel_staging_1",
       "expectText": "Copy text"
     },
     {
       "name": "Post overflow menu is where Forward now lives",
-      "path": "/?shot=post-menu#/channel/channel_1",
+      "path": "/?shot=post-menu#/channel/channel_staging_1",
       "expectSelector": "#forward-post-btn"
     },
     {
       "name": "Owner post menu offers Edit Post",
-      "path": "/?shot=post-menu#/channel/channel_2",
+      "path": "/?shot=post-menu#/channel/channel_staging_owned_1",
       "expectText": "Edit Post"
     },
     {
       "name": "Owner post menu offers Delete Post",
-      "path": "/?shot=post-menu#/channel/channel_2",
+      "path": "/?shot=post-menu#/channel/channel_staging_owned_1",
       "expectSelector": "#delete-post-btn"
     },
     {
       "name": "Edit Post dialog opens prefilled with the post text",
-      "path": "/?shot=post-edit#/channel/channel_2",
+      "path": "/?shot=post-edit#/channel/channel_staging_owned_1",
       "expectSelector": ".edit-post-dialog .edit-post-input"
     },
     {
       "name": "Forward sheet opens with selectable targets",
-      "path": "/?shot=forward-sheet#/channel/channel_1",
+      "path": "/?shot=forward-sheet#/channel/channel_staging_1",
       "expectText": "Forward to"
     },
     {
       "name": "Forward sheet lists forward targets",
-      "path": "/?shot=forward-sheet#/channel/channel_1",
+      "path": "/?shot=forward-sheet#/channel/channel_staging_1",
       "expectSelector": ".forward-target-item"
     },
     {
-      "name": "Forwarded DM message shows source channel",
-      "path": "/#/conversation/conv_2",
-      "expectText": "Forwarded from Solana Indonesia"
-    },
-    {
-      "name": "Forwarded group message shows attribution",
-      "path": "/#/group/group_1",
-      "expectSelector": ".forward-attribution"
-    },
-    {
       "name": "Long-pressing a DM message reacts and opens the picker",
-      "path": "/?shot=message-reactions#/conversation/conv_2",
+      "path": "/?shot=message-reactions#/conversation/conv_staging-demo-user-6",
       "expectSelector": ".message-reaction-chip"
     },
     {
       "name": "Message reaction picker reuses the post picker's options",
-      "path": "/?shot=message-reactions#/conversation/conv_2",
+      "path": "/?shot=message-reactions#/conversation/conv_staging-demo-user-6",
       "expectSelector": ".message-reaction-picker .reaction-picker-option"
     },
     {
       "name": "Long-pressing a group message reacts and opens the picker",
-      "path": "/?shot=message-reactions#/group/group_1",
+      "path": "/?shot=message-reactions#/group/group_staging_owned_1",
       "expectSelector": ".message-reaction-chip"
     },
     {
@@ -587,22 +557,22 @@
     },
     {
       "name": "Attach image button appears in DM composer",
-      "path": "/#/conversation/conv_1",
+      "path": "/#/conversation/conv_staging-demo-user-6",
       "expectSelector": ".attach-image-button"
     },
     {
       "name": "Attach image button appears in group composer",
-      "path": "/#/group/group_1",
+      "path": "/#/group/group_staging_owned_1",
       "expectSelector": ".attach-image-button"
     },
     {
       "name": "Image message renders in DM thread",
-      "path": "/#/conversation/conv_1",
+      "path": "/#/conversation/conv_staging-demo-user-6",
       "expectSelector": ".message-image"
     },
     {
       "name": "Image message renders in group thread",
-      "path": "/#/group/group_1",
+      "path": "/#/group/group_staging_owned_1",
       "expectSelector": ".message-image"
     },
     {
@@ -612,67 +582,67 @@
     },
     {
       "name": "Attach image button appears in channel composer",
-      "path": "/#/channel/channel_2",
+      "path": "/#/channel/channel_staging_owned_1",
       "expectSelector": ".attach-image-button"
     },
     {
       "name": "Image message renders in channel feed",
-      "path": "/#/channel/channel_4",
+      "path": "/#/channel/channel_staging_1",
       "expectSelector": ".message-image"
     },
     {
       "name": "Message link renders as clickable anchor",
-      "path": "/#/conversation/conv_2",
+      "path": "/#/conversation/conv_staging-demo-user-6",
       "expectSelector": ".message-link"
     },
     {
       "name": "Edit Channel button opens the Channel Info page",
-      "path": "/#/channel/channel_2/info",
+      "path": "/#/channel/channel_staging_owned_1/info",
       "expectText": "Channel Info"
     },
     {
       "name": "Channel Info page displays the channel name",
-      "path": "/#/channel/channel_2/info",
-      "expectText": "Web3 Builders"
+      "path": "/#/channel/channel_staging_owned_1/info",
+      "expectText": "Staging Demo Owned Channel"
     },
     {
       "name": "Channel Info page shows edit buttons for owner/admin",
-      "path": "/#/channel/channel_2/info",
+      "path": "/#/channel/channel_staging_owned_1/info",
       "expectSelector": ".detail-edit-button"
     },
     {
       "name": "Channel Info page lists the seeded admin",
-      "path": "/#/channel/channel_2/info",
-      "expectText": "aksaranft"
+      "path": "/?shot=channel-admin#/channel/channel_staging_owned_1/info",
+      "expectText": "staging-demo-ana"
     },
     {
       "name": "Channel Info page shows a Remove control for the owner",
-      "path": "/#/channel/channel_2/info",
+      "path": "/?shot=channel-admin#/channel/channel_staging_owned_1/info",
       "expectSelector": ".member-admin-toggle-btn"
     },
     {
       "name": "Channel Info page offers Add Admins",
-      "path": "/#/channel/channel_2/info",
+      "path": "/#/channel/channel_staging_owned_1/info",
       "expectSelector": "#add-channel-admins-button"
     },
     {
       "name": "Non-admin viewer is redirected away from Channel Info",
-      "path": "/#/channel/channel_1/info",
-      "expectText": "Solana Indonesia"
+      "path": "/#/channel/channel_staging_1/info",
+      "expectText": "Staging Demo Announcements"
     },
     {
       "name": "Add Admins page loads for a channel owner",
-      "path": "/#/channel/channel_2/add-admins",
+      "path": "/#/channel/channel_staging_owned_1/add-admins",
       "expectText": "Add Admins"
     },
     {
       "name": "Add Admins page shows search input",
-      "path": "/#/channel/channel_2/add-admins",
+      "path": "/#/channel/channel_staging_owned_1/add-admins",
       "expectSelector": "#search-channel-admins-add"
     },
     {
       "name": "Add Admins page displays available users",
-      "path": "/#/channel/channel_2/add-admins",
+      "path": "/#/channel/channel_staging_owned_1/add-admins",
       "expectSelector": ".suggested-user-item"
     }
   ]

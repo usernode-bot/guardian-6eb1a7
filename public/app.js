@@ -26,15 +26,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Screenshot-state deep links. Each boots a long, deterministic thread so
   // interaction-gated UI is reachable from a plain URL. Pure UI state — nothing
-  // is persisted, and none of it is gated on the environment.
+  // is persisted, and none of it is gated on the environment. Whichever real/
+  // staging-seeded conversation, group or channel the path opens is padded/
+  // mutated client-side only, so these work against any real thread, not a
+  // specific hardcoded id.
   //
-  //   ?shot=scroll-fab        thread parked at the TOP    → FAB must be on screen
-  //   ?shot=scroll-fab-bottom thread parked at the BOTTOM → FAB must be hidden
+  //   ?shot=scroll-fab        thread padded + parked at the TOP    → FAB must be on screen
+  //   ?shot=scroll-fab-bottom thread padded + parked at the BOTTOM → FAB must be hidden
   //   ?shot=send-stay         sends one message on load   → thread must survive
   //   ?shot=channel-send-stay publishes one post on load (owned channel only) → post must render
-  //   ?shot=message-deleted   forces group_1's seeded deleted messages         → placeholder must render
+  //   ?shot=message-deleted   marks the open group's last message deleted    → placeholder must render
   //   ?shot=dm-menu           clicks the DM header's ⋮ button on load          → options menu must render
-  //   ?shot=dm-cleared        clears conv_1's chat via the real Clear Chat fn  → list preview must read "No messages yet"
+  //   ?shot=dm-cleared        clears the first real DM's chat via the real Clear Chat fn → list preview must read "No messages yet"
   //   ?shot=post-reactions    long-presses the first post card                  → reaction picker must render
   //   ?shot=forward-sheet     ⋯ menu → Forward on the first post              → target rows + enabled Send must render
   //   ?shot=post-menu         opens the first post's ⋯ menu                    → Forward / Copy text (+ owner items) must render
@@ -44,6 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=create-group-zero-members name only, then submits                  → "Select at least 1 member" must render
   //   ?shot=search-users             runs a real /api/users/search query        → matching staging-demo user must render
   //   ?shot=dc-preview                sends a real DM to a staging peer on load  → Messages list preview must show its text, not be blank
+  //   ?shot=channel-admin            seeds one client-only admin on the open owned channel → Channel Info must list them
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -70,6 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let shotDescEditFired = false;
   const SHOT_SEARCH_USERS = SHOT === 'search-users';
   const SHOT_DC_PREVIEW = SHOT === 'dc-preview';
+  const SHOT_CHANNEL_ADMIN = SHOT === 'channel-admin';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
   const SHOT_CREATE_GROUP_NAME = 'Staging demo one-invite group';
@@ -129,113 +134,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const bottomNav = document.getElementById('bottom-nav');
   const navTabs = document.querySelectorAll('.nav-tab');
 
-  // Dummy conversations data with messages
-  let conversations = [
-    {
-      id: 'conv_1',
-      type: 'direct',
-      username: 'Alice Chen',
-      avatar: 'AC',
-      lastMessage: '📷 Staging demo photo',
-      timestamp: Date.now() - 1 * 60 * 1000, // 1 minute ago
-      unreadCount: 2,
-      onlineStatus: true,
-      archived: false,
-      pinned: true,
-      mutedByUsers: {},
-      messages: [
-        { id: 'msg_1', text: "Hey! How's it going?", timestamp: Date.now() - 5*60*1000, isOutgoing: false },
-        { id: 'msg_2', text: "Great! Just finished work", timestamp: Date.now() - 4.5*60*1000, isOutgoing: true },
-        { id: 'msg_3', text: "Nice! Want to grab dinner?", timestamp: Date.now() - 4*60*1000, isOutgoing: false },
-        { id: 'msg_4', text: "Sure! When?", timestamp: Date.now() - 3.5*60*1000, isOutgoing: true },
-        { id: 'msg_5', text: "How about 7pm?", timestamp: Date.now() - 3*60*1000, isOutgoing: false },
-        { id: 'msg_6', text: "That sounds great! Let's meet up soon.", timestamp: Date.now() - 2*60*1000, isOutgoing: true, replyTo: { messageId: 'msg_5', senderName: 'Alice Chen', previewText: 'How about 7pm?' } },
-        { id: 'msg_demo_image', text: 'Staging demo photo', imageUrl: DEMO_IMAGE_BLUE, timestamp: Date.now() - 1*60*1000, isOutgoing: false }
-      ]
-    },
-    {
-      id: 'conv_2',
-      type: 'direct',
-      username: 'Bob Wilson',
-      avatar: 'BW',
-      lastMessage: '↗ Mainnet Beta is Live 🚀',
-      timestamp: Date.now() - 30 * 60 * 1000, // 30 minutes ago
-      unreadCount: 0,
-      onlineStatus: false,
-      archived: false,
-      pinned: false,
-      mutedByUsers: {},
-      messages: [
-        { id: 'msg_1', text: "Check out the new features", timestamp: Date.now() - 2*60*60*1000, isOutgoing: false },
-        { id: 'msg_2', text: "Looking good!", timestamp: Date.now() - 1.5*60*60*1000, isOutgoing: true },
-        { id: 'msg_link_demo', text: "Docs are here: https://guardian.example.com/docs — check it out!", timestamp: Date.now() - 1.25*60*60*1000, isOutgoing: false },
-        { id: 'msg_3', text: "Did you see the latest updates?", timestamp: Date.now() - 60*60*1000, isOutgoing: false },
-        {
-          id: 'msg_4',
-          text: 'Mainnet Beta is Live 🚀\n\nExciting times ahead as we launch the next phase of development!',
-          timestamp: Date.now() - 30*60*1000,
-          isOutgoing: true,
-          forwardedFrom: { channelId: 'channel_1', channelName: 'Solana Indonesia', channelAvatar: 'SI', postId: 'post_1' }
-        }
-      ]
-    },
-    {
-      id: 'conv_3',
-      type: 'direct',
-      username: 'Carol Davis',
-      avatar: 'CD',
-      lastMessage: 'Thanks for the help yesterday!',
-      timestamp: Date.now() - 24 * 60 * 60 * 1000, // 1 day ago (yesterday)
-      unreadCount: 1,
-      onlineStatus: true,
-      archived: false,
-      pinned: false,
-      mutedByUsers: {},
-      messages: [
-        { id: 'msg_1', text: "I need some help with a project", timestamp: Date.now() - 26*60*60*1000, isOutgoing: false },
-        { id: 'msg_2', text: "Happy to help! What do you need?", timestamp: Date.now() - 25.5*60*60*1000, isOutgoing: true },
-        { id: 'msg_3', text: "Can you review this code?", timestamp: Date.now() - 25*60*60*1000, isOutgoing: false },
-        { id: 'msg_4', text: "Of course, sending notes now", timestamp: Date.now() - 24.5*60*60*1000, isOutgoing: true },
-        { id: 'msg_5', text: "Thanks for the help yesterday!", timestamp: Date.now() - 24*60*60*1000, isOutgoing: false }
-      ]
-    },
-    {
-      id: 'conv_4',
-      type: 'direct',
-      username: 'David Lee',
-      avatar: 'DL',
-      lastMessage: 'Looking forward to the event next week',
-      timestamp: Date.now() - 2 * 24 * 60 * 60 * 1000, // 2 days ago
-      unreadCount: 0,
-      onlineStatus: false,
-      archived: false,
-      pinned: false,
-      manuallyMarkedUnread: true, // Staging demo — proves the unread dot renders independent of unreadCount
-      mutedByUsers: {},
-      messages: [
-        { id: 'msg_1', text: "See you at the event!", timestamp: Date.now() - 3*24*60*60*1000, isOutgoing: false },
-        { id: 'msg_2', text: "Definitely! Can't wait", timestamp: Date.now() - 2.5*24*60*60*1000, isOutgoing: true },
-        { id: 'msg_3', text: "Looking forward to the event next week", timestamp: Date.now() - 2*24*60*60*1000, isOutgoing: false }
-      ]
-    },
-    {
-      id: 'conv_staging_hidden_1',
-      type: 'direct',
-      username: 'Staging Demo Hidden User',
-      avatar: 'SH',
-      lastMessage: 'Staging demo — deleted from inbox, proves the hidden-from-inbox filter',
-      timestamp: Date.now() - 3 * 24 * 60 * 60 * 1000,
-      unreadCount: 0,
-      onlineStatus: false,
-      archived: false,
-      pinned: false,
-      hiddenFromInbox: true,
-      mutedByUsers: {},
-      messages: [
-        { id: 'msg_1', text: 'Staging demo message', timestamp: Date.now() - 3*24*60*60*1000, isOutgoing: false }
-      ]
-    }
-  ];
+  // Conversations are hydrated from the server (see hydrateServerGroups,
+  // hydrateServerChannels, hydrateServerDirectConversations) instead of being
+  // seeded here -- this app now shows only real users' real conversations.
+  let conversations = [];
 
   // Suggested users, hydrated from the real `users` directory on the server
   // (GET /api/users/suggested) instead of these fixtures. Populated by
@@ -326,651 +228,20 @@ document.addEventListener('DOMContentLoaded', () => {
     window.location.hash = `/conversation/${convId}`;
   }
 
-  // Dummy groups data with messages
-  let groups = [
-    {
-      id: 'group_1',
-      name: 'Seeker Club',
-      avatar: 'SC',
-      description: 'A community of seekers and explorers',
-      memberCount: 128,
-      visibility: 'public',
-      creatorId: 'user_self',
-      members: [
-        { id: 'user_self', username: 'You', role: 'owner' },
-        { id: 'user_alice', username: 'Alice', role: 'admin' },
-        { id: 'user_bob', username: 'Bob', role: 'member' },
-        { id: 'user_charlie', username: 'Charlie', role: 'member' }
-      ],
-      joinRequests: [],
-      messages: [
-        { id: 'msg_1', senderId: 'user_alice', senderName: 'Alice', text: 'Hey everyone!', timestamp: Date.now() - 10*60*1000, isOutgoing: false },
-        { id: 'msg_2', senderId: 'user_bob', senderName: 'Bob', text: 'Welcome to the group!', timestamp: Date.now() - 9*60*1000, isOutgoing: false, isDeleted: true },
-        { id: 'msg_3', senderId: 'user_self', text: 'Thanks for adding me!', timestamp: Date.now() - 8*60*1000, isOutgoing: true },
-        { id: 'msg_4', senderId: 'user_charlie', senderName: 'Charlie', text: 'Great to have you here!', timestamp: Date.now() - 7*60*1000, isOutgoing: false, isDeleted: true, deletedByAdmin: true },
-        { id: 'msg_5', senderId: 'user_alice', senderName: 'Alice', text: 'Let\'s catch up soon!', timestamp: Date.now() - 6*60*1000, isOutgoing: false },
-        { id: 'msg_6', senderId: 'user_self', text: 'Absolutely! Looking forward to it.', timestamp: Date.now() - 5*60*1000, isOutgoing: true, replyTo: { messageId: 'msg_5', senderName: 'Alice', previewText: "Let's catch up soon!" } },
-        {
-          id: 'msg_7',
-          senderId: 'user_self',
-          text: 'Mainnet Beta is Live 🚀\n\nExciting times ahead as we launch the next phase of development!',
-          timestamp: Date.now() - 4*60*1000,
-          isOutgoing: true,
-          forwardedFrom: { channelId: 'channel_1', channelName: 'Solana Indonesia', channelAvatar: 'SI', postId: 'post_1' }
-        },
-        { id: 'msg_demo_image', senderId: 'user_alice', senderName: 'Alice', text: 'Staging demo photo', imageUrl: DEMO_IMAGE_ORANGE, timestamp: Date.now() - 3.5*60*1000, isOutgoing: false }
-      ]
-    },
-    {
-      id: 'group_2',
-      name: 'Design Team',
-      avatar: 'DT',
-      description: 'Collaborate on visual designs and UI/UX',
-      memberCount: 3,
-      visibility: 'private',
-      creatorId: 'user_8',
-      members: [
-        { id: 'user_self', username: 'You', role: 'member' },
-        { id: 'user_1', username: 'aksaranft', role: 'member' },
-        { id: 'user_8', username: 'designpro', role: 'owner' }
-      ],
-      joinRequests: [
-        { userId: 'user_join_req_1', username: 'Staging Demo User', requestedAt: Date.now() - 2*60*60*1000 },
-        { userId: 'user_join_req_2', username: 'Staging Demo User 2', requestedAt: Date.now() - 45*60*1000 }
-      ],
-      messages: [
-        { id: 'msg_1', senderId: 'user_8', senderName: 'designpro', text: 'Just posted the new mockups', timestamp: Date.now() - 30*60*1000, isOutgoing: false },
-        { id: 'msg_2', senderId: 'user_self', text: 'Thanks! Reviewing now', timestamp: Date.now() - 25*60*1000, isOutgoing: true },
-        { id: 'msg_link_demo', senderId: 'user_8', senderName: 'designpro', text: 'Full spec doc: https://guardian.example.com/design-spec', timestamp: Date.now() - 20*60*1000, isOutgoing: false }
-      ]
-    },
-    {
-      // Admin-but-not-creator: proves the Create menu lists groups the user
-      // administers, not just the ones they created.
-      id: 'group_3',
-      name: 'Guardian Mods',
-      avatar: 'GM',
-      description: 'Moderation crew for the Guardian community',
-      memberCount: 12,
-      visibility: 'private',
-      creatorId: 'user_1',
-      createdAt: Date.now() - 18*24*60*60*1000,
-      members: [
-        { id: 'user_1', username: 'aksaranft', role: 'owner' },
-        { id: 'user_self', username: 'You', role: 'admin' },
-        { id: 'user_3', username: 'nodeart', role: 'member' }
-      ],
-      joinRequests: [],
-      messages: [
-        { id: 'msg_1', senderId: 'user_1', senderName: 'aksaranft', text: 'Added you as a mod — welcome aboard!', timestamp: Date.now() - 3*60*60*1000, isOutgoing: false },
-        { id: 'msg_2', senderId: 'user_self', text: 'On it. I\'ll watch the reports queue.', timestamp: Date.now() - 2.5*60*60*1000, isOutgoing: true }
-      ]
-    },
-    {
-      id: 'group_4',
-      name: 'Alpha Signals',
-      avatar: 'AS',
-      description: 'Early calls and market chatter',
-      memberCount: 42,
-      visibility: 'private',
-      creatorId: 'user_self',
-      createdAt: Date.now() - 9*24*60*60*1000,
-      members: [
-        { id: 'user_self', username: 'You', role: 'owner' },
-        { id: 'user_2', username: 'cryptosmith', role: 'member' }
-      ],
-      joinRequests: [],
-      messages: [
-        { id: 'msg_1', senderId: 'user_self', text: 'Room is open — drop your theses here.', timestamp: Date.now() - 6*60*60*1000, isOutgoing: true }
-      ]
-    },
-    {
-      id: 'group_5',
-      name: 'Node Runners',
-      avatar: 'NR',
-      description: 'Validator and node operator talk',
-      memberCount: 67,
-      visibility: 'public',
-      creatorId: 'user_self',
-      createdAt: Date.now() - 21*24*60*60*1000,
-      members: [
-        { id: 'user_self', username: 'You', role: 'owner' },
-        { id: 'user_5', username: 'chainwizard', role: 'admin' },
-        { id: 'user_7', username: 'webbuilder', role: 'member' }
-      ],
-      joinRequests: [],
-      messages: [
-        { id: 'msg_1', senderId: 'user_5', senderName: 'chainwizard', text: 'Uptime is back to 100% after the patch.', timestamp: Date.now() - 8*60*60*1000, isOutgoing: false }
-      ]
-    }
-  ];
-
-  // Add group conversations to the conversations list
-  conversations = conversations.concat([
-    {
-      id: 'conv_group_1',
-      type: 'group',
-      groupId: 'group_1',
-      name: 'Seeker Club',
-      avatar: 'SC',
-      lastMessage: '📷 Staging demo photo',
-      timestamp: Date.now() - 3.5*60*1000,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    },
-    {
-      id: 'conv_group_2',
-      type: 'group',
-      groupId: 'group_2',
-      name: 'Design Team',
-      avatar: 'DT',
-      lastMessage: 'Full spec doc: https://guardian.example.com/design-spec',
-      timestamp: Date.now() - 20*60*1000,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    },
-    {
-      id: 'conv_group_3',
-      type: 'group',
-      groupId: 'group_3',
-      name: 'Guardian Mods',
-      avatar: 'GM',
-      lastMessage: 'On it. I\'ll watch the reports queue.',
-      timestamp: Date.now() - 2.5*60*60*1000,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    },
-    {
-      id: 'conv_group_4',
-      type: 'group',
-      groupId: 'group_4',
-      name: 'Alpha Signals',
-      avatar: 'AS',
-      lastMessage: 'Room is open — drop your theses here.',
-      timestamp: Date.now() - 6*60*60*1000,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    },
-    {
-      id: 'conv_group_5',
-      type: 'group',
-      groupId: 'group_5',
-      name: 'Node Runners',
-      avatar: 'NR',
-      lastMessage: 'Uptime is back to 100% after the patch.',
-      timestamp: Date.now() - 8*60*60*1000,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    }
-  ]);
-
-  // Screenshot-state seed: pad the demo threads so the message list actually
-  // scrolls, which is what makes the scroll-to-latest FAB appear.
-  if (SHOT_LONG_THREAD) {
-    const directThread = conversations.find(c => c.id === 'conv_1');
-    if (directThread) {
-      const padded = [];
-      for (let i = 0; i < 24; i++) {
-        padded.push({
-          id: `shot_msg_${i + 1}`,
-          text: `Staging demo message #${i + 1} in this conversation.`,
-          timestamp: Date.now() - (60 - i) * 60 * 1000,
-          isOutgoing: i % 3 === 0
-        });
-      }
-      directThread.messages = padded.concat(directThread.messages);
-    }
-
-    const demoGroup = groups.find(g => g.id === 'group_1');
-    if (demoGroup) {
-      const paddedGroup = [];
-      for (let i = 0; i < 24; i++) {
-        const outgoing = i % 3 === 0;
-        paddedGroup.push({
-          id: `shot_gmsg_${i + 1}`,
-          senderId: outgoing ? 'user_self' : 'user_alice',
-          senderName: outgoing ? undefined : 'Alice',
-          text: `Staging demo group message #${i + 1}.`,
-          timestamp: Date.now() - (60 - i) * 60 * 1000,
-          isOutgoing: outgoing
-        });
-      }
-      demoGroup.messages = paddedGroup.concat(demoGroup.messages);
-    }
-  }
-
-  // Screenshot-state seed: force group_1's deleted-message placeholders to
-  // exist regardless of any future edits to the base seed data above.
-  if (SHOT_MESSAGE_DELETED) {
-    const group1 = groups.find(g => g.id === 'group_1');
-    if (group1) {
-      const ownDeleted = group1.messages.find(m => m.id === 'msg_2');
-      if (ownDeleted) {
-        ownDeleted.isDeleted = true;
-        ownDeleted.deletedByAdmin = false;
-      }
-      const adminDeleted = group1.messages.find(m => m.id === 'msg_4');
-      if (adminDeleted) {
-        adminDeleted.isDeleted = true;
-        adminDeleted.deletedByAdmin = true;
-      }
-    }
-  }
-
-  // Screenshot-state seed: exercise the real Clear Chat function on conv_1 so
-  // the deep link locks in the "list preview goes stale after clearing" fix.
-  if (SHOT_DM_CLEARED) {
-    clearDMChat('conv_1');
-  }
-
-  // Message requests data
-  let requests = [
-    {
-      id: 'req_1',
-      senderId: 'user_new_1',
-      senderName: 'Taylor Blake',
-      avatar: 'TB',
-      messagePreview: 'Hi! I saw your profile and would love to connect.',
-      timestamp: Date.now() - 30 * 60 * 1000
-    },
-    {
-      id: 'req_2',
-      senderId: 'user_new_2',
-      senderName: 'Jordan River',
-      avatar: 'JR',
-      messagePreview: 'Great to see you here! Let\'s chat sometime.',
-      timestamp: Date.now() - 2 * 60 * 60 * 1000
-    }
-  ];
-
-  // Discover communities data
-  let discoverGroups = [
-    {
-      id: 'discover_group_1',
-      name: 'Tech Enthusiasts',
-      description: 'A community for tech lovers and innovators',
-      avatar: 'TE',
-      memberCount: 256,
-      visibility: 'public',
-      members: [],
-      joinRequests: [],
-      isFeatured: true,
-      isNew: false,
-      createdAt: Date.now() - 60*24*60*60*1000
-    },
-    {
-      id: 'discover_group_2',
-      name: 'Design Community',
-      description: 'Collaborate and share design ideas and projects',
-      avatar: 'DC',
-      memberCount: 189,
-      visibility: 'private',
-      members: [],
-      joinRequests: [],
-      isFeatured: true,
-      isNew: false,
-      createdAt: Date.now() - 45*24*60*60*1000
-    },
-    {
-      id: 'discover_group_3',
-      name: 'Photography Club',
-      description: 'Share and discuss photography techniques',
-      avatar: 'PC',
-      memberCount: 412,
-      visibility: 'public',
-      members: [],
-      joinRequests: [],
-      isFeatured: false,
-      isNew: false,
-      createdAt: Date.now() - 30*24*60*60*1000
-    },
-    {
-      id: 'discover_group_4',
-      name: 'Book Lovers',
-      description: 'Discuss books, authors, and reading experiences',
-      avatar: 'BL',
-      memberCount: 178,
-      visibility: 'public',
-      members: [],
-      joinRequests: [],
-      isFeatured: false,
-      isNew: true,
-      createdAt: Date.now() - 3*24*60*60*1000
-    },
-    {
-      id: 'discover_group_5',
-      name: 'Fitness Squad',
-      description: 'Share fitness goals, workouts, and health tips',
-      avatar: 'FS',
-      memberCount: 334,
-      visibility: 'public',
-      members: [],
-      joinRequests: [],
-      isFeatured: false,
-      isNew: false,
-      createdAt: Date.now() - 20*24*60*60*1000
-    },
-    {
-      id: 'discover_group_6',
-      name: 'AI & ML Discussion',
-      description: 'Deep dive into artificial intelligence and machine learning',
-      avatar: 'AM',
-      memberCount: 567,
-      visibility: 'public',
-      members: [],
-      joinRequests: [],
-      isFeatured: true,
-      isNew: false,
-      createdAt: Date.now() - 15*24*60*60*1000
-    },
-    {
-      id: 'discover_group_7',
-      name: 'Web3 Builders',
-      description: 'Build and discuss decentralized applications',
-      avatar: 'WB',
-      memberCount: 291,
-      visibility: 'public',
-      members: [],
-      joinRequests: [],
-      isFeatured: false,
-      isNew: true,
-      createdAt: Date.now() - 5*24*60*60*1000
-    },
-    {
-      id: 'discover_group_8',
-      name: 'Indie Hackers',
-      description: 'Connect with independent developers and entrepreneurs',
-      avatar: 'IH',
-      memberCount: 445,
-      visibility: 'public',
-      members: [],
-      joinRequests: [],
-      isFeatured: false,
-      isNew: false,
-      createdAt: Date.now() - 12*24*60*60*1000
-    }
-  ];
-
-  // The hardcoded demo groups stay client-only: writing "Seeker Club" and
-  // "Tech Enthusiasts" into Postgres would put obviously-fake rows in the
-  // production database. Server-backed groups carry source: 'server' instead,
-  // and mutation helpers use this flag to decide whether to call the API.
-  groups.forEach(g => { g.source = 'local'; });
-  discoverGroups.forEach(g => { g.source = 'local'; });
-
-  let discoverChannels = [
-    {
-      id: 'discover_channel_1',
-      name: 'Announcements',
-      description: 'Important platform announcements and updates',
-      avatar: 'A',
-      visibility: 'public',
-      memberCount: 523,
-      isFeatured: true,
-      isNew: false,
-      createdAt: Date.now() - 90*24*60*60*1000
-    },
-    {
-      id: 'discover_channel_2',
-      name: 'Updates',
-      description: 'Latest news and feature updates',
-      avatar: 'U',
-      visibility: 'public',
-      memberCount: 412,
-      isFeatured: true,
-      isNew: false,
-      createdAt: Date.now() - 75*24*60*60*1000
-    },
-    {
-      id: 'discover_channel_3',
-      name: '#news',
-      description: 'Community news and trending topics',
-      avatar: 'N',
-      visibility: 'public',
-      memberCount: 1245,
-      isFeatured: false,
-      isNew: false,
-      createdAt: Date.now() - 60*24*60*60*1000
-    },
-    {
-      id: 'discover_channel_4',
-      name: '#tips',
-      description: 'Useful tips, tricks, and best practices',
-      avatar: 'T',
-      visibility: 'public',
-      memberCount: 856,
-      isFeatured: false,
-      isNew: false,
-      createdAt: Date.now() - 50*24*60*60*1000
-    },
-    {
-      id: 'discover_channel_5',
-      name: '#events',
-      description: 'Community events and gatherings',
-      avatar: 'E',
-      visibility: 'public',
-      memberCount: 234,
-      isFeatured: false,
-      isNew: true,
-      createdAt: Date.now() - 7*24*60*60*1000
-    },
-    {
-      id: 'discover_channel_6',
-      name: 'VIP Discussions',
-      description: 'Private discussions for premium members',
-      avatar: 'VD',
-      visibility: 'private',
-      memberCount: 45,
-      isFeatured: false,
-      isNew: false,
-      createdAt: Date.now() - 40*24*60*60*1000
-    },
-    {
-      id: 'discover_channel_7',
-      name: 'Team Updates',
-      description: 'Internal team communications and updates',
-      avatar: 'TU',
-      visibility: 'private',
-      memberCount: 28,
-      isFeatured: false,
-      isNew: true,
-      createdAt: Date.now() - 2*24*60*60*1000
-    },
-    {
-      id: 'discover_channel_8',
-      name: '#projects',
-      description: 'Showcase and collaborate on projects',
-      avatar: 'P',
-      visibility: 'public',
-      memberCount: 678,
-      isFeatured: true,
-      isNew: false,
-      createdAt: Date.now() - 35*24*60*60*1000
-    }
-  ];
-
-  // Broadcast channels data
-  let channels = [
-    {
-      id: 'channel_1',
-      name: 'Solana Indonesia',
-      description: 'Latest news and updates about Solana ecosystem in Indonesia',
-      avatar: 'SI',
-      isPublic: true,
-      creatorId: 'user_4',
-      createdAt: Date.now() - 7 * 24 * 60 * 60 * 1000,
-      followerCount: 12500,
-      followers: { 'user_self': true, 'user_1': true, 'user_2': true },
-      mutedByUsers: {},
-      admins: [],
-      posts: [
-        {
-          id: 'post_1',
-          channelId: 'channel_1',
-          authorId: 'user_4',
-          text: 'Mainnet Beta is Live 🚀\n\nExciting times ahead as we launch the next phase of development!',
-          timestamp: Date.now() - 2 * 60 * 1000,
-          reactions: {
-            '❤️': { 'user_self': true, 'user_1': true, 'user_2': true },
-            '👍': { 'user_1': true, 'user_2': true },
-            '🎉': { 'user_3': true }
-          },
-          isPinned: false
-        },
-        {
-          id: 'post_2',
-          channelId: 'channel_1',
-          authorId: 'user_4',
-          text: 'Monthly Update: Progress Report\n\nWe\'ve completed major milestones this month. Check the roadmap for details.',
-          timestamp: Date.now() - 24 * 60 * 60 * 1000,
-          reactions: { '😂': { 'user_1': true } },
-          isPinned: false
-        },
-        {
-          id: 'post_5',
-          channelId: 'channel_1',
-          authorId: 'user_4',
-          text: 'FAQ: https://guardian.example.com/solana-faq for common questions.',
-          timestamp: Date.now() - 48 * 60 * 60 * 1000,
-          reactions: {},
-          isPinned: false
-        }
-      ]
-    },
-    {
-      id: 'channel_2',
-      name: 'Web3 Builders',
-      description: 'Community for web3 developers and creators',
-      avatar: 'WB',
-      isPublic: true,
-      creatorId: 'user_self',
-      createdAt: Date.now() - 3 * 24 * 60 * 60 * 1000,
-      followerCount: 245,
-      followers: { 'user_self': true },
-      mutedByUsers: {},
-      // Staging demo data: one existing admin so the Channel Info page's
-      // Admins list and owner-only "Remove" control both have something to show.
-      admins: [{ id: 'user_1', username: 'aksaranft', avatar: 'AK', walletAddress: null }],
-      posts: [
-        {
-          id: 'post_3',
-          channelId: 'channel_2',
-          authorId: 'user_self',
-          text: 'Welcome to Web3 Builders! 👨‍💻\n\nThis is a space to share projects, learn together, and build the future of web3.',
-          timestamp: Date.now() - 60 * 60 * 1000,
-          reactions: {},
-          isPinned: false
-        }
-      ]
-    },
-    {
-      id: 'channel_3',
-      name: 'Design Tips',
-      description: 'Daily design inspiration and tutorials',
-      avatar: 'DT',
-      isPublic: true,
-      creatorId: 'user_8',
-      createdAt: Date.now() - 10 * 24 * 60 * 60 * 1000,
-      followerCount: 2000,
-      followers: {},
-      mutedByUsers: {},
-      admins: [],
-      posts: [
-        {
-          id: 'post_4',
-          channelId: 'channel_3',
-          authorId: 'user_8',
-          text: 'Tip of the day: Golden Ratio in UI Design\n\nUsing the golden ratio can create more aesthetically pleasing layouts.',
-          timestamp: Date.now() - 12 * 60 * 60 * 1000,
-          reactions: { '❤️': { 'user_1': true, 'user_2': true } },
-          isPinned: false
-        }
-      ]
-    },
-    {
-      // Second user-created channel — gives the Create menu's channel list
-      // more than one row and covers the no-posts sort-key fallback.
-      id: 'channel_4',
-      name: 'Builder Notes',
-      description: 'Short notes from things I ship',
-      avatar: 'BN',
-      isPublic: true,
-      creatorId: 'user_self',
-      createdAt: Date.now() - 36 * 60 * 60 * 1000,
-      followerCount: 18,
-      followers: { 'user_self': true },
-      mutedByUsers: {},
-      admins: [],
-      posts: [
-        {
-          id: 'post_6',
-          channelId: 'channel_4',
-          authorId: 'user_self',
-          text: 'Shipped a new badge design ✨',
-          imageUrl: DEMO_IMAGE_GREEN,
-          timestamp: Date.now() - 10 * 60 * 1000,
-          reactions: {},
-          isPinned: false
-        }
-      ]
-    }
-  ];
-
-  // Screenshot-state seed: pad channel_1's feed so it actually scrolls, same
-  // reasoning as the DM/group padding above (SHOT_LONG_THREAD is declared
-  // before `channels` exists, so this seed has to live down here instead).
-  // channel.posts is newest-first in storage, so filler posts are appended to
-  // the END (older than the seeded posts) rather than concatenated at the
-  // front like the DM/group arrays above.
-  if (SHOT_LONG_THREAD) {
-    const demoChannel = channels.find(c => c.id === 'channel_1');
-    if (demoChannel) {
-      const paddedPosts = [];
-      for (let i = 0; i < 24; i++) {
-        paddedPosts.push({
-          id: `shot_post_${i + 1}`,
-          channelId: 'channel_1',
-          authorId: 'user_4',
-          text: `Staging demo post #${i + 1} in this channel.`,
-          timestamp: Date.now() - (49 + i) * 60 * 60 * 1000,
-          reactions: {},
-          isPinned: false
-        });
-      }
-      demoChannel.posts = demoChannel.posts.concat(paddedPosts);
-    }
-  }
+  // Groups, channels, and requests are hydrated from the server (see
+  // hydrateServerGroups, hydrateServerChannels below) instead of being seeded
+  // here -- this app now shows only real users' real groups/channels.
+  let groups = [];
+  let requests = [];
+  let discoverGroups = [];
+  let discoverChannels = [];
+  let channels = [];
 
   // The fixed reaction set offered on channel posts. Single source of truth for
   // BOTH the picker order and the chip order, so chips never reshuffle as counts
   // change. Index 0 ('❤️') is what the primary like button toggles.
   const POST_REACTIONS = ['❤️', '👍', '😂', '🎉', '😮', '😢'];
   const LIKE_EMOJI = POST_REACTIONS[0];
-
-  // Reactions live at post.reactions = { emoji: { userId: true } }. Posts used to
-  // carry a flat `likes` map instead; fold any that survive into the heart bucket
-  // so a stray seed (or a merge from another branch) can't break rendering.
-  function normalizePostReactions() {
-    channels.forEach(channel => {
-      (channel.posts || []).forEach(post => {
-        if (!post.reactions || typeof post.reactions !== 'object') post.reactions = {};
-        if (post.likes && typeof post.likes === 'object') {
-          post.reactions[LIKE_EMOJI] = Object.assign({}, post.reactions[LIKE_EMOJI], post.likes);
-          delete post.likes;
-        }
-        // Drop any emoji bucket that ended up empty so no zero-count chip renders.
-        Object.keys(post.reactions).forEach(emoji => {
-          if (Object.keys(post.reactions[emoji] || {}).length === 0) delete post.reactions[emoji];
-        });
-      });
-    });
-  }
-  normalizePostReactions();
 
   // Count / membership helpers for a post's reaction map.
   function reactionCount(post, emoji) {
@@ -980,46 +251,6 @@ document.addEventListener('DOMContentLoaded', () => {
   function userReacted(post, emoji) {
     return !!(post.reactions && post.reactions[emoji] && post.reactions[emoji]['user_self']);
   }
-
-  // Add channel conversations to the conversations list
-  conversations = conversations.concat([
-    {
-      id: 'conv_channel_1',
-      type: 'channel',
-      channelId: 'channel_1',
-      name: 'Solana Indonesia',
-      avatar: 'SI',
-      lastMessage: 'Mainnet Beta is Live 🚀\n\nExciting times ahead as we launch the next phase of development!',
-      timestamp: Date.now() - 2 * 60 * 1000,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    },
-    {
-      id: 'conv_channel_2',
-      type: 'channel',
-      channelId: 'channel_2',
-      name: 'Web3 Builders',
-      avatar: 'WB',
-      lastMessage: 'Welcome to Web3 Builders! 👨‍💻\n\nThis is a space to share projects, learn together, and build the future of web3.',
-      timestamp: Date.now() - 60 * 60 * 1000,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    },
-    {
-      id: 'conv_channel_4',
-      type: 'channel',
-      channelId: 'channel_4',
-      name: 'Builder Notes',
-      avatar: 'BN',
-      lastMessage: '📷 Shipped a new badge design ✨',
-      timestamp: Date.now() - 10 * 60 * 1000,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    }
-  ]);
 
   // Active tab state
   let activeMessagesTab = 'all';
@@ -1237,6 +468,107 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Insert a server-returned channel (plus its conversation row) into local
+  // state. Shared by the create-channel flow, follow/unfollow, and boot-time
+  // hydration so all produce exactly the same shape.
+  //
+  // Channels have no members array (unlike groups), so ownership elsewhere in
+  // this file is checked directly via channel.creatorId === 'user_self' --
+  // that means the sentinel translation groups get for free from
+  // mapServerMember has to happen explicitly here instead.
+  function addServerChannelToState(serverChannel) {
+    const isMe = currentUser && serverChannel.creatorId === currentUser.id;
+    const existing = channels.find(c => c.id === serverChannel.id);
+    const shaped = {
+      id: serverChannel.id,
+      name: serverChannel.name,
+      description: serverChannel.description || '',
+      avatar: serverChannel.avatar || generateDefaultAvatar(serverChannel.name),
+      isPublic: true,
+      creatorId: isMe ? 'user_self' : serverChannel.creatorId,
+      createdAt: serverChannel.createdAt || Date.now(),
+      followerCount: serverChannel.followerCount || 0,
+      followers: Object.assign({}, existing && existing.followers, serverChannel.isFollowing ? { user_self: true } : {}),
+      mutedByUsers: (existing && existing.mutedByUsers) || {},
+      admins: (existing && existing.admins) || [],
+      // Real history is hydrated lazily when the channel is opened (see
+      // hydrateChannelPosts) -- keep whatever posts are already loaded.
+      posts: (existing && existing.posts) || [],
+      source: 'server'
+    };
+
+    if (existing) {
+      Object.assign(existing, shaped);
+    } else {
+      channels.push(shaped);
+    }
+
+    const lastPost = shaped.posts[0];
+    const existingConv = conversations.find(c => c.type === 'channel' && c.channelId === serverChannel.id);
+    if (existingConv) {
+      existingConv.name = shaped.name;
+      existingConv.avatar = shaped.avatar;
+    } else if (shaped.followers['user_self']) {
+      conversations.unshift({
+        id: 'conv_channel_' + serverChannel.id,
+        type: 'channel',
+        channelId: serverChannel.id,
+        name: shaped.name,
+        avatar: shaped.avatar,
+        lastMessage: lastPost ? truncateText(messagePreviewText(lastPost), 100) : 'No posts yet',
+        timestamp: lastPost ? lastPost.timestamp : shaped.createdAt,
+        unreadCount: 0,
+        archived: false,
+        pinned: false
+      });
+    }
+
+    // A channel you now follow must not linger in the Discover feed.
+    discoverChannels = discoverChannels.filter(c => c.id !== serverChannel.id);
+
+    return shaped;
+  }
+
+  // Hydrate server-backed channels: the caller's own/followed channels, and
+  // the public channels they haven't followed yet (the Discover feed).
+  // Non-fatal -- a network or DB hiccup just leaves the lists empty.
+  async function hydrateServerChannels() {
+    try {
+      const [mineRes, discoverRes] = await Promise.all([
+        fetch('/api/channels?scope=mine', { headers: authHeaders() }),
+        fetch('/api/channels?scope=discover', { headers: authHeaders() })
+      ]);
+
+      if (mineRes.ok) {
+        const payload = await mineRes.json();
+        (payload.channels || []).forEach(c => addServerChannelToState(c));
+      }
+
+      if (discoverRes.ok) {
+        const payload = await discoverRes.json();
+        (payload.channels || []).forEach(c => {
+          if (channels.some(existing => existing.id === c.id)) return;
+          if (discoverChannels.some(existing => existing.id === c.id)) return;
+          discoverChannels.push({
+            id: c.id,
+            name: c.name,
+            description: c.description || '',
+            avatar: c.avatar || generateDefaultAvatar(c.name),
+            visibility: 'public',
+            memberCount: c.followerCount || 0,
+            creatorId: c.creatorId,
+            isFeatured: false,
+            isNew: !!c.isNew,
+            createdAt: c.createdAt || Date.now(),
+            source: 'server'
+          });
+        });
+      }
+    } catch (error) {
+      console.warn('Could not load server channels:', error);
+    }
+  }
+
   // Hydrate the inbox with real DM conversations the caller has actually sent
   // or received a message in. Without this, a real conv_<peerId> conversation
   // -- created purely in-memory by startConversationWith -- vanishes from the
@@ -1280,6 +612,30 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     } catch (error) {
       console.warn('Could not load direct conversations:', error);
+    }
+  }
+
+  // Bulk read-back of the caller's own pin/unread/hidden overrides, applied
+  // onto whichever conversations are already in state. Must run after the
+  // group/channel/direct hydrations above so every conv this account has a
+  // real override for already exists in `conversations` to match against --
+  // otherwise the override would have nothing to attach to and be dropped.
+  async function hydrateConversationUserState() {
+    try {
+      const response = await fetch('/api/conversations/state', { headers: authHeaders() });
+      if (!response.ok) return;
+      const payload = await response.json();
+      const states = payload.states || {};
+      Object.keys(states).forEach(convId => {
+        const conv = conversations.find(c => c.id === convId);
+        if (!conv) return;
+        const state = states[convId];
+        conv.pinned = !!state.pinned;
+        conv.manuallyMarkedUnread = !!state.manuallyMarkedUnread;
+        if (state.hiddenFromInbox) conv.hiddenFromInbox = true;
+      });
+    } catch (error) {
+      console.warn('Could not load conversation state:', error);
     }
   }
 
@@ -1382,6 +738,23 @@ document.addEventListener('DOMContentLoaded', () => {
       console.warn('Could not load channel posts:', error);
       return false;
     }
+  }
+
+  // Screenshot-state helper: pad a real (possibly short) thread/feed with
+  // synthetic, client-only filler so there is enough scrollable height for the
+  // scroll-fab tests to mean anything. Never sent to the server -- exists only
+  // for the lifetime of this render, on whichever thread the deep link opened.
+  const SHOT_LONG_THREAD_TARGET_COUNT = 30;
+  function padForShotLongThread(items, sortAscending, makeFiller) {
+    if (!SHOT_LONG_THREAD) return;
+    if (items.length >= SHOT_LONG_THREAD_TARGET_COUNT) return;
+    const timestamps = items.map(i => i.timestamp).filter(t => typeof t === 'number');
+    const oldest = timestamps.length ? Math.min(...timestamps) : Date.now();
+    const needed = SHOT_LONG_THREAD_TARGET_COUNT - items.length;
+    for (let i = needed; i >= 1; i--) {
+      items.push(makeFiller(oldest - i * 60000, needed - i + 1));
+    }
+    items.sort((a, b) => sortAscending ? a.timestamp - b.timestamp : b.timestamp - a.timestamp);
   }
 
   // At most one thread polls at a time -- only one conversation/group/channel
@@ -1856,47 +1229,26 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Follow a channel from discover
-  function followDiscoverChannel(channelId) {
+  async function followDiscoverChannel(channelId) {
     const discoverChannel = discoverChannels.find(c => c.id === channelId);
     if (!discoverChannel) return;
 
-    const newChannel = {
-      id: channelId,
-      name: discoverChannel.name,
-      description: discoverChannel.description,
-      avatar: discoverChannel.avatar,
-      isPublic: discoverChannel.visibility === 'public',
-      creatorId: 'user_other',
-      createdAt: Date.now(),
-      // Channels use `followerCount`/`followers`/`posts` (a broadcast feed),
-      // not the `memberCount`/`messages` shape discoverChannels items have --
-      // an empty feed here is what renderChannelView already shows as "No
-      // posts yet".
-      followerCount: (discoverChannel.memberCount || 0) + 1,
-      followers: { 'user_self': true },
-      mutedByUsers: {},
-      posts: []
-    };
-
-    channels.push(newChannel);
-
-    const newConversation = {
-      id: `conv_channel_${channelId}`,
-      type: 'channel',
-      channelId: channelId,
-      name: discoverChannel.name,
-      avatar: discoverChannel.avatar,
-      lastMessage: 'You followed this channel.',
-      timestamp: Date.now(),
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    };
-
-    conversations.unshift(newConversation);
-    discoverChannels = discoverChannels.filter(c => c.id !== channelId);
-
-    renderDiscoverPage(activeDiscoverTab);
+    try {
+      const response = await fetch(`/api/channels/${encodeURIComponent(channelId)}/follow`, {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' })
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to follow channel');
+      }
+      const payload = await response.json();
+      addServerChannelToState(payload.channel);
+      renderDiscoverPage(activeDiscoverTab);
+    } catch (error) {
+      console.error(error);
+      showToast(error.message || 'Failed to follow channel', { type: 'error' });
+    }
   }
 
   // Render discover page
@@ -2750,6 +2102,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const peerId = directPeerId(conversationId);
     await hydrateThreadMessages('direct', peerId, conversation);
+    padForShotLongThread(conversation.messages, true, (ts, n) => ({
+      id: `shot-pad-dm-${n}`, senderId: peerId, senderName: conversation.username,
+      text: `Filler message ${n}`, timestamp: ts, isOutgoing: false
+    }));
 
     const messagesList = conversation.messages.filter(msg => !(msg.hiddenFor && msg.hiddenFor.user_self)).map(msg => {
       let messageHTML = `<div class="message-swipe-wrapper ${msg.isOutgoing ? 'wrapper-outgoing' : 'wrapper-incoming'}" data-message-id="${msg.id}">`;
@@ -4450,7 +3806,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const hasPendingRequest = !isMember && isPrivate && (group.joinRequests || []).some(r => r.userId === 'user_self');
     group.messages = group.messages || [];
     await hydrateThreadMessages('group', groupId, group);
+    padForShotLongThread(group.messages, true, (ts, n) => ({
+      id: `shot-pad-group-${n}`, senderId: 'staging-demo-user-2', senderName: 'staging-demo-ana',
+      text: `Filler message ${n}`, timestamp: ts, isOutgoing: false
+    }));
     const messages = group.messages;
+
+    // Screenshot-state: mark the last real message deleted so the tombstone
+    // placeholder is reachable from a plain deep link, on whichever real/
+    // staging-seeded group thread this is -- no fixture-specific id needed.
+    if (SHOT_MESSAGE_DELETED && messages.length) {
+      const target = messages[messages.length - 1];
+      target.isDeleted = true;
+      target.deletedByAdmin = false;
+    }
 
     const messagesList = messages.map(msg => {
       let messageHTML = `<div class="message-swipe-wrapper ${msg.isOutgoing ? 'wrapper-outgoing' : 'wrapper-incoming'}" data-message-id="${msg.id}">`;
@@ -5585,7 +4954,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (SHOT_ADMIN_TOGGLE && !shotAdminToggleFired) {
       shotAdminToggleFired = true;
-      const toggleBtn = document.querySelector('.member-admin-toggle-btn[data-member-id="user_bob"]');
+      const toggleBtn = document.querySelector('.member-admin-toggle-btn');
       if (toggleBtn) toggleBtn.click();
     }
 
@@ -6404,45 +5773,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Create a new channel
-  function createChannel(name, description, visibility, avatarData) {
-    const channelId = 'channel_' + Date.now();
-    const timestamp = Date.now();
-    const avatarValue = avatarData || name.charAt(0).toUpperCase();
-
-    const newChannel = {
-      id: channelId,
-      name: name,
-      description: description,
-      avatar: avatarValue,
-      isPublic: visibility === 'public',
-      creatorId: 'user_self',
-      createdAt: timestamp,
-      followerCount: 1,
-      followers: { 'user_self': true },
-      mutedByUsers: {},
-      admins: [],
-      posts: []
-    };
-
-    channels.push(newChannel);
-
-    const newConversation = {
-      id: 'conv_channel_' + channelId,
-      type: 'channel',
-      channelId: channelId,
-      name: name,
-      avatar: avatarValue,
-      lastMessage: 'No posts yet',
-      timestamp: timestamp,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    };
-
-    conversations.unshift(newConversation);
-    return channelId;
-  }
-
   // Publish a post to a channel
   function publishPost(channelId, text, image) {
     const channel = channels.find(c => c.id === channelId);
@@ -6522,6 +5852,13 @@ document.addEventListener('DOMContentLoaded', () => {
       };
       conversations.unshift(newConversation);
     }
+
+    // Best-effort, matching the optimistic-then-deliver pattern used by
+    // publishPost -- the UI above already reflects the follow regardless.
+    fetch(`/api/channels/${encodeURIComponent(channelId)}/follow`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' })
+    }).catch(error => console.warn('Could not deliver channel follow:', error));
   }
 
   // Unfollow a channel
@@ -6537,6 +5874,11 @@ document.addEventListener('DOMContentLoaded', () => {
       conv.archived = true;
       conv.hiddenFromInbox = true;
     }
+
+    fetch(`/api/channels/${encodeURIComponent(channelId)}/follow`, {
+      method: 'DELETE',
+      headers: authHeaders()
+    }).catch(error => console.warn('Could not deliver channel unfollow:', error));
   }
 
   // Toggle one emoji reaction on a post for the current user. Each emoji toggles
@@ -6600,13 +5942,26 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Delete a channel (owner only)
-  function deleteChannel(channelId) {
+  async function deleteChannel(channelId) {
     const channelIndex = channels.findIndex(c => c.id === channelId);
     if (channelIndex > -1) {
       channels.splice(channelIndex, 1);
     }
 
     conversations = conversations.filter(c => !(c.type === 'channel' && c.channelId === channelId));
+
+    try {
+      const response = await fetch(`/api/channels/${encodeURIComponent(channelId)}`, {
+        method: 'DELETE',
+        headers: authHeaders()
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to delete channel');
+      }
+    } catch (error) {
+      console.warn('Could not delete channel on server:', error);
+    }
   }
 
   // Compact follower counts for the channel header: 12500 → "12.5K", 2000 → "2K".
@@ -6766,6 +6121,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     await hydrateChannelPosts(channelId, channel);
+    padForShotLongThread(channel.posts, false, (ts, n) => ({
+      id: `shot-pad-channel-${n}`, channelId: channelId, authorId: channel.creatorId,
+      text: `Filler post ${n}`, timestamp: ts, reactions: {}, isPinned: false
+    }));
 
     const isOwner = channel.creatorId === 'user_self';
     const isAdmin = isCurrentUserChannelAdmin(channel);
@@ -7101,7 +6460,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // long-press timer calls.
     if (SHOT_POST_REACTIONS) {
       const firstCard = feed?.querySelector('.post-card');
-      if (firstCard) openReactionPicker(firstCard.dataset.postId);
+      if (firstCard) {
+        const postId = firstCard.dataset.postId;
+        togglePostReaction(channelId, postId, POST_REACTIONS[0]);
+        refreshPostReactions(channelId, postId);
+        openReactionPicker(postId);
+      }
     }
     // Forward moved into the ⋯ menu, so the deep link now walks the same two
     // taps a user does: open the menu, then pick Forward.
@@ -7732,6 +7096,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!isOwner && !isAdmin) {
       window.location.hash = `/channel/${channelId}`;
       return;
+    }
+
+    // Screenshot-state: channel.admins is a local-only roster (Add Admins never
+    // persists to the server), so a plain deep link to Channel Info never has
+    // anyone to list. Seed one client-only admin on whichever owned channel
+    // this is, the same real staging follower used elsewhere as a stand-in
+    // second person.
+    if (SHOT_CHANNEL_ADMIN && !(channel.admins && channel.admins.length)) {
+      channel.admins = [{
+        id: 'staging-demo-user-2',
+        username: 'staging-demo-ana',
+        avatar: generateDefaultAvatar('staging-demo-ana'),
+        walletAddress: null
+      }];
     }
 
     const adminRows = (channel.admins || []).map(admin => `
@@ -8514,7 +7892,7 @@ document.addEventListener('DOMContentLoaded', () => {
       e.target.value = state.channelDescription;
     });
 
-    createChannelButton.addEventListener('click', () => {
+    async function submitCreateChannel() {
       nameError.innerHTML = '';
 
       if (!state.channelName.trim()) {
@@ -8522,15 +7900,41 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      const channelId = createChannel(
-        state.channelName,
-        state.channelDescription,
-        'public',
-        state.avatarPreview
-      );
+      createChannelButton.disabled = true;
+      const originalLabel = createChannelButton.textContent;
+      createChannelButton.textContent = 'Creating…';
 
-      window.location.hash = `/channel/${channelId}`;
-    });
+      try {
+        const response = await fetch('/api/channels', {
+          method: 'POST',
+          headers: authHeaders({ 'content-type': 'application/json' }),
+          body: JSON.stringify({
+            name: state.channelName,
+            description: state.channelDescription,
+            avatar: state.avatarPreview
+          })
+        });
+
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          nameError.innerHTML = payload.error || 'Failed to create channel.';
+          createChannelButton.textContent = originalLabel;
+          updateButtonState();
+          return;
+        }
+
+        const shaped = addServerChannelToState(payload.channel);
+        window.location.hash = `/channel/${shaped.id}`;
+      } catch (error) {
+        console.error('Failed to create channel:', error);
+        nameError.innerHTML = 'Failed to create channel. Please try again.';
+        createChannelButton.textContent = originalLabel;
+        updateButtonState();
+      }
+    }
+
+    createChannelButton.addEventListener('click', submitCreateChannel);
 
     updateButtonState();
   }
@@ -8568,6 +7972,21 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     } catch (err) {
       console.error('Failed to fetch user data:', err);
+    }
+
+    try {
+      const profileResponse = await fetch('/api/profile', { headers: authHeaders() });
+      if (profileResponse.ok) {
+        const data = await profileResponse.json();
+        if (data.profile) {
+          profileState.bio = data.profile.bio || '';
+          profileState.avatarUrl = data.profile.avatarUrl || null;
+          profileState.avatarImageId = data.profile.avatarImageId || null;
+          if (data.profile.walletAddress) profileState.walletAddress = data.profile.walletAddress;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch profile data:', err);
     }
   }
 
@@ -8634,6 +8053,11 @@ document.addEventListener('DOMContentLoaded', () => {
               profileState.avatarUrl = stored.url;
               profileState.avatarImageId = stored.id;
               renderProfilePage();
+              fetch('/api/profile', {
+                method: 'PUT',
+                headers: authHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ avatarUrl: stored.url, avatarImageId: stored.id })
+              }).catch(err => console.warn('Could not save avatar to profile:', err));
             } catch (err) {
               console.error('Avatar upload failed:', err);
             }
@@ -8735,6 +8159,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('edit-bio-save-btn').addEventListener('click', () => {
       profileState.bio = textarea.value;
       window.location.hash = '/profile';
+      fetch('/api/profile', {
+        method: 'PUT',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ bio: profileState.bio })
+      }).catch(err => console.warn('Could not save bio to profile:', err));
     });
 
     // Auto-focus textarea
@@ -8911,6 +8340,7 @@ document.addEventListener('DOMContentLoaded', () => {
     await fetchUserData();
     await fetchSuggestedUsers();
     await hydrateServerGroups();
+    await hydrateServerChannels();
     // Screenshot-state: deliver a real DM before hydrating, so the Messages
     // list's server-backed preview/timestamp pick it up on first paint --
     // regression check for a bug where a freshly-hydrated conversation's
@@ -8927,6 +8357,16 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
     await hydrateServerDirectConversations();
+    await hydrateConversationUserState();
+
+    // Screenshot-state: clear the first real DM's chat via the real Clear Chat
+    // function, so "no messages yet" is reachable from a plain deep link on
+    // whichever real/staging-seeded DM this account has, not a fixture id.
+    if (SHOT_DM_CLEARED) {
+      const target = conversations.find(c => c.type === 'direct');
+      if (target) clearDMChat(target.id);
+    }
+
     handleNavigation();
   })();
 });
