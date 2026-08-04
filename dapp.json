@@ -251,6 +251,31 @@
       "expectText": "Shot dc preview check"
     },
     {
+      "name": "DM to a peer id sorting below the caller's persists after a reload",
+      "path": "/?shot=dm-reload-lo#/conversation/conv_0000-reload-order-lo",
+      "expectText": "Shot reload order check"
+    },
+    {
+      "name": "DM history to a low-sorting peer survives a plain reload (regression: unsorted history query)",
+      "path": "/#/conversation/conv_0000-reload-order-lo",
+      "expectText": "Shot reload order check"
+    },
+    {
+      "name": "DM to a peer id sorting above the caller's persists after a reload",
+      "path": "/?shot=dm-reload-hi#/conversation/conv_zzzz-reload-order-hi",
+      "expectText": "Shot reload order check"
+    },
+    {
+      "name": "DM history to a high-sorting peer survives a plain reload (regression: unsorted history query)",
+      "path": "/#/conversation/conv_zzzz-reload-order-hi",
+      "expectText": "Shot reload order check"
+    },
+    {
+      "name": "Messaging a fixture peer with an existing pending request doesn't create a duplicate conversation (regression: sentinel-matching bug)",
+      "path": "/?shot=dm-no-dup",
+      "expectSelector": "[data-testid=\"dm-no-dup-count\"][data-count=\"1\"]"
+    },
+    {
       "name": "Create Group page loads",
       "path": "/#/create-group",
       "expectText": "Create Group"

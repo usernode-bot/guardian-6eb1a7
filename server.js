@@ -739,17 +739,25 @@ app.put('/api/conversations/:id/state', async (req, res) => {
 // something both sides agree on.
 async function getOrCreateDirectConversation(userIdA, userIdB, requesterId) {
   const [a, b] = [userIdA, userIdB].sort();
-  // Also match a row where one side is the 'user_self' sentinel and the other
-  // is userIdB -- same OR-match pattern as getGroupRole/getChannelRole below,
-  // applied here so a staging-seeded demo DM (seeded against 'user_self')
-  // resolves to whichever real user is currently logged in, instead of a
-  // second, duplicate conversation being created underneath it.
+  // Match the stored (sorted) pair in either comparison order -- the row was
+  // inserted using the sorted a/b below, but the exact-pair clause here must
+  // still work regardless of which of userIdA/userIdB sorts first. Also match
+  // a row where one side is the 'user_self' sentinel and the other is EITHER
+  // input id (not just the alphabetically-later one) -- same OR-match pattern
+  // as getGroupRole/getChannelRole below, applied here so a staging-seeded
+  // demo DM (seeded against 'user_self') resolves to whichever real user is
+  // currently logged in, instead of a second, duplicate conversation being
+  // created underneath it. (Comparing only against the sorted-later id was
+  // the bug: when a real user's id sorted after the fixture's id, the
+  // sentinel clause silently missed the seeded row and a duplicate got
+  // inserted.)
   const existing = await pool.query(
     `SELECT id, status, requested_by_user_id FROM direct_conversations
       WHERE (user_id_a = $1 AND user_id_b = $2)
-         OR (user_id_a = 'user_self' AND user_id_b = $2)
-         OR (user_id_b = 'user_self' AND user_id_a = $2)`,
-    [a, b]
+         OR (user_id_a = $2 AND user_id_b = $1)
+         OR (user_id_a = 'user_self' AND (user_id_b = $1 OR user_id_b = $2))
+         OR (user_id_b = 'user_self' AND (user_id_a = $1 OR user_id_a = $2))`,
+    [userIdA, userIdB]
   );
   if (existing.rowCount > 0) return existing.rows[0];
 
@@ -993,9 +1001,15 @@ app.post('/api/message-requests/:conversationId/decline', async (req, res) => {
 app.get('/api/messages/direct/:peerId', async (req, res) => {
   try {
     const peerId = req.params.peerId;
+    // The stored row's (user_id_a, user_id_b) is alphabetically sorted (see
+    // getOrCreateDirectConversation), so the exact-pair match has to check
+    // both orderings -- otherwise this silently returns zero rows (and an
+    // empty thread) whenever req.user.id sorts after peerId, even though the
+    // conversation and its messages exist.
     const convRes = await pool.query(
       `SELECT id FROM direct_conversations
         WHERE (user_id_a = $1 AND user_id_b = $2)
+           OR (user_id_a = $2 AND user_id_b = $1)
            OR (user_id_a = 'user_self' AND user_id_b = $2)
            OR (user_id_b = 'user_self' AND user_id_a = $2)`,
       [req.user.id, peerId]
@@ -1391,7 +1405,13 @@ async function seedStagingUsers() {
     { id: 'staging-demo-user-6', username: 'staging-demo-eka', pubkey: null, offset: '1 day' },
     { id: 'staging-demo-user-7', username: 'staging-demo-fajar', pubkey: '0x4c7d9e1b3a5f60820c4e6a8f0b2d4e6c8a0f2e4d', offset: '3 days' },
     { id: 'staging-demo-user-8', username: 'staging-demo-gita', pubkey: '0x9e1c3a5b7d9f02460a8c0e2f4b6d8a0c2e4f6a8b', offset: '10 days' },
-    { id: 'staging-demo-user-9', username: 'staging-demo-hasan', pubkey: '0x2a4c6e8b0d1f35970b9d1f3e5a7c9b1d3f5a7c9e', offset: '30 days' }
+    { id: 'staging-demo-user-9', username: 'staging-demo-hasan', pubkey: '0x2a4c6e8b0d1f35970b9d1f3e5a7c9b1d3f5a7c9e', offset: '30 days' },
+    // Ids deliberately picked to sort below/above any realistic real user id
+    // (wallet-style hex, uuid, numeric) -- regression fixtures for the DM
+    // history reload bug, which only reproduced when the caller's id sorted
+    // on a particular side of the peer's id. See SHOT_DM_RELOAD_LO/HI.
+    { id: '0000-reload-order-lo', username: 'staging-demo-zero', pubkey: null, offset: '15 days' },
+    { id: 'zzzz-reload-order-hi', username: 'staging-demo-zulu', pubkey: null, offset: '16 days' }
   ];
 
   try {

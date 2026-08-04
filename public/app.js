@@ -45,6 +45,9 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=search-users             runs a real /api/users/search query        → matching staging-demo user must render
   //   ?shot=requests-tab             opens Messages straight into the Requests tab → seeded pending request must render
   //   ?shot=dc-preview                sends a real DM to a staging peer on load  → Messages list preview must show its text, not be blank
+  //   ?shot=dm-no-dup                 messages a fixture peer with an existing pending request → total Messages+Requests references to that peer must stay at 1, not 2
+  //   ?shot=dm-reload-lo              sends a DM to a peer id sorting below any real id  → history must survive a plain reload
+  //   ?shot=dm-reload-hi              sends a DM to a peer id sorting above any real id  → history must survive a plain reload
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -81,6 +84,24 @@ document.addEventListener('DOMContentLoaded', () => {
   // always creates this one regardless of which account the test itself runs as.
   const SHOT_DC_PREVIEW_PEER_ID = 'staging-demo-user-6';
   const SHOT_DC_PREVIEW_TEXT = 'Shot dc preview check';
+  const SHOT_DM_NO_DUP = SHOT === 'dm-no-dup';
+  // staging-demo-user-4 already has a pending request seeded TO 'user_self'
+  // (dm_staging_pending_1) -- regression check for getOrCreateDirectConversation
+  // creating a second, duplicate direct_conversations row instead of reusing
+  // that one when the caller messages the same peer first.
+  const SHOT_DM_NO_DUP_PEER_ID = 'staging-demo-user-4';
+  const SHOT_DM_NO_DUP_TEXT = 'Shot no-dup check';
+  // Regression check for GET /api/messages/direct/:peerId's history query only
+  // matching one alphabetical ordering of (caller id, peer id) -- the stored
+  // direct_conversations row is always sorted, so the peer id here is picked
+  // to sit at an extreme end of sort order (below/above any realistic real
+  // user id), guaranteeing the pair lands on whichever ordering direction the
+  // old unsorted query missed, regardless of what the real caller's id is.
+  const SHOT_DM_RELOAD_LO = SHOT === 'dm-reload-lo';
+  const SHOT_DM_RELOAD_HI = SHOT === 'dm-reload-hi';
+  const SHOT_DM_RELOAD_LO_PEER_ID = '0000-reload-order-lo';
+  const SHOT_DM_RELOAD_HI_PEER_ID = 'zzzz-reload-order-hi';
+  const SHOT_DM_RELOAD_TEXT = 'Shot reload order check';
 
   // The signed-in Usernode user, hydrated from /api/state at boot. Server rows
   // for this id are mapped onto the app's long-standing 'user_self' sentinel so
@@ -9068,8 +9089,56 @@ document.addEventListener('DOMContentLoaded', () => {
         console.warn('Could not deliver shot dc-preview message:', error);
       }
     }
+    // Screenshot-state: message a fixture peer that already has a pending
+    // request seeded against 'user_self' (see SHOT_DM_NO_DUP_PEER_ID above).
+    // Regression check for getOrCreateDirectConversation's sentinel-matching
+    // bug: it used to compare the fixture's counterpart only against the
+    // alphabetically-later of the two ids, so it missed the existing pending
+    // row whenever the caller's real id sorted after the fixture's, and
+    // created a second, duplicate direct_conversations row underneath it.
+    if (SHOT_DM_NO_DUP) {
+      try {
+        await fetch(`/api/messages/direct/${SHOT_DM_NO_DUP_PEER_ID}`, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ id: `shot_nodup_${Date.now()}`, text: SHOT_DM_NO_DUP_TEXT })
+        });
+      } catch (error) {
+        console.warn('Could not deliver shot dm-no-dup message:', error);
+      }
+    }
+    if (SHOT_DM_RELOAD_LO || SHOT_DM_RELOAD_HI) {
+      const peerId = SHOT_DM_RELOAD_LO ? SHOT_DM_RELOAD_LO_PEER_ID : SHOT_DM_RELOAD_HI_PEER_ID;
+      try {
+        await fetch(`/api/messages/direct/${peerId}`, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ id: `shot_reload_${Date.now()}`, text: SHOT_DM_RELOAD_TEXT })
+        });
+      } catch (error) {
+        console.warn('Could not deliver shot dm-reload message:', error);
+      }
+    }
     await hydrateServerDirectConversations();
     await hydrateMessageRequests();
+    if (SHOT_DM_NO_DUP) {
+      // A duplicate direct_conversations row for the same peer would surface
+      // as this peer being reachable through BOTH the Messages list (a
+      // freshly-created pending_sent conversation) and the Requests tab (the
+      // original seeded incoming request) -- two separate references to what
+      // should be a single conversation. Correct behavior reuses the existing
+      // row, so the caller's message just joins the pending incoming request
+      // and this total stays at 1.
+      const refCount =
+        conversations.filter(c => c.id === 'conv_' + SHOT_DM_NO_DUP_PEER_ID).length +
+        requests.filter(r => r.senderId === SHOT_DM_NO_DUP_PEER_ID).length;
+      const marker = document.createElement('div');
+      marker.setAttribute('data-testid', 'dm-no-dup-count');
+      marker.setAttribute('data-count', String(refCount));
+      marker.style.display = 'none';
+      marker.textContent = 'DupRefs:' + refCount;
+      document.body.appendChild(marker);
+    }
     handleNavigation();
   })();
 });
