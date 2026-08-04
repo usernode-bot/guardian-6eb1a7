@@ -276,6 +276,11 @@
       "expectSelector": "[data-testid=\"dm-no-dup-count\"][data-count=\"1\"]"
     },
     {
+      "name": "Messaging two different peer ids that share a username doesn't show the contact twice (regression: duplicate contact row)",
+      "path": "/?shot=dm-username-dup",
+      "expectSelector": "[data-testid=\"dm-username-dup-count\"][data-count=\"1\"]"
+    },
+    {
       "name": "Create Group page loads",
       "path": "/#/create-group",
       "expectText": "Create Group"

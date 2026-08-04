@@ -48,6 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=dm-no-dup                 messages a fixture peer with an existing pending request → total Messages+Requests references to that peer must stay at 1, not 2
   //   ?shot=dm-reload-lo              sends a DM to a peer id sorting below any real id  → history must survive a plain reload
   //   ?shot=dm-reload-hi              sends a DM to a peer id sorting above any real id  → history must survive a plain reload
+  //   ?shot=dm-username-dup           messages two different peer ids sharing one username → Messages list must show that username only once
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -102,6 +103,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_DM_RELOAD_LO_PEER_ID = '0000-reload-order-lo';
   const SHOT_DM_RELOAD_HI_PEER_ID = 'zzzz-reload-order-hi';
   const SHOT_DM_RELOAD_TEXT = 'Shot reload order check';
+  // Regression check for the "same contact appears twice" bug: messages TWO
+  // DIFFERENT staging fixture ids that share the same username, one after
+  // the other. getOrCreateDirectConversation's username-based reuse check
+  // should fold the second message into the conversation the first one
+  // created, so the Messages list only ever shows ONE row for this username.
+  const SHOT_DM_USERNAME_DUP = SHOT === 'dm-username-dup';
+  const SHOT_DM_USERNAME_DUP_PEER_ID_1 = 'staging-demo-user-10';
+  const SHOT_DM_USERNAME_DUP_PEER_ID_2 = 'staging-demo-user-11';
+  const SHOT_DM_USERNAME_DUP_USERNAME = 'staging-demo-dup-name';
+  const SHOT_DM_USERNAME_DUP_TEXT = 'Shot username dup check';
 
   // The signed-in Usernode user, hydrated from /api/state at boot. Server rows
   // for this id are mapped onto the app's long-standing 'user_self' sentinel so
@@ -9119,6 +9130,22 @@ document.addEventListener('DOMContentLoaded', () => {
         console.warn('Could not deliver shot dm-reload message:', error);
       }
     }
+    if (SHOT_DM_USERNAME_DUP) {
+      try {
+        await fetch(`/api/messages/direct/${SHOT_DM_USERNAME_DUP_PEER_ID_1}`, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ id: `shot_userdup_1_${Date.now()}`, text: SHOT_DM_USERNAME_DUP_TEXT })
+        });
+        await fetch(`/api/messages/direct/${SHOT_DM_USERNAME_DUP_PEER_ID_2}`, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ id: `shot_userdup_2_${Date.now()}`, text: SHOT_DM_USERNAME_DUP_TEXT })
+        });
+      } catch (error) {
+        console.warn('Could not deliver shot dm-username-dup messages:', error);
+      }
+    }
     await hydrateServerDirectConversations();
     await hydrateMessageRequests();
     if (SHOT_DM_NO_DUP) {
@@ -9137,6 +9164,20 @@ document.addEventListener('DOMContentLoaded', () => {
       marker.setAttribute('data-count', String(refCount));
       marker.style.display = 'none';
       marker.textContent = 'DupRefs:' + refCount;
+      document.body.appendChild(marker);
+    }
+    if (SHOT_DM_USERNAME_DUP) {
+      // Two different peer ids share the same username here -- a correctly
+      // deduped inbox shows exactly ONE conversation entry for that username,
+      // no matter which of the two ids it ends up keyed under.
+      const refCount = conversations.filter(
+        c => (c.username || '').toLowerCase() === SHOT_DM_USERNAME_DUP_USERNAME
+      ).length;
+      const marker = document.createElement('div');
+      marker.setAttribute('data-testid', 'dm-username-dup-count');
+      marker.setAttribute('data-count', String(refCount));
+      marker.style.display = 'none';
+      marker.textContent = 'UsernameDupRefs:' + refCount;
       document.body.appendChild(marker);
     }
     handleNavigation();

@@ -761,6 +761,34 @@ async function getOrCreateDirectConversation(userIdA, userIdB, requesterId) {
   );
   if (existing.rowCount > 0) return existing.rows[0];
 
+  // No row matches either input id exactly. Before creating a brand new one,
+  // check whether EITHER input id already has a conversation with a
+  // DIFFERENT peer id that resolves to the OTHER input id's username --
+  // users.id isn't guaranteed stable across sessions/logins and
+  // users.username has no uniqueness constraint, so a returning contact
+  // (on either side of this pair) can otherwise look like a new peer and a
+  // second row gets created for what the human sees as the same contact.
+  // Checked both ways round since either userIdA or userIdB could be the
+  // "new" id for a returning party. (mergeDuplicateDirectConversationsByUsername
+  // cleans up rows that were already created this way before this check
+  // existed.)
+  const reuse = await pool.query(
+    `SELECT dc.id, dc.status, dc.requested_by_user_id
+       FROM direct_conversations dc
+       JOIN users peer ON peer.id = (CASE WHEN dc.user_id_a = $1 THEN dc.user_id_b ELSE dc.user_id_a END)
+      WHERE (dc.user_id_a = $1 OR dc.user_id_b = $1)
+        AND lower(peer.username) = lower((SELECT username FROM users WHERE id = $2))
+      UNION
+     SELECT dc.id, dc.status, dc.requested_by_user_id
+       FROM direct_conversations dc
+       JOIN users peer ON peer.id = (CASE WHEN dc.user_id_a = $2 THEN dc.user_id_b ELSE dc.user_id_a END)
+      WHERE (dc.user_id_a = $2 OR dc.user_id_b = $2)
+        AND lower(peer.username) = lower((SELECT username FROM users WHERE id = $1))
+      LIMIT 1`,
+    [userIdA, userIdB]
+  );
+  if (reuse.rowCount > 0) return reuse.rows[0];
+
   const id = 'dm_' + crypto.randomBytes(12).toString('hex');
   await pool.query(
     `INSERT INTO direct_conversations (id, user_id_a, user_id_b, status, requested_by_user_id)
@@ -887,8 +915,19 @@ app.get('/api/direct-conversations', async (req, res) => {
         ORDER BY COALESCE(lm.created_at, dc.created_at) DESC`,
       [req.user.id]
     );
-    res.json({
-      conversations: result.rows.map((row) => ({
+    // Two rows can legitimately resolve to the same peer username (see
+    // mergeDuplicateDirectConversationsByUsername) if the migration hasn't
+    // run since the duplicate appeared -- dedupe defensively here too so the
+    // inbox never shows the same contact twice. Rows already arrive ordered
+    // by most-recent activity first, so keeping the first occurrence per
+    // (lowercased) username keeps the most active thread.
+    const seenPeerUsernames = new Set();
+    const conversations = [];
+    for (const row of result.rows) {
+      const usernameKey = (row.peer_username || '').toLowerCase();
+      if (seenPeerUsernames.has(usernameKey)) continue;
+      seenPeerUsernames.add(usernameKey);
+      conversations.push({
         peerId: (row.user_id_a === req.user.id || row.user_id_a === 'user_self') ? row.user_id_b : row.user_id_a,
         peerUsername: row.peer_username,
         peerWalletAddress: row.peer_pubkey || null,
@@ -899,8 +938,9 @@ app.get('/api/direct-conversations', async (req, res) => {
         pinned: row.pinned || false,
         hiddenFromInbox: row.hidden_from_inbox || false,
         unreadCount: row.unread_count || 0
-      }))
-    });
+      });
+    }
+    res.json({ conversations });
   } catch (err) {
     console.error('[messages] direct-conversations list failed:', err);
     res.status(500).json({ error: 'Failed to load conversations' });
@@ -1317,7 +1357,83 @@ async function initDatabase() {
     throw err;
   }
 
+  await mergeDuplicateDirectConversationsByUsername();
   await seedStagingData();
+}
+
+// direct_conversations has a UNIQUE (user_id_a, user_id_b) constraint, so two
+// rows can never share the exact same pair of ids -- but a caller can still
+// end up with two rows for what looks like the same contact if that peer's
+// users.id changed across logins (the JWT's `id` claim isn't documented as
+// stable long-term) or two accounts share a username (users.username has no
+// uniqueness constraint). Either way it surfaces as the same contact
+// duplicated in the Messages list. This merges such rows -- created before
+// the reuse check in getOrCreateDirectConversation existed to prevent new
+// ones -- into whichever row has the most message activity, moving messages
+// over rather than dropping them. Sentinel ('user_self') rows are excluded:
+// those are staging fixtures shared across every real user and are handled
+// separately by getOrCreateDirectConversation's sentinel matching.
+async function mergeDuplicateDirectConversationsByUsername() {
+  try {
+    const groups = await pool.query(`
+      WITH endpoints AS (
+        SELECT id AS dc_id, user_id_a AS caller_id, user_id_b AS peer_id FROM direct_conversations
+         WHERE user_id_a != 'user_self' AND user_id_b != 'user_self'
+        UNION ALL
+        SELECT id AS dc_id, user_id_b AS caller_id, user_id_a AS peer_id FROM direct_conversations
+         WHERE user_id_a != 'user_self' AND user_id_b != 'user_self'
+      )
+      SELECT e.caller_id AS caller_id, lower(u.username) AS peer_username_lc,
+             array_agg(DISTINCT e.dc_id) AS dc_ids
+        FROM endpoints e
+        JOIN users u ON u.id = e.peer_id
+       GROUP BY e.caller_id, lower(u.username)
+      HAVING count(DISTINCT e.dc_id) > 1
+    `);
+
+    for (const group of groups.rows) {
+      // Re-check which ids still exist -- an earlier group in this loop may
+      // already have deleted one (a row can appear in two different callers'
+      // duplicate groups at once).
+      const rows = (await pool.query(
+        `SELECT dc.id, dc.user_id_a, dc.user_id_b, dc.created_at,
+                (SELECT count(*) FROM messages WHERE conversation_type = 'direct' AND conversation_id = dc.id) AS message_count,
+                (SELECT max(created_at) FROM messages WHERE conversation_type = 'direct' AND conversation_id = dc.id) AS last_message_at
+           FROM direct_conversations dc WHERE dc.id = ANY($1)`,
+        [group.dc_ids]
+      )).rows;
+      if (rows.length < 2) continue;
+
+      rows.sort((r1, r2) => {
+        if (r1.message_count !== r2.message_count) return r2.message_count - r1.message_count;
+        const t1 = r1.last_message_at ? new Date(r1.last_message_at).getTime() : 0;
+        const t2 = r2.last_message_at ? new Date(r2.last_message_at).getTime() : 0;
+        if (t1 !== t2) return t2 - t1;
+        return new Date(r1.created_at) - new Date(r2.created_at);
+      });
+      const canonical = rows[0];
+      const stale = rows.slice(1);
+
+      for (const row of stale) {
+        await pool.query(
+          `UPDATE messages SET conversation_id = $1 WHERE conversation_type = 'direct' AND conversation_id = $2`,
+          [canonical.id, row.id]
+        );
+        const stalePeerId = row.user_id_a === group.caller_id ? row.user_id_b : row.user_id_a;
+        await pool.query(
+          `DELETE FROM conversation_user_state WHERE conversation_id = $1 AND user_id = $2`,
+          ['conv_' + stalePeerId, group.caller_id]
+        );
+        await pool.query(`DELETE FROM direct_conversations WHERE id = $1`, [row.id]);
+      }
+      console.log(
+        `[migration] merged ${stale.length} duplicate direct_conversations row(s) for caller ${group.caller_id} ` +
+        `(peer username "${group.peer_username_lc}") into ${canonical.id}`
+      );
+    }
+  } catch (err) {
+    console.error('[migration] mergeDuplicateDirectConversationsByUsername failed:', err);
+  }
 }
 
 // Staging seed. Both group tables are staging:private (schema-only copy), so
@@ -1411,7 +1527,14 @@ async function seedStagingUsers() {
     // history reload bug, which only reproduced when the caller's id sorted
     // on a particular side of the peer's id. See SHOT_DM_RELOAD_LO/HI.
     { id: '0000-reload-order-lo', username: 'staging-demo-zero', pubkey: null, offset: '15 days' },
-    { id: 'zzzz-reload-order-hi', username: 'staging-demo-zulu', pubkey: null, offset: '16 days' }
+    { id: 'zzzz-reload-order-hi', username: 'staging-demo-zulu', pubkey: null, offset: '16 days' },
+    // Two DIFFERENT ids sharing the SAME username -- regression fixture for
+    // the "same contact shows up twice" bug: users.id isn't guaranteed
+    // stable across sessions and users.username has no uniqueness
+    // constraint, so a returning contact can look like a brand new peer.
+    // See SHOT_DM_USERNAME_DUP.
+    { id: 'staging-demo-user-10', username: 'staging-demo-dup-name', pubkey: null, offset: '20 days' },
+    { id: 'staging-demo-user-11', username: 'staging-demo-dup-name', pubkey: null, offset: '1 minute' }
   ];
 
   try {
