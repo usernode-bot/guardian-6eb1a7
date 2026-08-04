@@ -72,6 +72,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_SEARCH_USERS = SHOT === 'search-users';
   const SHOT_REQUESTS_TAB = SHOT === 'requests-tab';
   const SHOT_DC_PREVIEW = SHOT === 'dc-preview';
+  const SHOT_SEND_FAIL = SHOT === 'send-fail';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
   const SHOT_CREATE_GROUP_NAME = 'Staging demo one-invite group';
@@ -575,12 +576,17 @@ document.addEventListener('DOMContentLoaded', () => {
   // instead of these fixtures.
   let requests = [];
 
+  // Id of the direct conversation whose thread is currently on screen (null
+  // otherwise), so a concurrent Messages-list poll doesn't clobber a local
+  // "just marked read" state before the server-side markRead PUT lands.
+  let currentOpenConversationId = null;
+
   async function hydrateMessageRequests() {
     try {
       const response = await fetch('/api/message-requests', { headers: authHeaders() });
-      if (!response.ok) return;
+      if (!response.ok) return false;
       const data = await response.json();
-      requests = (data.requests || []).map(r => ({
+      const nextRequests = (data.requests || []).map(r => ({
         id: r.id,
         senderId: r.senderId,
         senderName: r.senderUsername,
@@ -588,8 +594,12 @@ document.addEventListener('DOMContentLoaded', () => {
         messagePreview: r.messagePreview || '',
         timestamp: r.timestamp
       }));
+      const changed = JSON.stringify(nextRequests) !== JSON.stringify(requests);
+      requests = nextRequests;
+      return changed;
     } catch (err) {
       console.error('Failed to fetch message requests:', err);
+      return false;
     }
   }
 
@@ -1248,9 +1258,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // Messages list the moment the page reloads, even though the messages
   // themselves are now persisted server-side.
   async function hydrateServerDirectConversations() {
+    let changed = false;
     try {
       const response = await fetch('/api/direct-conversations', { headers: authHeaders() });
-      if (!response.ok) return;
+      if (!response.ok) return false;
       const payload = await response.json();
       (payload.conversations || []).forEach(dc => {
         const convId = 'conv_' + dc.peerId;
@@ -1273,21 +1284,39 @@ document.addEventListener('DOMContentLoaded', () => {
             onlineStatus: false,
             archived: false,
             pinned: false,
+            hiddenFromInbox: false,
             mutedByUsers: {},
             messages: []
           };
           conversations.unshift(conv);
+          changed = true;
         }
         if (dc.lastMessage !== null && (dc.lastMessageAt || 0) >= (conv.timestamp || 0)) {
+          if (conv.lastMessage !== truncateText(dc.lastMessage, 100) || conv.timestamp !== (dc.lastMessageAt || conv.timestamp)) changed = true;
           conv.lastMessage = truncateText(dc.lastMessage, 100);
           conv.timestamp = dc.lastMessageAt || conv.timestamp;
         }
         // 'pending_sent' means the caller started this thread and the other
         // side hasn't accepted yet -- renderConversationPage shows a banner.
+        if (conv.requestStatus !== dc.requestStatus) changed = true;
         conv.requestStatus = dc.requestStatus;
+        if (conv.pinned !== dc.pinned) changed = true;
+        conv.pinned = dc.pinned;
+        if (conv.hiddenFromInbox !== dc.hiddenFromInbox) changed = true;
+        conv.hiddenFromInbox = dc.hiddenFromInbox;
+        // Server is the source of truth for unread count, except while this
+        // conversation's thread is the one currently open -- a poll response
+        // in flight before the markRead PUT lands shouldn't flip it back to
+        // unread out from under the user who is actively reading it.
+        if (currentOpenConversationId !== convId) {
+          if (conv.unreadCount !== dc.unreadCount) changed = true;
+          conv.unreadCount = dc.unreadCount;
+        }
       });
+      return changed;
     } catch (error) {
       console.warn('Could not load direct conversations:', error);
+      return false;
     }
   }
 
@@ -1412,13 +1441,47 @@ document.addEventListener('DOMContentLoaded', () => {
     }, THREAD_POLL_INTERVAL_MS);
   }
 
+  // Keep the Messages list / Requests tab live too -- without this, a newly
+  // received DM (or an incoming request) only shows up after the user leaves
+  // and re-opens the Messages screen, since nothing else refetches those two
+  // endpoints while this screen is just sitting open.
+  let messagesListPollTimer = null;
+  const MESSAGES_LIST_POLL_INTERVAL_MS = 7000;
+
+  function stopMessagesListPolling() {
+    if (messagesListPollTimer) {
+      clearInterval(messagesListPollTimer);
+      messagesListPollTimer = null;
+    }
+  }
+
+  function startMessagesListPolling() {
+    stopMessagesListPolling();
+    messagesListPollTimer = setInterval(async () => {
+      const [conversationsChanged, requestsChanged] = await Promise.all([
+        hydrateServerDirectConversations(),
+        hydrateMessageRequests()
+      ]);
+      if (conversationsChanged || requestsChanged) renderMessagesPage();
+    }, MESSAGES_LIST_POLL_INTERVAL_MS);
+  }
+
   // Best-effort delivery of an already-optimistically-rendered DM/group
   // message. The bubble is already on screen from the local push in
   // setupComposer -- this just makes the OTHER participant actually see it
   // too (and lets it survive a reload), instead of it living only in this
   // tab's JS heap.
-  function deliverThreadMessage(type, id, message) {
+  function deliverThreadMessage(type, id, message, onFailure) {
     if (!id) return;
+    delete message.failed;
+    // Screenshot-state: simulate a delivery failure deterministically instead
+    // of actually breaking the network, so dapp.json can assert the "Failed
+    // to send" indicator renders.
+    if (SHOT_SEND_FAIL) {
+      message.failed = true;
+      if (typeof onFailure === 'function') onFailure();
+      return;
+    }
     fetch(`/api/messages/${type}/${encodeURIComponent(id)}`, {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
@@ -1429,7 +1492,24 @@ document.addEventListener('DOMContentLoaded', () => {
         imageId: message.imageId,
         replyTo: message.replyTo
       })
-    }).catch(error => console.warn(`Could not deliver ${type} message:`, error));
+    }).then(res => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    }).catch(error => {
+      console.warn(`Could not deliver ${type} message:`, error);
+      message.failed = true;
+      if (typeof onFailure === 'function') onFailure();
+    });
+  }
+
+  // Persist "caller has read up to now" for a conversation server-side, so
+  // unreadCount computed by GET /api/direct-conversations reflects reality on
+  // the next hydrate/poll instead of only resetting in this tab's memory.
+  function markConversationRead(conversationId) {
+    fetch(`/api/conversations/${encodeURIComponent(conversationId)}/state`, {
+      method: 'PUT',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ markRead: true })
+    }).catch(error => console.warn('Could not mark conversation read:', error));
   }
 
   // Format relative timestamp for conversation list
@@ -1698,6 +1778,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (conv) {
           conv.unreadCount = 0;
           conv.manuallyMarkedUnread = false;
+          markConversationRead(convId);
         }
         window.location.hash = routeHash;
       });
@@ -2243,6 +2324,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Setup long-press context menu for conversations
     setupConversationLongPress();
+
+    // Poll while this screen stays open so a new incoming DM or request shows
+    // up without the user having to leave and come back.
+    startMessagesListPolling();
   }
 
   // Accept request and create conversation
@@ -2778,6 +2863,11 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    conversation.unreadCount = 0;
+    conversation.manuallyMarkedUnread = false;
+    markConversationRead(conversationId);
+    currentOpenConversationId = conversationId;
+
     const peerId = directPeerId(conversationId);
     await hydrateThreadMessages('direct', peerId, conversation);
     // Refresh requestStatus too, so re-opening this thread right after sending
@@ -2813,7 +2903,9 @@ document.addEventListener('DOMContentLoaded', () => {
         ${renderPinBadge(msg)}
         <div class="message-bubble${messageBubbleClass(msg)}" data-message-id="${msg.id}">${messageBodyHTML(msg)}</div>
         <div class="message-reaction-chips" data-message-id="${msg.id}">${messageReactionChipsHTML(msg)}</div>
-        <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
+        ${msg.failed
+          ? `<div class="message-timestamp message-failed" data-retry-message-id="${msg.id}">⚠️ Failed to send · Tap to retry</div>`
+          : `<div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>`}
       </div>`;
 
       messageHTML += `</div>`;
@@ -2893,6 +2985,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // Set up send button and reply state management
     setupComposer(conversation, { isGroup: false });
 
+    // Tap a "Failed to send" label to retry delivering that message.
+    conversationRoot.querySelectorAll('[data-retry-message-id]').forEach(el => {
+      el.addEventListener('click', () => {
+        const msg = conversation.messages.find(m => m.id === el.dataset.retryMessageId);
+        if (!msg) return;
+        deliverThreadMessage('direct', peerId, msg, () => renderConversationPage(conversationId));
+        renderConversationPage(conversationId);
+      });
+    });
+
     // Poll for messages the other participant sends while this thread stays
     // open -- there's no websocket/push infra in this app, so this is the
     // only way an incoming message ever shows up without a manual reload.
@@ -2903,6 +3005,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Must stay last: the send re-renders this page underneath us.
     if (SHOT_SEND_STAY && !fromSend) sendShotMessage(conversationRoot);
+    if (SHOT_SEND_FAIL && !fromSend) sendShotMessage(conversationRoot);
 
     // Screenshot-state: click the real ⋮ button so the deep link exercises the
     // actual event listener wiring, not just the dialog-rendering function.
@@ -4400,9 +4503,9 @@ document.addEventListener('DOMContentLoaded', () => {
       // (and so it survives a reload) -- best-effort, the bubble above is
       // already shown regardless of whether this succeeds.
       if (isGroup) {
-        deliverThreadMessage('group', conversation.id, newMessage);
+        deliverThreadMessage('group', conversation.id, newMessage, rerender);
       } else {
-        deliverThreadMessage('direct', directPeerId(conversation.id), newMessage);
+        deliverThreadMessage('direct', directPeerId(conversation.id), newMessage, rerender);
       }
 
       // Re-render the SAME screen we're on, so the user stays in the thread.
@@ -8820,6 +8923,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // onChanged callback would yank the user back into that thread's render
     // out from under whatever screen they navigated to.
     stopThreadPolling();
+    stopMessagesListPolling();
+    currentOpenConversationId = null;
 
     const hash = window.location.hash.slice(1) || 'messages';
     const path = hash.startsWith('/') ? hash.slice(1) : hash;

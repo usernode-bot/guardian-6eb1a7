@@ -692,23 +692,25 @@ app.put('/api/conversations/:id/state', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
 
   const { id } = req.params;
-  const { pinned, manuallyMarkedUnread, hiddenFromInbox } = req.body || {};
+  const { pinned, manuallyMarkedUnread, hiddenFromInbox, markRead } = req.body || {};
   const pinnedVal = typeof pinned === 'boolean' ? pinned : null;
   const unreadVal = typeof manuallyMarkedUnread === 'boolean' ? manuallyMarkedUnread : null;
   const hiddenVal = typeof hiddenFromInbox === 'boolean' ? hiddenFromInbox : null;
+  const markReadVal = markRead === true;
 
   try {
     const result = await pool.query(
       `INSERT INTO conversation_user_state
-         (conversation_id, user_id, pinned, manually_marked_unread, hidden_from_inbox)
-       VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false), COALESCE($5, false))
+         (conversation_id, user_id, pinned, manually_marked_unread, hidden_from_inbox, last_read_at)
+       VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false), COALESCE($5, false), now())
        ON CONFLICT (conversation_id, user_id) DO UPDATE SET
          pinned = COALESCE($3, conversation_user_state.pinned),
          manually_marked_unread = COALESCE($4, conversation_user_state.manually_marked_unread),
          hidden_from_inbox = COALESCE($5, conversation_user_state.hidden_from_inbox),
+         last_read_at = CASE WHEN $6 THEN now() ELSE conversation_user_state.last_read_at END,
          updated_at = now()
-       RETURNING pinned, manually_marked_unread, hidden_from_inbox`,
-      [id, req.user.id, pinnedVal, unreadVal, hiddenVal]
+       RETURNING pinned, manually_marked_unread, hidden_from_inbox, last_read_at`,
+      [id, req.user.id, pinnedVal, unreadVal, hiddenVal, markReadVal]
     );
     const row = result.rows[0];
     res.json({
@@ -716,6 +718,7 @@ app.put('/api/conversations/:id/state', async (req, res) => {
       pinned: row.pinned,
       manuallyMarkedUnread: row.manually_marked_unread,
       hiddenFromInbox: row.hidden_from_inbox,
+      lastReadAt: row.last_read_at ? new Date(row.last_read_at).getTime() : null,
       message: 'Conversation state updated'
     });
   } catch (err) {
@@ -851,7 +854,9 @@ app.get('/api/direct-conversations', async (req, res) => {
     const result = await pool.query(
       `SELECT dc.id, dc.user_id_a, dc.user_id_b, dc.status, dc.requested_by_user_id,
               u.username AS peer_username, u.usernode_pubkey AS peer_pubkey,
-              lm.text AS last_text, lm.sender_user_id AS last_sender_id, lm.created_at AS last_at
+              lm.text AS last_text, lm.sender_user_id AS last_sender_id, lm.created_at AS last_at,
+              cus.pinned AS pinned, cus.hidden_from_inbox AS hidden_from_inbox,
+              COALESCE(unread.count, 0) AS unread_count
          FROM direct_conversations dc
          JOIN users u ON u.id = (CASE WHEN dc.user_id_a = $1 OR dc.user_id_a = 'user_self' THEN dc.user_id_b ELSE dc.user_id_a END)
          LEFT JOIN LATERAL (
@@ -859,6 +864,16 @@ app.get('/api/direct-conversations', async (req, res) => {
             WHERE conversation_type = 'direct' AND conversation_id = dc.id
             ORDER BY created_at DESC LIMIT 1
          ) lm ON true
+         LEFT JOIN conversation_user_state cus
+           ON cus.conversation_id = 'conv_' || (CASE WHEN dc.user_id_a = $1 OR dc.user_id_a = 'user_self' THEN dc.user_id_b ELSE dc.user_id_a END)
+          AND cus.user_id = $1
+         LEFT JOIN LATERAL (
+           SELECT count(*)::int AS count FROM messages
+            WHERE conversation_type = 'direct' AND conversation_id = dc.id
+              AND sender_user_id != $1
+              AND cus.last_read_at IS NOT NULL
+              AND created_at > cus.last_read_at
+         ) unread ON true
         WHERE (dc.user_id_a = $1 OR dc.user_id_b = $1 OR dc.user_id_a = 'user_self' OR dc.user_id_b = 'user_self')
           AND (dc.status = 'accepted' OR dc.requested_by_user_id = $1)
         ORDER BY COALESCE(lm.created_at, dc.created_at) DESC`,
@@ -872,7 +887,10 @@ app.get('/api/direct-conversations', async (req, res) => {
         lastMessage: row.last_text || null,
         lastMessageSenderId: row.last_sender_id || null,
         lastMessageAt: row.last_at ? new Date(row.last_at).getTime() : null,
-        requestStatus: row.status === 'pending' ? 'pending_sent' : 'accepted'
+        requestStatus: row.status === 'pending' ? 'pending_sent' : 'accepted',
+        pinned: row.pinned || false,
+        hiddenFromInbox: row.hidden_from_inbox || false,
+        unreadCount: row.unread_count || 0
       }))
     });
   } catch (err) {
@@ -1216,6 +1234,14 @@ async function initDatabase() {
         PRIMARY KEY (conversation_id, user_id)
       );
     `);
+
+    // No row here yet means "never explicitly read" -- GET /api/direct-conversations
+    // treats a missing row as 0 unread (not "everything since forever"), so
+    // existing threads don't retroactively light up unread the moment this
+    // column ships. Only messages that arrive *after* a row exists count.
+    await pool.query(
+      `ALTER TABLE conversation_user_state ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMPTZ`
+    );
 
     await pool.query(
       `CREATE INDEX IF NOT EXISTS conversation_user_state_user_idx

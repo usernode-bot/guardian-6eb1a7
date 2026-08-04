@@ -131,6 +131,11 @@
       "expectText": "Shot send stay check"
     },
     {
+      "name": "A direct message that fails to deliver shows a Failed to send indicator",
+      "path": "/?shot=send-fail#/conversation/conv_1",
+      "expectSelector": ".message-failed"
+    },
+    {
       "name": "DM header's ⋮ menu opens and shows its options",
       "path": "/?shot=dm-menu#/conversation/conv_1",
       "expectText": "Pin Conversation"
