@@ -1095,26 +1095,34 @@ app.put('/api/conversations/:id/state', async (req, res) => {
 // message-delivery bug -- the frontend's `conv_<peerId>` id is a per-browser
 // construct, not a shared identity, so persistence has to be keyed on
 // something both sides agree on.
-async function getOrCreateDirectConversation(userIdA, userIdB) {
+async function getOrCreateDirectConversation(userIdA, userIdB, requesterId) {
   const [a, b] = [userIdA, userIdB].sort();
+  // Also match a row where one side is the 'user_self' sentinel and the other
+  // is userIdB -- same OR-match pattern as getGroupRole/getChannelRole below,
+  // applied here so a staging-seeded demo DM (seeded against 'user_self')
+  // resolves to whichever real user is currently logged in, instead of a
+  // second, duplicate conversation being created underneath it.
   const existing = await pool.query(
-    'SELECT id FROM direct_conversations WHERE user_id_a = $1 AND user_id_b = $2',
+    `SELECT id, status, requested_by_user_id FROM direct_conversations
+      WHERE (user_id_a = $1 AND user_id_b = $2)
+         OR (user_id_a = 'user_self' AND user_id_b = $2)
+         OR (user_id_b = 'user_self' AND user_id_a = $2)`,
     [a, b]
   );
-  if (existing.rowCount > 0) return existing.rows[0].id;
+  if (existing.rowCount > 0) return existing.rows[0];
 
   const id = 'dm_' + crypto.randomBytes(12).toString('hex');
   await pool.query(
-    `INSERT INTO direct_conversations (id, user_id_a, user_id_b)
-     VALUES ($1, $2, $3)
+    `INSERT INTO direct_conversations (id, user_id_a, user_id_b, status, requested_by_user_id)
+     VALUES ($1, $2, $3, 'pending', $4)
      ON CONFLICT (user_id_a, user_id_b) DO NOTHING`,
-    [id, a, b]
+    [id, a, b, requesterId]
   );
   const row = await pool.query(
-    'SELECT id FROM direct_conversations WHERE user_id_a = $1 AND user_id_b = $2',
+    'SELECT id, status, requested_by_user_id FROM direct_conversations WHERE user_id_a = $1 AND user_id_b = $2',
     [a, b]
   );
-  return row.rows[0].id;
+  return row.rows[0];
 }
 
 // Same OR-match sentinel pattern as getGroupRole above: a channel seeded with
@@ -1197,36 +1205,127 @@ async function listMessages(conversationType, conversationId) {
 // GET /api/direct-conversations - list the caller's real DM conversations
 // (peer identity + last message), so the inbox survives a reload instead of
 // only ever existing in that tab's in-memory `conversations` array.
+// Recipients of a still-pending request are excluded here -- they see it
+// under GET /api/message-requests instead, not in the normal inbox.
 app.get('/api/direct-conversations', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT dc.id, dc.user_id_a, dc.user_id_b,
+      `SELECT dc.id, dc.user_id_a, dc.user_id_b, dc.status, dc.requested_by_user_id,
               u.username AS peer_username, u.usernode_pubkey AS peer_pubkey,
               lm.text AS last_text, lm.sender_user_id AS last_sender_id, lm.created_at AS last_at
          FROM direct_conversations dc
-         JOIN users u ON u.id = (CASE WHEN dc.user_id_a = $1 THEN dc.user_id_b ELSE dc.user_id_a END)
+         JOIN users u ON u.id = (CASE WHEN dc.user_id_a = $1 OR dc.user_id_a = 'user_self' THEN dc.user_id_b ELSE dc.user_id_a END)
          LEFT JOIN LATERAL (
            SELECT text, sender_user_id, created_at FROM messages
             WHERE conversation_type = 'direct' AND conversation_id = dc.id
             ORDER BY created_at DESC LIMIT 1
          ) lm ON true
-        WHERE dc.user_id_a = $1 OR dc.user_id_b = $1
+        WHERE (dc.user_id_a = $1 OR dc.user_id_b = $1 OR dc.user_id_a = 'user_self' OR dc.user_id_b = 'user_self')
+          AND (dc.status = 'accepted' OR dc.requested_by_user_id = $1)
         ORDER BY COALESCE(lm.created_at, dc.created_at) DESC`,
       [req.user.id]
     );
     res.json({
       conversations: result.rows.map((row) => ({
-        peerId: row.user_id_a === req.user.id ? row.user_id_b : row.user_id_a,
+        peerId: (row.user_id_a === req.user.id || row.user_id_a === 'user_self') ? row.user_id_b : row.user_id_a,
         peerUsername: row.peer_username,
         peerWalletAddress: row.peer_pubkey || null,
         lastMessage: row.last_text || null,
         lastMessageSenderId: row.last_sender_id || null,
-        lastMessageAt: row.last_at ? new Date(row.last_at).getTime() : null
+        lastMessageAt: row.last_at ? new Date(row.last_at).getTime() : null,
+        requestStatus: row.status === 'pending' ? 'pending_sent' : 'accepted'
       }))
     });
   } catch (err) {
     console.error('[messages] direct-conversations list failed:', err);
     res.status(500).json({ error: 'Failed to load conversations' });
+  }
+});
+
+// GET /api/message-requests - the caller's incoming pending DM requests:
+// conversations someone else started that the caller hasn't accepted yet.
+app.get('/api/message-requests', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT dc.id, dc.requested_by_user_id, dc.created_at,
+              u.username AS sender_username, u.usernode_pubkey AS sender_pubkey,
+              fm.text AS preview_text, fm.created_at AS first_at
+         FROM direct_conversations dc
+         JOIN users u ON u.id = dc.requested_by_user_id
+         LEFT JOIN LATERAL (
+           SELECT text, created_at FROM messages
+            WHERE conversation_type = 'direct' AND conversation_id = dc.id
+            ORDER BY created_at ASC LIMIT 1
+         ) fm ON true
+        WHERE (dc.user_id_a = $1 OR dc.user_id_b = $1 OR dc.user_id_a = 'user_self' OR dc.user_id_b = 'user_self')
+          AND dc.status = 'pending'
+          AND dc.requested_by_user_id != $1
+        ORDER BY COALESCE(fm.created_at, dc.created_at) DESC`,
+      [req.user.id]
+    );
+    res.json({
+      requests: result.rows.map((row) => ({
+        id: row.id,
+        senderId: row.requested_by_user_id,
+        senderUsername: row.sender_username,
+        senderWalletAddress: row.sender_pubkey || null,
+        messagePreview: row.preview_text || null,
+        timestamp: new Date(row.first_at || row.created_at).getTime()
+      }))
+    });
+  } catch (err) {
+    console.error('[messages] message-requests list failed:', err);
+    res.status(500).json({ error: 'Failed to load message requests' });
+  }
+});
+
+// POST /api/message-requests/:conversationId/accept - recipient accepts a
+// pending DM request; the conversation becomes a normal accepted thread.
+app.post('/api/message-requests/:conversationId/accept', async (req, res) => {
+  try {
+    const convRes = await pool.query(
+      'SELECT id, user_id_a, user_id_b, status, requested_by_user_id FROM direct_conversations WHERE id = $1',
+      [req.params.conversationId]
+    );
+    if (convRes.rowCount === 0) return res.status(404).json({ error: 'Request not found' });
+    const conv = convRes.rows[0];
+    const isParticipant = conv.user_id_a === req.user.id || conv.user_id_b === req.user.id
+      || conv.user_id_a === 'user_self' || conv.user_id_b === 'user_self';
+    if (!isParticipant || conv.requested_by_user_id === req.user.id) {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    await pool.query(`UPDATE direct_conversations SET status = 'accepted' WHERE id = $1`, [conv.id]);
+    res.json({ id: conv.id, status: 'accepted' });
+  } catch (err) {
+    console.error('[messages] message-request accept failed:', err);
+    res.status(500).json({ error: 'Failed to accept request' });
+  }
+});
+
+// POST /api/message-requests/:conversationId/decline - recipient declines a
+// pending DM request. Hard-deletes the conversation and its messages rather
+// than flagging it 'declined': the sender is never told, so nothing needs to
+// keep blocking them -- a later message from the same sender just starts a
+// fresh pending request.
+app.post('/api/message-requests/:conversationId/decline', async (req, res) => {
+  try {
+    const convRes = await pool.query(
+      'SELECT id, user_id_a, user_id_b, status, requested_by_user_id FROM direct_conversations WHERE id = $1',
+      [req.params.conversationId]
+    );
+    if (convRes.rowCount === 0) return res.status(404).json({ error: 'Request not found' });
+    const conv = convRes.rows[0];
+    const isParticipant = conv.user_id_a === req.user.id || conv.user_id_b === req.user.id
+      || conv.user_id_a === 'user_self' || conv.user_id_b === 'user_self';
+    if (!isParticipant || conv.requested_by_user_id === req.user.id || conv.status !== 'pending') {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    await pool.query(`DELETE FROM messages WHERE conversation_type = 'direct' AND conversation_id = $1`, [conv.id]);
+    await pool.query('DELETE FROM direct_conversations WHERE id = $1', [conv.id]);
+    res.json({ id: conv.id, status: 'declined' });
+  } catch (err) {
+    console.error('[messages] message-request decline failed:', err);
+    res.status(500).json({ error: 'Failed to decline request' });
   }
 });
 
@@ -1236,10 +1335,13 @@ app.get('/api/direct-conversations', async (req, res) => {
 // id a caller could pass to read someone else's thread.
 app.get('/api/messages/direct/:peerId', async (req, res) => {
   try {
-    const [a, b] = [req.user.id, req.params.peerId].sort();
+    const peerId = req.params.peerId;
     const convRes = await pool.query(
-      'SELECT id FROM direct_conversations WHERE user_id_a = $1 AND user_id_b = $2',
-      [a, b]
+      `SELECT id FROM direct_conversations
+        WHERE (user_id_a = $1 AND user_id_b = $2)
+           OR (user_id_a = 'user_self' AND user_id_b = $2)
+           OR (user_id_b = 'user_self' AND user_id_a = $2)`,
+      [req.user.id, peerId]
     );
     if (convRes.rowCount === 0) return res.json({ messages: [] });
     res.json({ messages: await listMessages('direct', convRes.rows[0].id) });
@@ -1250,13 +1352,23 @@ app.get('/api/messages/direct/:peerId', async (req, res) => {
 });
 
 // POST /api/messages/direct/:peerId - send a DM. Any authenticated user can
-// message any other; the conversation row is created on first send.
+// message any other; the conversation row is created on first send, as a
+// pending message request unless one of the two has already messaged the
+// other before. If the pending request's recipient is the one sending this
+// message (i.e. they're replying instead of tapping Accept), that reply
+// implicitly accepts the request.
 app.post('/api/messages/direct/:peerId', async (req, res) => {
   const peerId = req.params.peerId;
   if (peerId === req.user.id) return res.status(400).json({ error: "Can't message yourself" });
   try {
-    const conversationId = await getOrCreateDirectConversation(req.user.id, peerId);
-    const message = await insertMessage('direct', conversationId, req.user, req.body);
+    const conversation = await getOrCreateDirectConversation(req.user.id, peerId, req.user.id);
+    if (conversation.status === 'pending' && conversation.requested_by_user_id !== req.user.id) {
+      await pool.query(
+        `UPDATE direct_conversations SET status = 'accepted' WHERE id = $1`,
+        [conversation.id]
+      );
+    }
+    const message = await insertMessage('direct', conversation.id, req.user, req.body);
     res.status(201).json({ message });
   } catch (err) {
     console.error('[messages] direct send failed:', err);
@@ -1394,6 +1506,19 @@ async function initDatabase() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         UNIQUE (user_id_a, user_id_b)
       );
+    `);
+    // Message-requests support: a brand-new conversation starts 'pending'
+    // until the recipient accepts (or replies, which counts as accepting).
+    // DEFAULT 'accepted' means every row that already existed before this
+    // migration ran is grandfathered in as accepted for free.
+    await pool.query(`
+      ALTER TABLE direct_conversations
+        ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'accepted'
+          CHECK (status IN ('pending', 'accepted'))
+    `);
+    await pool.query(`
+      ALTER TABLE direct_conversations
+        ADD COLUMN IF NOT EXISTS requested_by_user_id TEXT
     `);
 
     await pool.query(`
@@ -1675,6 +1800,7 @@ async function seedStagingData() {
   }
 
   await seedStagingUsers();
+  await seedStagingDirectConversations();
 }
 
 // Staging-only, idempotent seed of a real, persisted long DM thread between
@@ -1876,6 +2002,51 @@ async function seedStagingUsers() {
     console.log('Staging demo users seeded');
   } catch (err) {
     console.error('Staging user seed error:', err);
+  }
+}
+
+// Staging seed for direct_conversations (also staging:private, so a fresh
+// staging DB has none). One 'user_self' row is left 'pending' so the Requests
+// tab has something to show, and one is 'accepted' so the inbox and thread
+// view aren't empty either. Both target 'user_self' -- the OR-match sentinel
+// in getOrCreateDirectConversation/the message-request endpoints -- so they
+// resolve to whichever real user is logged in, on either side.
+async function seedStagingDirectConversations() {
+  if (!IS_STAGING) return;
+
+  try {
+    await pool.query(
+      `INSERT INTO direct_conversations (id, user_id_a, user_id_b, status, requested_by_user_id, created_at)
+       VALUES ('dm_staging_pending_1', 'staging-demo-user-4', 'user_self', 'pending', 'staging-demo-user-4', now() - '10 minutes'::interval)
+       ON CONFLICT (user_id_a, user_id_b) DO NOTHING`
+    );
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+       VALUES ('msg_staging_pending_1', 'direct', 'dm_staging_pending_1', 'staging-demo-user-4', 'staging-demo-citra',
+               'Hi! I saw your profile and wanted to connect.', now() - '10 minutes'::interval)
+       ON CONFLICT (id) DO NOTHING`
+    );
+
+    await pool.query(
+      `INSERT INTO direct_conversations (id, user_id_a, user_id_b, status, requested_by_user_id, created_at)
+       VALUES ('dm_staging_accepted_1', 'staging-demo-user-5', 'user_self', 'accepted', 'staging-demo-user-5', now() - '1 day'::interval)
+       ON CONFLICT (user_id_a, user_id_b) DO NOTHING`
+    );
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+       VALUES ('msg_staging_accepted_1', 'direct', 'dm_staging_accepted_1', 'staging-demo-user-5', 'staging-demo-dedi',
+               'Hey, thanks for accepting!', now() - '1 day'::interval)
+       ON CONFLICT (id) DO NOTHING`
+    );
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+       VALUES ('msg_staging_accepted_2', 'direct', 'dm_staging_accepted_1', 'staging-demo-user-5', 'staging-demo-dedi',
+               'Let me know if you want to grab a call sometime.', now() - '23 hours'::interval)
+       ON CONFLICT (id) DO NOTHING`
+    );
+    console.log('Staging demo direct conversations seeded');
+  } catch (err) {
+    console.error('Staging direct conversation seed error:', err);
   }
 }
 
