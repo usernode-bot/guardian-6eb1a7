@@ -88,7 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_SEARCH_QUERY = 'citra';
   // Any staging-seeded user works as the DM peer here -- seedStagingUsers()
   // always creates this one regardless of which account the test itself runs as.
-  const SHOT_DC_PREVIEW_PEER_ID = 'staging-demo-user-6';
+  const SHOT_DC_PREVIEW_PEER_ID = 'staging-demo-user-7';
   const SHOT_DC_PREVIEW_TEXT = 'Shot dc preview check';
   const SHOT_DM_NO_DUP = SHOT === 'dm-no-dup';
   // staging-demo-user-4 already has a pending request seeded TO 'user_self'

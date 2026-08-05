@@ -28,7 +28,7 @@
     {
       "name": "Conversation list renders",
       "path": "/",
-      "expectText": "staging-demo-eka"
+      "expectText": "staging-demo-dedi"
     },
     {
       "name": "Unread badge displays",
@@ -47,37 +47,37 @@
     },
     {
       "name": "Conversation screen loads",
-      "path": "/#/conversation/conv_staging-demo-user-6",
-      "expectText": "staging-demo-eka"
+      "path": "/#/conversation/conv_staging-demo-user-5",
+      "expectText": "staging-demo-dedi"
     },
     {
       "name": "Conversation header displays username",
-      "path": "/#/conversation/conv_staging-demo-user-6",
+      "path": "/#/conversation/conv_staging-demo-user-5",
       "expectSelector": ".header-username"
     },
     {
       "name": "Message bubbles render",
-      "path": "/#/conversation/conv_staging-demo-user-6",
+      "path": "/#/conversation/conv_staging-demo-user-5",
       "expectSelector": ".message-bubble"
     },
     {
       "name": "Composer appears on conversation screen",
-      "path": "/#/conversation/conv_staging-demo-user-6",
+      "path": "/#/conversation/conv_staging-demo-user-5",
       "expectSelector": ".composer-input"
     },
     {
       "name": "Scroll-to-latest FAB renders in direct message view",
-      "path": "/?shot=scroll-fab#/conversation/conv_staging-demo-user-6",
+      "path": "/?shot=scroll-fab#/conversation/conv_staging-demo-user-5",
       "expectSelector": "[data-testid=\"scroll-to-latest-fab\"]"
     },
     {
       "name": "Scroll-to-latest FAB is painted on screen when scrolled up in direct messages",
-      "path": "/?shot=scroll-fab#/conversation/conv_staging-demo-user-6",
+      "path": "/?shot=scroll-fab#/conversation/conv_staging-demo-user-5",
       "expectSelector": "[data-testid=\"scroll-to-latest-fab\"].is-visible[data-fab-onscreen=\"true\"]"
     },
     {
       "name": "Scroll-to-latest FAB hides when direct message thread sits at the bottom",
-      "path": "/?shot=scroll-fab-bottom#/conversation/conv_staging-demo-user-6",
+      "path": "/?shot=scroll-fab-bottom#/conversation/conv_staging-demo-user-5",
       "expectSelector": "[data-testid=\"scroll-to-latest-fab\"][data-fab-onscreen=\"false\"]"
     },
     {
@@ -117,17 +117,17 @@
     },
     {
       "name": "Sending a direct message keeps the user in the conversation",
-      "path": "/?shot=send-stay#/conversation/conv_staging-demo-user-6",
+      "path": "/?shot=send-stay#/conversation/conv_staging-demo-user-5",
       "expectSelector": ".conversation-page .composer-container .composer-input"
     },
     {
       "name": "Sent direct message appears in the thread",
-      "path": "/?shot=send-stay#/conversation/conv_staging-demo-user-6",
+      "path": "/?shot=send-stay#/conversation/conv_staging-demo-user-5",
       "expectText": "Shot send stay check"
     },
     {
       "name": "Sent direct message persists after a reload (proves server delivery, not just optimistic render)",
-      "path": "/#/conversation/conv_staging-demo-user-6",
+      "path": "/#/conversation/conv_staging-demo-user-5",
       "expectText": "Shot send stay check"
     },
     {
@@ -137,12 +137,12 @@
     },
     {
       "name": "DM header's ⋮ menu opens and shows its options",
-      "path": "/?shot=dm-menu#/conversation/conv_staging-demo-user-6",
+      "path": "/?shot=dm-menu#/conversation/conv_staging-demo-user-5",
       "expectText": "Pin Conversation"
     },
     {
       "name": "DM header's ⋮ menu includes Clear Chat option",
-      "path": "/?shot=dm-menu#/conversation/conv_staging-demo-user-6",
+      "path": "/?shot=dm-menu#/conversation/conv_staging-demo-user-5",
       "expectText": "Clear Chat"
     },
     {
@@ -517,12 +517,12 @@
     },
     {
       "name": "Long-pressing a DM message reacts and opens the picker",
-      "path": "/?shot=message-reactions#/conversation/conv_staging-demo-user-6",
+      "path": "/?shot=message-reactions#/conversation/conv_staging-demo-user-5",
       "expectSelector": ".message-reaction-chip"
     },
     {
       "name": "Message reaction picker reuses the post picker's options",
-      "path": "/?shot=message-reactions#/conversation/conv_staging-demo-user-6",
+      "path": "/?shot=message-reactions#/conversation/conv_staging-demo-user-5",
       "expectSelector": ".message-reaction-picker .reaction-picker-option"
     },
     {
@@ -592,7 +592,7 @@
     },
     {
       "name": "Attach image button appears in DM composer",
-      "path": "/#/conversation/conv_staging-demo-user-6",
+      "path": "/#/conversation/conv_staging-demo-user-5",
       "expectSelector": ".attach-image-button"
     },
     {
@@ -602,7 +602,7 @@
     },
     {
       "name": "Image message renders in DM thread",
-      "path": "/#/conversation/conv_staging-demo-user-6",
+      "path": "/#/conversation/conv_staging-demo-user-5",
       "expectSelector": ".message-image"
     },
     {
@@ -627,7 +627,7 @@
     },
     {
       "name": "Message link renders as clickable anchor",
-      "path": "/#/conversation/conv_staging-demo-user-6",
+      "path": "/#/conversation/conv_staging-demo-user-5",
       "expectSelector": ".message-link"
     },
     {

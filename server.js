@@ -103,7 +103,6 @@ app.get('/api/state', async (req, res) => {
     } catch (err) {
       console.error('[users] upsert on /api/state failed:', err);
     }
-    await seedStagingPrimaryDM(req.user);
     await seedStagingOwnedEntities(req.user);
   }
   res.json({ status: 'ok', user: req.user || null });
@@ -1959,125 +1958,6 @@ async function seedStagingData() {
   await seedStagingDirectConversations();
 }
 
-// Staging-only, idempotent seed of a real, persisted long DM thread between
-// the caller and the staging-demo peer, used for DM preview/scroll tests.
-// Called from GET /api/state so it always has a real authenticated user to
-// seed the "other side" of the conversation against.
-//
-// Uses a FIXED conversation id ('dm_staging_primary') rather than
-// getOrCreateDirectConversation's random id, because dapp.json test paths are
-// static strings and can't reference a per-user-pair generated id. Like
-// seedStagingOwnedEntities, this re-points the row to whoever is currently
-// authenticated on every call -- if the (user_id_a, user_id_b) pair on file
-// doesn't match the current caller + peer, any prior row/messages for either
-// the fixed id or that pair are cleared and recreated. Staging-only
-// convenience data, safe to reset when "whoever is testing" changes.
-async function seedStagingPrimaryDM(currentUser) {
-  if (!IS_STAGING || !currentUser) return;
-  const peer = { id: 'staging-demo-user-6', username: 'staging-demo-eka' };
-  const conversationId = 'dm_staging_primary';
-  const [a, b] = [currentUser.id, peer.id].sort();
-
-  // Every request from this account re-checks/repoints this fixed-id thread,
-  // so overlapping requests (double-effects, two tabs, back-to-back checks
-  // runs) can race the delete-then-insert below across separate pool
-  // connections. An advisory lock scoped to this conversation id serializes
-  // those calls so a losing racer sees the winner's already-correct row
-  // instead of deleting out from under it or double-inserting.
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [conversationId]);
-
-    const existing = await client.query(
-      'SELECT user_id_a, user_id_b FROM direct_conversations WHERE id = $1',
-      [conversationId]
-    );
-    const alreadyCorrect = existing.rowCount > 0 &&
-      existing.rows[0].user_id_a === a && existing.rows[0].user_id_b === b;
-
-    if (!alreadyCorrect) {
-      await client.query(
-        `DELETE FROM messages WHERE conversation_type = 'direct' AND conversation_id IN (
-           SELECT id FROM direct_conversations WHERE id = $1 OR (user_id_a = $2 AND user_id_b = $3)
-         )`,
-        [conversationId, a, b]
-      );
-      await client.query(
-        'DELETE FROM direct_conversations WHERE id = $1 OR (user_id_a = $2 AND user_id_b = $3)',
-        [conversationId, a, b]
-      );
-      await client.query(
-        'INSERT INTO direct_conversations (id, user_id_a, user_id_b) VALUES ($1, $2, $3)',
-        [conversationId, a, b]
-      );
-    }
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    console.error('Staging primary DM seed error:', err);
-    return;
-  } finally {
-    client.release();
-  }
-
-  try {
-    const hasMessages = await pool.query(
-      `SELECT 1 FROM messages WHERE conversation_type = 'direct' AND conversation_id = $1 LIMIT 1`,
-      [conversationId]
-    );
-    if (hasMessages.rowCount === 0) {
-      const me = { id: currentUser.id, username: currentUser.username || currentUser.id };
-      const script = [
-        { from: peer, text: 'Hey! Welcome to the staging environment 👋' },
-        { from: me, text: 'Thanks! Just checking things out.' },
-        { from: peer, text: 'Let me know if anything looks off — notes are at https://example.com/staging-notes.' },
-        { from: me, text: 'Will do — this thread is a good test case.' },
-        { from: peer, text: 'Exactly, gives the scroll and unread-state tests something real to work with.' },
-        { from: me, text: 'Makes sense.' },
-        { from: peer, text: 'Ping me anytime.' },
-        { from: me, text: 'Appreciate it!' },
-        {
-          from: peer, text: 'Staging demo photo',
-          imageUrl: 'https://picsum.photos/seed/staging-demo-dm/400/300', imageId: 'staging-demo-image-dm'
-        }
-      ];
-      // Bulk single-round-trip insert instead of N sequential awaited
-      // insertMessage calls -- on a cold staging container the per-call
-      // round-trip latency of 9 serial inserts (each itself an INSERT +
-      // a follow-up SELECT) stacked behind the boot-time fetch chain in
-      // app.js was enough to blow past the checks harness's selector-wait
-      // timeout on a genuinely fresh DB. created_at is spaced explicitly
-      // (rather than left to each row's own `now()`) so message order is
-      // deterministic regardless of statement execution order.
-      const baseTime = Date.now() - script.length * 1000;
-      const params = [conversationId];
-      const rowSql = script.map((entry, i) => {
-        const p = params.length;
-        params.push(
-          `msg_staging_dm_${conversationId}_${i + 1}`,
-          entry.from.id,
-          entry.from.username || entry.from.id,
-          entry.text,
-          entry.imageUrl || null,
-          entry.imageId || null,
-          new Date(baseTime + i * 1000)
-        );
-        return `($${p + 1}, 'direct', $1, $${p + 2}, $${p + 3}, $${p + 4}, $${p + 5}, $${p + 6}, $${p + 7})`;
-      });
-      await pool.query(
-        `INSERT INTO messages
-           (id, conversation_type, conversation_id, sender_user_id, sender_username, text, image_url, image_id, created_at)
-         VALUES ${rowSql.join(', ')}
-         ON CONFLICT (id) DO NOTHING`,
-        params
-      );
-    }
-  } catch (err) {
-    console.error('Staging primary DM seed error:', err);
-  }
-}
-
 // Staging-only, idempotent seed that gives whoever is CURRENTLY testing in
 // staging one group and one channel they actually own. Every other seed above
 // is fixed to the staging-demo-* accounts, which the real, currently
@@ -2151,7 +2031,10 @@ async function seedStagingOwnedEntities(currentUser) {
     // Pin/unread state is per-user real data (conversation_user_state), keyed
     // by the CLIENT-synthesized conversation id and the real caller's own id
     // -- so unlike the fixed group/channel ids above, this needs no
-    // re-pointing: user_id already IS whoever is currently testing.
+    // re-pointing: user_id already IS whoever is currently testing. Both flags
+    // are set on the same owned-group conversation row -- ON CONFLICT DO
+    // UPDATE only touches the named column, so the two inserts don't clobber
+    // each other regardless of order.
     await pool.query(
       `INSERT INTO conversation_user_state (conversation_id, user_id, pinned)
        VALUES ($1, $2, true)
@@ -2162,7 +2045,7 @@ async function seedStagingOwnedEntities(currentUser) {
       `INSERT INTO conversation_user_state (conversation_id, user_id, manually_marked_unread)
        VALUES ($1, $2, true)
        ON CONFLICT (conversation_id, user_id) DO UPDATE SET manually_marked_unread = true`,
-      ['conv_staging-demo-user-6', me.id]
+      [`conv_${groupId}`, me.id]
     );
   } catch (err) {
     console.error('Staging owned entities seed error:', err);
@@ -2180,7 +2063,6 @@ async function seedStagingUsers() {
   const seeds = [
     { id: 'staging-demo-user-4', username: 'staging-demo-citra', pubkey: '0x1f3a9c2e7b5d44680a9f0c1e2d3b4a5968f7e6d5', offset: '5 minutes' },
     { id: 'staging-demo-user-5', username: 'staging-demo-dedi', pubkey: '0x8b2e4f6a1c9d3e5b7a0f2c4e6d8b9a1f3e5c7d09', offset: '2 hours' },
-    { id: 'staging-demo-user-6', username: 'staging-demo-eka', pubkey: null, offset: '1 day' },
     { id: 'staging-demo-user-7', username: 'staging-demo-fajar', pubkey: '0x4c7d9e1b3a5f60820c4e6a8f0b2d4e6c8a0f2e4d', offset: '3 days' },
     { id: 'staging-demo-user-8', username: 'staging-demo-gita', pubkey: '0x9e1c3a5b7d9f02460a8c0e2f4b6d8a0c2e4f6a8b', offset: '10 days' },
     { id: 'staging-demo-user-9', username: 'staging-demo-hasan', pubkey: '0x2a4c6e8b0d1f35970b9d1f3e5a7c9b1d3f5a7c9e', offset: '30 days' },
@@ -2253,6 +2135,19 @@ async function seedStagingDirectConversations() {
                'Let me know if you want to grab a call sometime.', now() - '23 hours'::interval)
        ON CONFLICT (id) DO NOTHING`
     );
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+       VALUES ('msg_staging_accepted_3', 'direct', 'dm_staging_accepted_1', 'staging-demo-user-5', 'staging-demo-dedi',
+               'Here''s the doc I mentioned: https://example.com/staging-demo-doc', now() - '22 hours'::interval)
+       ON CONFLICT (id) DO NOTHING`
+    );
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, image_url, image_id, created_at)
+       VALUES ('msg_staging_accepted_4', 'direct', 'dm_staging_accepted_1', 'staging-demo-user-5', 'staging-demo-dedi',
+               'Staging demo photo', 'https://picsum.photos/seed/staging-demo-accepted-dm/400/300', 'staging-demo-image-accepted-dm',
+               now() - '21 hours'::interval)
+       ON CONFLICT (id) DO NOTHING`
+    );
     console.log('Staging demo direct conversations seeded');
   } catch (err) {
     console.error('Staging direct conversation seed error:', err);
@@ -2265,9 +2160,9 @@ async function seedStagingDirectConversations() {
 // requests to handlers (including GET /api/state's staging seed calls)
 // while that callback's async body is still running. On a genuinely cold
 // container, the checks harness's very first request could land mid-init:
-// tables not yet created, or staging-demo-user-6 not yet inserted into
-// `users`, silently breaking the INNER JOIN in GET /api/direct-conversations
-// and making the seeded DM invisible even though the row itself is fine.
+// tables not yet created, or a staging seed row not yet inserted, silently
+// breaking a lookup like the INNER JOIN in GET /api/direct-conversations
+// and making a seeded row invisible even though it's fine moments later.
 let server;
 (async () => {
   try {
