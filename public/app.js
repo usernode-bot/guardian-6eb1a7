@@ -5475,6 +5475,9 @@ document.addEventListener('DOMContentLoaded', () => {
         currentResults = results;
         usersSectionHeader.textContent = 'Search Results';
         renderUsersList(currentResults);
+        if (results.length === 0) {
+          showToast('User tidak ditemukan', { type: 'info' });
+        }
       });
     }
 
