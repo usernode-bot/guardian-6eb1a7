@@ -7858,10 +7858,18 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Centered modal popup with a single OK/dismiss button — same
-  // .dialog-overlay/.dialog shell as showConfirmDialog, minus the cancel button.
+  // .dialog-overlay/.dialog shell as showConfirmDialog, minus the cancel
+  // button, with the centered layout variant instead of the bottom-sheet
+  // default. Blurring the active element first dismisses any open mobile
+  // keyboard (e.g. a search field the user was just typing into) so the
+  // dialog isn't rendered behind it.
   function showAlertDialog(title, message) {
+    if (document.activeElement && document.activeElement.blur) {
+      document.activeElement.blur();
+    }
+
     const overlay = document.createElement('div');
-    overlay.className = 'dialog-overlay';
+    overlay.className = 'dialog-overlay dialog-overlay-centered';
 
     const dialog = document.createElement('div');
     dialog.className = 'dialog';
