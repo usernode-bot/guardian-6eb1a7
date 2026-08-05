@@ -5325,7 +5325,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="members-chips-container" id="members-chips-container"></div>
 
         <div class="suggested-users-section-create">
-          <div class="section-header">Suggested Users</div>
+          <div class="section-header" id="suggested-users-header">Suggested Users</div>
           <div class="users-list" id="suggested-users-list">
             ${usersList}
           </div>
@@ -5345,10 +5345,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const avatarPlaceholder = document.getElementById('avatar-placeholder');
     const avatarFileInput = document.getElementById('avatar-file-input');
     const suggestedUsersList = document.getElementById('suggested-users-list');
+    const usersSectionHeader = document.getElementById('suggested-users-header');
     const membersChipsContainer = document.getElementById('members-chips-container');
     const createGroupButton = document.getElementById('create-group-button');
     const nameError = document.getElementById('name-error');
     const membersError = document.getElementById('members-error');
+
+    let searchTimeout = null;
+    let currentResults = suggestedUsers;
 
     // Helper function to update avatar display
     function updateAvatarDisplay() {
@@ -5377,9 +5381,13 @@ document.addEventListener('DOMContentLoaded', () => {
       createGroupButton.disabled = isDisabled;
     }
 
-    // Helper function to find user by ID
+    // Helper function to find user by ID — checks the currently displayed
+    // (suggested or live search) results first, then already-selected members
+    // so a chip can still be removed after the search results change underneath it.
     function findUserById(userId) {
-      return suggestedUsers.find(u => u.id === userId);
+      return currentResults.find(u => u.id === userId) ||
+        suggestedUsers.find(u => u.id === userId) ||
+        state.selectedMembers.find(u => u.id === userId);
     }
 
     // Helper function to check if user is selected
@@ -5431,27 +5439,42 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    // Helper function to filter and display users based on search
-    function filterAndDisplayUsers() {
-      const query = state.searchQuery.toLowerCase();
-      const filteredUsers = query === ''
-        ? suggestedUsers
-        : suggestedUsers.filter(user =>
-            user.username.toLowerCase().includes(query) ||
-            (user.walletAddress && user.walletAddress.toLowerCase().includes(query))
-          );
+    // Renders a list of users into the users-list panel and (re)attaches
+    // click-to-toggle handlers.
+    function renderUsersList(users) {
+      suggestedUsersList.innerHTML = users.length > 0
+        ? users.map(user => renderUserListItemHtml(user, {
+            selectable: true,
+            selected: isUserSelected(user.id)
+          })).join('')
+        : '<div class="empty-state">No users found.</div>';
 
-      suggestedUsersList.innerHTML = filteredUsers.map(user => renderUserListItemHtml(user, {
-        selectable: true,
-        selected: isUserSelected(user.id)
-      })).join('');
-
-      // Re-attach event listeners
       document.querySelectorAll('.suggested-user-item').forEach(item => {
         item.addEventListener('click', () => {
           const userId = item.dataset.userId;
           toggleUser(userId);
         });
+      });
+    }
+
+    // Helper function to filter and display users based on search — queries the
+    // real directory (GET /api/users/search, matching username or usernode
+    // address, case-insensitive) instead of only filtering the locally cached
+    // "suggested" list, so an admin can find any real user, not just the 20
+    // most-recently-active ones.
+    function filterAndDisplayUsers() {
+      const query = state.searchQuery.trim();
+      if (!query) {
+        currentResults = suggestedUsers;
+        usersSectionHeader.textContent = 'Suggested Users';
+        renderUsersList(currentResults);
+        return;
+      }
+      searchUsers(query).then(results => {
+        if (state.searchQuery.trim() !== query) return; // stale response, a newer query has since landed
+        currentResults = results;
+        usersSectionHeader.textContent = 'Search Results';
+        renderUsersList(currentResults);
       });
     }
 
@@ -5511,22 +5534,22 @@ document.addEventListener('DOMContentLoaded', () => {
       e.target.value = state.groupDescription;
     });
 
-    // Search members input handler
+    // Search members input handler — debounced, backed by the real directory search.
     searchMembersInput.addEventListener('input', (e) => {
       state.searchQuery = e.target.value;
-      filterAndDisplayUsers();
+      if (searchTimeout) clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(filterAndDisplayUsers, 300);
     });
 
-    // Suggested user item handlers
-    document.querySelectorAll('.suggested-user-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const userId = item.dataset.userId;
-        toggleUser(userId);
-      });
-    });
+    // Initial render + click handlers for the suggested users list already in the page
+    renderUsersList(currentResults);
 
     // Refresh Suggested Users with the latest directory each time this screen opens.
-    fetchSuggestedUsers().then(filterAndDisplayUsers);
+    fetchSuggestedUsers().then(() => {
+      if (state.searchQuery.trim()) return; // a search is already in progress; don't clobber it
+      currentResults = suggestedUsers;
+      renderUsersList(currentResults);
+    });
 
     // Create Group button handler
     async function submitCreateGroup() {
