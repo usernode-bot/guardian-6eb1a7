@@ -499,6 +499,11 @@ html, body {
   text-align: right;
 }
 
+.message-timestamp.message-failed {
+  color: #ff3b30;
+  cursor: pointer;
+}
+
 .message-swipe-wrapper {
   position: relative;
   display: flex;

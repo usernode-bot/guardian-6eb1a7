@@ -1053,23 +1053,25 @@ app.put('/api/conversations/:id/state', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
 
   const { id } = req.params;
-  const { pinned, manuallyMarkedUnread, hiddenFromInbox } = req.body || {};
+  const { pinned, manuallyMarkedUnread, hiddenFromInbox, markRead } = req.body || {};
   const pinnedVal = typeof pinned === 'boolean' ? pinned : null;
   const unreadVal = typeof manuallyMarkedUnread === 'boolean' ? manuallyMarkedUnread : null;
   const hiddenVal = typeof hiddenFromInbox === 'boolean' ? hiddenFromInbox : null;
+  const markReadVal = markRead === true;
 
   try {
     const result = await pool.query(
       `INSERT INTO conversation_user_state
-         (conversation_id, user_id, pinned, manually_marked_unread, hidden_from_inbox)
-       VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false), COALESCE($5, false))
+         (conversation_id, user_id, pinned, manually_marked_unread, hidden_from_inbox, last_read_at)
+       VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false), COALESCE($5, false), now())
        ON CONFLICT (conversation_id, user_id) DO UPDATE SET
          pinned = COALESCE($3, conversation_user_state.pinned),
          manually_marked_unread = COALESCE($4, conversation_user_state.manually_marked_unread),
          hidden_from_inbox = COALESCE($5, conversation_user_state.hidden_from_inbox),
+         last_read_at = CASE WHEN $6 THEN now() ELSE conversation_user_state.last_read_at END,
          updated_at = now()
-       RETURNING pinned, manually_marked_unread, hidden_from_inbox`,
-      [id, req.user.id, pinnedVal, unreadVal, hiddenVal]
+       RETURNING pinned, manually_marked_unread, hidden_from_inbox, last_read_at`,
+      [id, req.user.id, pinnedVal, unreadVal, hiddenVal, markReadVal]
     );
     const row = result.rows[0];
     res.json({
@@ -1077,6 +1079,7 @@ app.put('/api/conversations/:id/state', async (req, res) => {
       pinned: row.pinned,
       manuallyMarkedUnread: row.manually_marked_unread,
       hiddenFromInbox: row.hidden_from_inbox,
+      lastReadAt: row.last_read_at ? new Date(row.last_read_at).getTime() : null,
       message: 'Conversation state updated'
     });
   } catch (err) {
@@ -1097,19 +1100,55 @@ app.put('/api/conversations/:id/state', async (req, res) => {
 // something both sides agree on.
 async function getOrCreateDirectConversation(userIdA, userIdB, requesterId) {
   const [a, b] = [userIdA, userIdB].sort();
-  // Also match a row where one side is the 'user_self' sentinel and the other
-  // is userIdB -- same OR-match pattern as getGroupRole/getChannelRole below,
-  // applied here so a staging-seeded demo DM (seeded against 'user_self')
-  // resolves to whichever real user is currently logged in, instead of a
-  // second, duplicate conversation being created underneath it.
+  // Match the stored (sorted) pair in either comparison order -- the row was
+  // inserted using the sorted a/b below, but the exact-pair clause here must
+  // still work regardless of which of userIdA/userIdB sorts first. Also match
+  // a row where one side is the 'user_self' sentinel and the other is EITHER
+  // input id (not just the alphabetically-later one) -- same OR-match pattern
+  // as getGroupRole/getChannelRole below, applied here so a staging-seeded
+  // demo DM (seeded against 'user_self') resolves to whichever real user is
+  // currently logged in, instead of a second, duplicate conversation being
+  // created underneath it. (Comparing only against the sorted-later id was
+  // the bug: when a real user's id sorted after the fixture's id, the
+  // sentinel clause silently missed the seeded row and a duplicate got
+  // inserted.)
   const existing = await pool.query(
     `SELECT id, status, requested_by_user_id FROM direct_conversations
       WHERE (user_id_a = $1 AND user_id_b = $2)
-         OR (user_id_a = 'user_self' AND user_id_b = $2)
-         OR (user_id_b = 'user_self' AND user_id_a = $2)`,
-    [a, b]
+         OR (user_id_a = $2 AND user_id_b = $1)
+         OR (user_id_a = 'user_self' AND (user_id_b = $1 OR user_id_b = $2))
+         OR (user_id_b = 'user_self' AND (user_id_a = $1 OR user_id_a = $2))`,
+    [userIdA, userIdB]
   );
   if (existing.rowCount > 0) return existing.rows[0];
+
+  // No row matches either input id exactly. Before creating a brand new one,
+  // check whether EITHER input id already has a conversation with a
+  // DIFFERENT peer id that resolves to the OTHER input id's username --
+  // users.id isn't guaranteed stable across sessions/logins and
+  // users.username has no uniqueness constraint, so a returning contact
+  // (on either side of this pair) can otherwise look like a new peer and a
+  // second row gets created for what the human sees as the same contact.
+  // Checked both ways round since either userIdA or userIdB could be the
+  // "new" id for a returning party. (mergeDuplicateDirectConversationsByUsername
+  // cleans up rows that were already created this way before this check
+  // existed.)
+  const reuse = await pool.query(
+    `SELECT dc.id, dc.status, dc.requested_by_user_id
+       FROM direct_conversations dc
+       JOIN users peer ON peer.id = (CASE WHEN dc.user_id_a = $1 THEN dc.user_id_b ELSE dc.user_id_a END)
+      WHERE (dc.user_id_a = $1 OR dc.user_id_b = $1)
+        AND lower(peer.username) = lower((SELECT username FROM users WHERE id = $2))
+      UNION
+     SELECT dc.id, dc.status, dc.requested_by_user_id
+       FROM direct_conversations dc
+       JOIN users peer ON peer.id = (CASE WHEN dc.user_id_a = $2 THEN dc.user_id_b ELSE dc.user_id_a END)
+      WHERE (dc.user_id_a = $2 OR dc.user_id_b = $2)
+        AND lower(peer.username) = lower((SELECT username FROM users WHERE id = $1))
+      LIMIT 1`,
+    [userIdA, userIdB]
+  );
+  if (reuse.rowCount > 0) return reuse.rows[0];
 
   const id = 'dm_' + crypto.randomBytes(12).toString('hex');
   await pool.query(
@@ -1212,7 +1251,9 @@ app.get('/api/direct-conversations', async (req, res) => {
     const result = await pool.query(
       `SELECT dc.id, dc.user_id_a, dc.user_id_b, dc.status, dc.requested_by_user_id,
               u.username AS peer_username, u.usernode_pubkey AS peer_pubkey,
-              lm.text AS last_text, lm.sender_user_id AS last_sender_id, lm.created_at AS last_at
+              lm.text AS last_text, lm.sender_user_id AS last_sender_id, lm.created_at AS last_at,
+              cus.pinned AS pinned, cus.hidden_from_inbox AS hidden_from_inbox,
+              COALESCE(unread.count, 0) AS unread_count
          FROM direct_conversations dc
          JOIN users u ON u.id = (CASE WHEN dc.user_id_a = $1 OR dc.user_id_a = 'user_self' THEN dc.user_id_b ELSE dc.user_id_a END)
          LEFT JOIN LATERAL (
@@ -1220,22 +1261,47 @@ app.get('/api/direct-conversations', async (req, res) => {
             WHERE conversation_type = 'direct' AND conversation_id = dc.id
             ORDER BY created_at DESC LIMIT 1
          ) lm ON true
+         LEFT JOIN conversation_user_state cus
+           ON cus.conversation_id = 'conv_' || (CASE WHEN dc.user_id_a = $1 OR dc.user_id_a = 'user_self' THEN dc.user_id_b ELSE dc.user_id_a END)
+          AND cus.user_id = $1
+         LEFT JOIN LATERAL (
+           SELECT count(*)::int AS count FROM messages
+            WHERE conversation_type = 'direct' AND conversation_id = dc.id
+              AND sender_user_id != $1
+              AND cus.last_read_at IS NOT NULL
+              AND created_at > cus.last_read_at
+         ) unread ON true
         WHERE (dc.user_id_a = $1 OR dc.user_id_b = $1 OR dc.user_id_a = 'user_self' OR dc.user_id_b = 'user_self')
           AND (dc.status = 'accepted' OR dc.requested_by_user_id = $1)
         ORDER BY COALESCE(lm.created_at, dc.created_at) DESC`,
       [req.user.id]
     );
-    res.json({
-      conversations: result.rows.map((row) => ({
+    // Two rows can legitimately resolve to the same peer username (see
+    // mergeDuplicateDirectConversationsByUsername) if the migration hasn't
+    // run since the duplicate appeared -- dedupe defensively here too so the
+    // inbox never shows the same contact twice. Rows already arrive ordered
+    // by most-recent activity first, so keeping the first occurrence per
+    // (lowercased) username keeps the most active thread.
+    const seenPeerUsernames = new Set();
+    const conversations = [];
+    for (const row of result.rows) {
+      const usernameKey = (row.peer_username || '').toLowerCase();
+      if (seenPeerUsernames.has(usernameKey)) continue;
+      seenPeerUsernames.add(usernameKey);
+      conversations.push({
         peerId: (row.user_id_a === req.user.id || row.user_id_a === 'user_self') ? row.user_id_b : row.user_id_a,
         peerUsername: row.peer_username,
         peerWalletAddress: row.peer_pubkey || null,
         lastMessage: row.last_text || null,
         lastMessageSenderId: row.last_sender_id || null,
         lastMessageAt: row.last_at ? new Date(row.last_at).getTime() : null,
-        requestStatus: row.status === 'pending' ? 'pending_sent' : 'accepted'
-      }))
-    });
+        requestStatus: row.status === 'pending' ? 'pending_sent' : 'accepted',
+        pinned: row.pinned || false,
+        hiddenFromInbox: row.hidden_from_inbox || false,
+        unreadCount: row.unread_count || 0
+      });
+    }
+    res.json({ conversations });
   } catch (err) {
     console.error('[messages] direct-conversations list failed:', err);
     res.status(500).json({ error: 'Failed to load conversations' });
@@ -1336,9 +1402,15 @@ app.post('/api/message-requests/:conversationId/decline', async (req, res) => {
 app.get('/api/messages/direct/:peerId', async (req, res) => {
   try {
     const peerId = req.params.peerId;
+    // The stored row's (user_id_a, user_id_b) is alphabetically sorted (see
+    // getOrCreateDirectConversation), so the exact-pair match has to check
+    // both orderings -- otherwise this silently returns zero rows (and an
+    // empty thread) whenever req.user.id sorts after peerId, even though the
+    // conversation and its messages exist.
     const convRes = await pool.query(
       `SELECT id FROM direct_conversations
         WHERE (user_id_a = $1 AND user_id_b = $2)
+           OR (user_id_a = $2 AND user_id_b = $1)
            OR (user_id_a = 'user_self' AND user_id_b = $2)
            OR (user_id_b = 'user_self' AND user_id_a = $2)`,
       [req.user.id, peerId]
@@ -1592,6 +1664,14 @@ async function initDatabase() {
       );
     `);
 
+    // No row here yet means "never explicitly read" -- GET /api/direct-conversations
+    // treats a missing row as 0 unread (not "everything since forever"), so
+    // existing threads don't retroactively light up unread the moment this
+    // column ships. Only messages that arrive *after* a row exists count.
+    await pool.query(
+      `ALTER TABLE conversation_user_state ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMPTZ`
+    );
+
     await pool.query(
       `CREATE INDEX IF NOT EXISTS conversation_user_state_user_idx
          ON conversation_user_state (user_id)`
@@ -1633,7 +1713,83 @@ async function initDatabase() {
     throw err;
   }
 
+  await mergeDuplicateDirectConversationsByUsername();
   await seedStagingData();
+}
+
+// direct_conversations has a UNIQUE (user_id_a, user_id_b) constraint, so two
+// rows can never share the exact same pair of ids -- but a caller can still
+// end up with two rows for what looks like the same contact if that peer's
+// users.id changed across logins (the JWT's `id` claim isn't documented as
+// stable long-term) or two accounts share a username (users.username has no
+// uniqueness constraint). Either way it surfaces as the same contact
+// duplicated in the Messages list. This merges such rows -- created before
+// the reuse check in getOrCreateDirectConversation existed to prevent new
+// ones -- into whichever row has the most message activity, moving messages
+// over rather than dropping them. Sentinel ('user_self') rows are excluded:
+// those are staging fixtures shared across every real user and are handled
+// separately by getOrCreateDirectConversation's sentinel matching.
+async function mergeDuplicateDirectConversationsByUsername() {
+  try {
+    const groups = await pool.query(`
+      WITH endpoints AS (
+        SELECT id AS dc_id, user_id_a AS caller_id, user_id_b AS peer_id FROM direct_conversations
+         WHERE user_id_a != 'user_self' AND user_id_b != 'user_self'
+        UNION ALL
+        SELECT id AS dc_id, user_id_b AS caller_id, user_id_a AS peer_id FROM direct_conversations
+         WHERE user_id_a != 'user_self' AND user_id_b != 'user_self'
+      )
+      SELECT e.caller_id AS caller_id, lower(u.username) AS peer_username_lc,
+             array_agg(DISTINCT e.dc_id) AS dc_ids
+        FROM endpoints e
+        JOIN users u ON u.id = e.peer_id
+       GROUP BY e.caller_id, lower(u.username)
+      HAVING count(DISTINCT e.dc_id) > 1
+    `);
+
+    for (const group of groups.rows) {
+      // Re-check which ids still exist -- an earlier group in this loop may
+      // already have deleted one (a row can appear in two different callers'
+      // duplicate groups at once).
+      const rows = (await pool.query(
+        `SELECT dc.id, dc.user_id_a, dc.user_id_b, dc.created_at,
+                (SELECT count(*) FROM messages WHERE conversation_type = 'direct' AND conversation_id = dc.id) AS message_count,
+                (SELECT max(created_at) FROM messages WHERE conversation_type = 'direct' AND conversation_id = dc.id) AS last_message_at
+           FROM direct_conversations dc WHERE dc.id = ANY($1)`,
+        [group.dc_ids]
+      )).rows;
+      if (rows.length < 2) continue;
+
+      rows.sort((r1, r2) => {
+        if (r1.message_count !== r2.message_count) return r2.message_count - r1.message_count;
+        const t1 = r1.last_message_at ? new Date(r1.last_message_at).getTime() : 0;
+        const t2 = r2.last_message_at ? new Date(r2.last_message_at).getTime() : 0;
+        if (t1 !== t2) return t2 - t1;
+        return new Date(r1.created_at) - new Date(r2.created_at);
+      });
+      const canonical = rows[0];
+      const stale = rows.slice(1);
+
+      for (const row of stale) {
+        await pool.query(
+          `UPDATE messages SET conversation_id = $1 WHERE conversation_type = 'direct' AND conversation_id = $2`,
+          [canonical.id, row.id]
+        );
+        const stalePeerId = row.user_id_a === group.caller_id ? row.user_id_b : row.user_id_a;
+        await pool.query(
+          `DELETE FROM conversation_user_state WHERE conversation_id = $1 AND user_id = $2`,
+          ['conv_' + stalePeerId, group.caller_id]
+        );
+        await pool.query(`DELETE FROM direct_conversations WHERE id = $1`, [row.id]);
+      }
+      console.log(
+        `[migration] merged ${stale.length} duplicate direct_conversations row(s) for caller ${group.caller_id} ` +
+        `(peer username "${group.peer_username_lc}") into ${canonical.id}`
+      );
+    }
+  } catch (err) {
+    console.error('[migration] mergeDuplicateDirectConversationsByUsername failed:', err);
+  }
 }
 
 // Staging seed. Both group tables are staging:private (schema-only copy), so
@@ -1987,7 +2143,20 @@ async function seedStagingUsers() {
     { id: 'staging-demo-user-6', username: 'staging-demo-eka', pubkey: null, offset: '1 day' },
     { id: 'staging-demo-user-7', username: 'staging-demo-fajar', pubkey: '0x4c7d9e1b3a5f60820c4e6a8f0b2d4e6c8a0f2e4d', offset: '3 days' },
     { id: 'staging-demo-user-8', username: 'staging-demo-gita', pubkey: '0x9e1c3a5b7d9f02460a8c0e2f4b6d8a0c2e4f6a8b', offset: '10 days' },
-    { id: 'staging-demo-user-9', username: 'staging-demo-hasan', pubkey: '0x2a4c6e8b0d1f35970b9d1f3e5a7c9b1d3f5a7c9e', offset: '30 days' }
+    { id: 'staging-demo-user-9', username: 'staging-demo-hasan', pubkey: '0x2a4c6e8b0d1f35970b9d1f3e5a7c9b1d3f5a7c9e', offset: '30 days' },
+    // Ids deliberately picked to sort below/above any realistic real user id
+    // (wallet-style hex, uuid, numeric) -- regression fixtures for the DM
+    // history reload bug, which only reproduced when the caller's id sorted
+    // on a particular side of the peer's id. See SHOT_DM_RELOAD_LO/HI.
+    { id: '0000-reload-order-lo', username: 'staging-demo-zero', pubkey: null, offset: '15 days' },
+    { id: 'zzzz-reload-order-hi', username: 'staging-demo-zulu', pubkey: null, offset: '16 days' },
+    // Two DIFFERENT ids sharing the SAME username -- regression fixture for
+    // the "same contact shows up twice" bug: users.id isn't guaranteed
+    // stable across sessions and users.username has no uniqueness
+    // constraint, so a returning contact can look like a brand new peer.
+    // See SHOT_DM_USERNAME_DUP.
+    { id: 'staging-demo-user-10', username: 'staging-demo-dup-name', pubkey: null, offset: '20 days' },
+    { id: 'staging-demo-user-11', username: 'staging-demo-dup-name', pubkey: null, offset: '1 minute' }
   ];
 
   try {

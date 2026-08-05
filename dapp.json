@@ -131,6 +131,11 @@
       "expectText": "Shot send stay check"
     },
     {
+      "name": "A direct message that fails to deliver shows a Failed to send indicator",
+      "path": "/?shot=send-fail#/conversation/conv_1",
+      "expectSelector": ".message-failed"
+    },
+    {
       "name": "DM header's ⋮ menu opens and shows its options",
       "path": "/?shot=dm-menu#/conversation/conv_staging-demo-user-6",
       "expectText": "Pin Conversation"
@@ -234,6 +239,36 @@
       "name": "Messages list shows a freshly-delivered DM's real preview text, not blank",
       "path": "/?shot=dc-preview",
       "expectText": "Shot dc preview check"
+    },
+    {
+      "name": "DM to a peer id sorting below the caller's persists after a reload",
+      "path": "/?shot=dm-reload-lo#/conversation/conv_0000-reload-order-lo",
+      "expectText": "Shot reload order check"
+    },
+    {
+      "name": "DM history to a low-sorting peer survives a plain reload (regression: unsorted history query)",
+      "path": "/#/conversation/conv_0000-reload-order-lo",
+      "expectText": "Shot reload order check"
+    },
+    {
+      "name": "DM to a peer id sorting above the caller's persists after a reload",
+      "path": "/?shot=dm-reload-hi#/conversation/conv_zzzz-reload-order-hi",
+      "expectText": "Shot reload order check"
+    },
+    {
+      "name": "DM history to a high-sorting peer survives a plain reload (regression: unsorted history query)",
+      "path": "/#/conversation/conv_zzzz-reload-order-hi",
+      "expectText": "Shot reload order check"
+    },
+    {
+      "name": "Messaging a fixture peer with an existing pending request doesn't create a duplicate conversation (regression: sentinel-matching bug)",
+      "path": "/?shot=dm-no-dup",
+      "expectSelector": "[data-testid=\"dm-no-dup-count\"][data-count=\"1\"]"
+    },
+    {
+      "name": "Messaging two different peer ids that share a username doesn't show the contact twice (regression: duplicate contact row)",
+      "path": "/?shot=dm-username-dup",
+      "expectSelector": "[data-testid=\"dm-username-dup-count\"][data-count=\"1\"]"
     },
     {
       "name": "Create Group page loads",
