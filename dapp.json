@@ -171,6 +171,11 @@
       "expectText": "Shot send stay check"
     },
     {
+      "name": "A group message that fails to deliver shows a Failed to send indicator",
+      "path": "/?shot=send-fail#/group/group_staging_owned_1",
+      "expectSelector": ".message-failed"
+    },
+    {
       "name": "New Message page loads",
       "path": "/#/create",
       "expectText": "Create Group"
@@ -476,6 +481,11 @@
       "expectText": "Shot send stay check"
     },
     {
+      "name": "A channel post that fails to deliver shows a Failed to send indicator",
+      "path": "/?shot=channel-send-fail#/channel/channel_staging_owned_1",
+      "expectSelector": ".post-failed"
+    },
+    {
       "name": "Reaction picker opens from a long-press on the post card",
       "path": "/?shot=post-reactions#/channel/channel_staging_1",
       "expectSelector": ".reaction-picker-option"
@@ -694,6 +704,16 @@
       "name": "Add Admins page displays available users",
       "path": "/#/channel/channel_staging_owned_1/add-admins",
       "expectSelector": ".suggested-user-item"
+    },
+    {
+      "name": "Session-expired banner renders on a 401",
+      "path": "/?shot=session-expired",
+      "expectSelector": ".session-expired-banner"
+    },
+    {
+      "name": "Session-expired banner shows the reload prompt text",
+      "path": "/?shot=session-expired",
+      "expectText": "Your session expired"
     }
   ]
 }
