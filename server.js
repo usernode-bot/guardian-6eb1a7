@@ -2259,15 +2259,26 @@ async function seedStagingDirectConversations() {
   }
 }
 
-// Start server
-const server = app.listen(PORT, async () => {
-  console.log(`Server listening on port ${PORT}`);
+// Start server. initDatabase() (schema + staging seeds) must finish BEFORE
+// the socket starts accepting connections -- app.listen()'s own callback
+// firing after bind is too late, since Express can already be routing
+// requests to handlers (including GET /api/state's staging seed calls)
+// while that callback's async body is still running. On a genuinely cold
+// container, the checks harness's very first request could land mid-init:
+// tables not yet created, or staging-demo-user-6 not yet inserted into
+// `users`, silently breaking the INNER JOIN in GET /api/direct-conversations
+// and making the seeded DM invisible even though the row itself is fine.
+let server;
+(async () => {
   try {
     await initDatabase();
   } catch (err) {
     console.error('Database schema unavailable — group endpoints will fail.');
   }
-});
+  server = app.listen(PORT, () => {
+    console.log(`Server listening on port ${PORT}`);
+  });
+})();
 
 // Graceful shutdown: the platform SIGTERMs the container on every deploy and
 // gives it a few seconds before SIGKILL.
@@ -2277,9 +2288,9 @@ async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[shutdown] ${signal} received, draining`);
-  server.close(() => {});
-  server.closeIdleConnections?.();
-  const t = setTimeout(() => server.closeAllConnections?.(), DRAIN_MS);
+  server?.close(() => {});
+  server?.closeIdleConnections?.();
+  const t = setTimeout(() => server?.closeAllConnections?.(), DRAIN_MS);
   t.unref?.();
   try {
     await pool.end();
