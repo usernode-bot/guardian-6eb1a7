@@ -53,6 +53,8 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=dm-reload-lo              sends a DM to a peer id sorting below any real id  → history must survive a plain reload
   //   ?shot=dm-reload-hi              sends a DM to a peer id sorting above any real id  → history must survive a plain reload
   //   ?shot=dm-username-dup           messages two different peer ids sharing one username → Messages list must show that username only once
+  //   ?shot=channel-send-fail         publishes one post that deterministically fails (owned channel only) → "Failed to send" + retry must render
+  //   ?shot=session-expired           simulates a 401 on load                                  → session-expired banner must render, polling halted
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -82,6 +84,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_DC_PREVIEW = SHOT === 'dc-preview';
   const SHOT_CHANNEL_ADMIN = SHOT === 'channel-admin';
   const SHOT_SEND_FAIL = SHOT === 'send-fail';
+  const SHOT_CHANNEL_SEND_FAIL = SHOT === 'channel-send-fail';
+  const SHOT_SESSION_EXPIRED = SHOT === 'session-expired';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
   const SHOT_CREATE_GROUP_NAME = 'Staging demo one-invite group';
@@ -142,6 +146,46 @@ document.addEventListener('DOMContentLoaded', () => {
     const token = localStorage.getItem('usernode-token');
     if (token) headers['x-usernode-token'] = token;
     return headers;
+  }
+
+  // Once the token's rejected server-side there's nothing more polling/hydrating
+  // can do -- every subsequent request would just 401 again -- so this latches
+  // permanently for the rest of the tab's lifetime rather than re-checking.
+  let sessionExpired = false;
+
+  function showSessionExpiredBanner() {
+    if (document.querySelector('.session-expired-banner')) return;
+    const banner = document.createElement('div');
+    banner.className = 'session-expired-banner';
+    banner.textContent = 'Your session expired — tap to reload';
+    banner.addEventListener('click', () => window.location.reload());
+    document.body.appendChild(banner);
+  }
+
+  // Halts both polling loops so no further request can retrigger this, then
+  // surfaces the banner. stopThreadPolling/stopMessagesListPolling are declared
+  // later in this same scope but hoisted, so calling them from here is safe.
+  function handleSessionExpired() {
+    if (sessionExpired) return;
+    sessionExpired = true;
+    stopThreadPolling();
+    stopMessagesListPolling();
+    showSessionExpiredBanner();
+  }
+
+  // Drop-in replacement for fetch() used by every hydrate/deliver call site --
+  // detects an expired/invalid token (401) in one place instead of each caller
+  // separately checking for it, since none of them currently do.
+  async function authFetch(url, options) {
+    // Screenshot-state: force the banner deterministically instead of actually
+    // invalidating the token, so dapp.json can assert it renders on demand.
+    if (SHOT_SESSION_EXPIRED) {
+      handleSessionExpired();
+      return new Response(null, { status: 401 });
+    }
+    const response = await fetch(url, options);
+    if (response.status === 401) handleSessionExpired();
+    return response;
   }
 
   // Helper copy shown under the Create Group privacy toggle.
@@ -284,7 +328,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function hydrateMessageRequests() {
     try {
-      const response = await fetch('/api/message-requests', { headers: authHeaders() });
+      const response = await authFetch('/api/message-requests', { headers: authHeaders() });
       if (!response.ok) return false;
       const data = await response.json();
       const nextRequests = (data.requests || []).map(r => ({
@@ -644,7 +688,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function hydrateServerDirectConversations() {
     let changed = false;
     try {
-      const response = await fetch('/api/direct-conversations', { headers: authHeaders() });
+      const response = await authFetch('/api/direct-conversations', { headers: authHeaders() });
       if (!response.ok) return false;
       const payload = await response.json();
       (payload.conversations || []).forEach(dc => {
@@ -711,7 +755,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // otherwise the override would have nothing to attach to and be dropped.
   async function hydrateConversationUserState() {
     try {
-      const response = await fetch('/api/conversations/state', { headers: authHeaders() });
+      const response = await authFetch('/api/conversations/state', { headers: authHeaders() });
       if (!response.ok) return;
       const payload = await response.json();
       const states = payload.states || {};
@@ -778,7 +822,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function hydrateThreadMessages(type, id, thread) {
     if (!id) return false;
     try {
-      const response = await fetch(`/api/messages/${type}/${encodeURIComponent(id)}`, { headers: authHeaders() });
+      const response = await authFetch(`/api/messages/${type}/${encodeURIComponent(id)}`, { headers: authHeaders() });
       if (!response.ok) return false;
       const payload = await response.json();
       let changed = false;
@@ -799,7 +843,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // first, since publishPost unshifts) rather than a chat thread's `.messages`.
   async function hydrateChannelPosts(channelId, channel) {
     try {
-      const response = await fetch(`/api/messages/channel/${encodeURIComponent(channelId)}`, { headers: authHeaders() });
+      const response = await authFetch(`/api/messages/channel/${encodeURIComponent(channelId)}`, { headers: authHeaders() });
       if (!response.ok) return false;
       const payload = await response.json();
       let changed = false;
@@ -851,15 +895,33 @@ document.addEventListener('DOMContentLoaded', () => {
   let activeThreadPollTimer = null;
   const THREAD_POLL_INTERVAL_MS = 4000;
 
+  // Whichever screen's polling is currently active (a thread or the Messages
+  // list -- never both, since the two poll loops are mutually exclusive)
+  // registers its own "re-fetch and retry" closure here. The visibilitychange/
+  // online listeners below call this instead of tracking per-screen state
+  // themselves, so a tab regaining focus/connectivity immediately re-syncs
+  // whatever's actually on screen.
+  let activeScreenResync = null;
+
   function stopThreadPolling() {
     if (activeThreadPollTimer) {
       clearInterval(activeThreadPollTimer);
       activeThreadPollTimer = null;
     }
+    activeScreenResync = null;
   }
 
-  function startThreadPolling(hydrateFn, onChanged) {
+  // retryFailed is optional: called only during a foreground/reconnect resync
+  // (never on the regular interval poll below), so a flaky connection doesn't
+  // spam retries every 4s -- only once when the tab actually comes back.
+  function startThreadPolling(hydrateFn, onChanged, retryFailed) {
     stopThreadPolling();
+    if (sessionExpired) return;
+    activeScreenResync = async () => {
+      const changed = await hydrateFn();
+      if (changed) onChanged();
+      if (typeof retryFailed === 'function' && retryFailed()) onChanged();
+    };
     activeThreadPollTimer = setInterval(async () => {
       const changed = await hydrateFn();
       if (changed) onChanged();
@@ -878,10 +940,19 @@ document.addEventListener('DOMContentLoaded', () => {
       clearInterval(messagesListPollTimer);
       messagesListPollTimer = null;
     }
+    activeScreenResync = null;
   }
 
   function startMessagesListPolling() {
     stopMessagesListPolling();
+    if (sessionExpired) return;
+    activeScreenResync = async () => {
+      const [conversationsChanged, requestsChanged] = await Promise.all([
+        hydrateServerDirectConversations(),
+        hydrateMessageRequests()
+      ]);
+      if (conversationsChanged || requestsChanged) renderMessagesPage();
+    };
     messagesListPollTimer = setInterval(async () => {
       const [conversationsChanged, requestsChanged] = await Promise.all([
         hydrateServerDirectConversations(),
@@ -889,6 +960,21 @@ document.addEventListener('DOMContentLoaded', () => {
       ]);
       if (conversationsChanged || requestsChanged) renderMessagesPage();
     }, MESSAGES_LIST_POLL_INTERVAL_MS);
+  }
+
+  // Foreground/reconnect resync: a tab coming back into view, or the network
+  // coming back online, is exactly when the 4-7s poll interval is most likely
+  // to have just missed something (or to have been suspended entirely, which
+  // background tabs commonly do to throttled timers) -- so re-run whatever
+  // screen's hydrate is currently active right away instead of waiting out
+  // the rest of that interval.
+  async function resyncActiveScreen() {
+    if (sessionExpired || !activeScreenResync) return;
+    try {
+      await activeScreenResync();
+    } catch (error) {
+      console.warn('Foreground resync failed:', error);
+    }
   }
 
   // Best-effort delivery of an already-optimistically-rendered DM/group
@@ -907,7 +993,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (typeof onFailure === 'function') onFailure();
       return;
     }
-    fetch(`/api/messages/${type}/${encodeURIComponent(id)}`, {
+    authFetch(`/api/messages/${type}/${encodeURIComponent(id)}`, {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
@@ -2408,7 +2494,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // only way an incoming message ever shows up without a manual reload.
     startThreadPolling(
       () => hydrateThreadMessages('direct', peerId, conversation),
-      () => renderConversationPage(conversationId)
+      () => renderConversationPage(conversationId),
+      () => {
+        const failed = conversation.messages.filter(m => m.failed);
+        if (!failed.length) return false;
+        failed.forEach(msg => deliverThreadMessage('direct', peerId, msg, () => renderConversationPage(conversationId)));
+        return true;
+      }
     );
 
     // Must stay last: the send re-renders this page underneath us.
@@ -4052,7 +4144,9 @@ document.addEventListener('DOMContentLoaded', () => {
           ${renderPinBadge(msg)}
           <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleBody}</div>
           ${reactionChipsRow}
-          <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
+          ${msg.failed
+            ? `<div class="message-timestamp message-failed" data-retry-message-id="${msg.id}">⚠️ Failed to send · Tap to retry</div>`
+            : `<div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>`}
         </div>`;
       } else {
         messageHTML += `
@@ -4217,14 +4311,32 @@ document.addEventListener('DOMContentLoaded', () => {
     // button wired above instead.
     if (isMember) {
       setupComposer(group, { isGroup: true });
+
+      // Tap a "Failed to send" label to retry delivering that message.
+      groupRoot.querySelectorAll('[data-retry-message-id]').forEach(el => {
+        el.addEventListener('click', () => {
+          const msg = group.messages.find(m => m.id === el.dataset.retryMessageId);
+          if (!msg) return;
+          deliverThreadMessage('group', groupId, msg, () => renderGroupConversationPage(groupId));
+          renderGroupConversationPage(groupId);
+        });
+      });
+
       startThreadPolling(
         () => hydrateThreadMessages('group', groupId, group),
-        () => renderGroupConversationPage(groupId)
+        () => renderGroupConversationPage(groupId),
+        () => {
+          const failed = group.messages.filter(m => m.failed);
+          if (!failed.length) return false;
+          failed.forEach(msg => deliverThreadMessage('group', groupId, msg, () => renderGroupConversationPage(groupId)));
+          return true;
+        }
       );
     }
 
     // Must stay last: the send re-renders this page underneath us.
     if (isMember && SHOT_SEND_STAY && !fromSend) sendShotMessage(groupRoot);
+    if (isMember && SHOT_SEND_FAIL && !fromSend) sendShotMessage(groupRoot);
   }
 
   // Show group menu with all options (members, edit description, leave)
@@ -5990,9 +6102,36 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Best-effort delivery of an already-optimistically-rendered channel post.
+  // The card is already on screen from the local unshift in publishPost --
+  // this just makes it actually reach the server (and survive a reload),
+  // mirroring deliverThreadMessage's DM/group shape.
+  function deliverPost(channelId, post, onFailure) {
+    delete post.failed;
+    // Screenshot-state: simulate a delivery failure deterministically instead
+    // of actually breaking the network, so dapp.json can assert the "Failed
+    // to send" indicator renders.
+    if (SHOT_CHANNEL_SEND_FAIL) {
+      post.failed = true;
+      if (typeof onFailure === 'function') onFailure();
+      return;
+    }
+    authFetch(`/api/messages/channel/${encodeURIComponent(channelId)}`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ id: post.id, text: post.text, imageUrl: post.imageUrl, imageId: post.imageId })
+    }).then(res => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    }).catch(error => {
+      console.warn('Could not deliver channel post:', error);
+      post.failed = true;
+      if (typeof onFailure === 'function') onFailure();
+    });
+  }
+
   // Create a new channel
   // Publish a post to a channel
-  function publishPost(channelId, text, image) {
+  function publishPost(channelId, text, image, onFailure) {
     const channel = channels.find(c => c.id === channelId);
     if (!channel || channel.creatorId !== 'user_self') {
       return null;
@@ -6018,13 +6157,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     channel.posts.unshift(newPost);
 
-    // Deliver to the server so followers actually see it (and it survives a
-    // reload) -- best-effort, the card above is already shown regardless.
-    fetch(`/api/messages/channel/${encodeURIComponent(channelId)}`, {
-      method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ id: postId, text, imageUrl: newPost.imageUrl, imageId: newPost.imageId })
-    }).catch(error => console.warn('Could not deliver channel post:', error));
+    deliverPost(channelId, newPost, onFailure);
 
     // Update last post in conversation
     const conv = conversations.find(c => c.type === 'channel' && c.channelId === channelId);
@@ -6225,7 +6358,9 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="post-card-head">
           <div class="post-card-avatar">${channel.avatar}</div>
           <div class="post-card-channel">${channel.name}</div>
-          <div class="post-card-time">${formatTimestamp(post.timestamp)}</div>
+          ${post.failed
+            ? `<div class="post-card-time post-failed" data-retry-post-id="${post.id}">⚠️ Failed to send · Tap to retry</div>`
+            : `<div class="post-card-time">${formatTimestamp(post.timestamp)}</div>`}
         </div>
         <div class="post-content${messageBubbleClass(post)}">${messageBodyHTML(post)}</div>
         <div class="post-reaction-chips">${postReactionChipsHTML(post)}</div>
@@ -6555,6 +6690,16 @@ document.addEventListener('DOMContentLoaded', () => {
           showPostMenu(channelId, menuBtn.dataset.postId, isOwner);
           return;
         }
+
+        const retryEl = e.target.closest('[data-retry-post-id]');
+        if (retryEl) {
+          e.stopPropagation();
+          const post = channel.posts.find(p => p.id === retryEl.dataset.retryPostId);
+          if (!post) return;
+          deliverPost(channelId, post, () => renderChannelView(channelId));
+          renderChannelView(channelId);
+          return;
+        }
       });
 
       // Long-press a post card to open the reaction picker. This is now the ONLY
@@ -6655,7 +6800,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // An image on its own is a valid post - text is optional, same as DMs/groups
         if (!text && !readyImage) return;
 
-        publishPost(channelId, text, readyImage);
+        publishPost(channelId, text, readyImage, () => renderChannelView(channelId));
         composerInput.value = '';
         composerInput.style.height = '40px';
         imageAttachment.clearPendingImage();
@@ -6665,6 +6810,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Must stay last: the publish click above re-renders this page underneath us.
       if (SHOT_CHANNEL_SEND_STAY && !fromSend) sendShotMessage(document, '.publish-button');
+      if (SHOT_CHANNEL_SEND_FAIL && !fromSend) sendShotMessage(document, '.publish-button');
     }
 
     // Image lightbox for post images - the feed is the channel's own scroll
@@ -6704,7 +6850,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // see the owner's next post show up without a manual reload.
     startThreadPolling(
       () => hydrateChannelPosts(channelId, channel),
-      () => renderChannelView(channelId)
+      () => renderChannelView(channelId),
+      () => {
+        const failed = channel.posts.filter(p => p.failed);
+        if (!failed.length) return false;
+        failed.forEach(post => deliverPost(channelId, post, () => renderChannelView(channelId)));
+        return true;
+      }
     );
   }
 
@@ -8591,6 +8743,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // Listen for hash changes
   window.addEventListener('hashchange', handleNavigation);
 
+  // Re-sync whatever's on screen when the tab regains focus or the network
+  // comes back -- see resyncActiveScreen above.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') resyncActiveScreen();
+  });
+  window.addEventListener('online', resyncActiveScreen);
+
   // Initial render. Identity is hydrated first so the first paint already
   // knows who "You" is (groups/channels tag ownership off currentUser).
   // Everything after that has no cross-dependency except "the SHOT_* delivery
@@ -8717,6 +8876,12 @@ document.addEventListener('DOMContentLoaded', () => {
       marker.style.display = 'none';
       marker.textContent = 'UsernameDupRefs:' + refCount;
       document.body.appendChild(marker);
+    }
+    // Screenshot-state: force the session-expired banner on boot via the real
+    // authFetch 401-handling path, rather than just rendering the banner markup
+    // directly, so the deep link exercises the actual detection code.
+    if (SHOT_SESSION_EXPIRED) {
+      handleSessionExpired();
     }
     handleNavigation();
   })();
