@@ -5476,7 +5476,7 @@ document.addEventListener('DOMContentLoaded', () => {
         usersSectionHeader.textContent = 'Search Results';
         renderUsersList(currentResults);
         if (results.length === 0) {
-          showToast('User tidak ditemukan', { type: 'info' });
+          showAlertDialog('No Results', 'User tidak ditemukan');
         }
       });
     }
@@ -7852,6 +7852,35 @@ document.addEventListener('DOMContentLoaded', () => {
       onConfirm();
     });
 
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+  }
+
+  // Centered modal popup with a single OK/dismiss button — same
+  // .dialog-overlay/.dialog shell as showConfirmDialog, minus the cancel button.
+  function showAlertDialog(title, message) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>${title}</h2>
+      </div>
+      <div class="dialog-content">
+        <p>${message}</p>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-primary" id="alert-ok-btn">OK</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    document.getElementById('alert-ok-btn').addEventListener('click', () => overlay.remove());
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) overlay.remove();
     });
