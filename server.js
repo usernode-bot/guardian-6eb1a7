@@ -2042,15 +2042,36 @@ async function seedStagingPrimaryDM(currentUser) {
           imageUrl: 'https://picsum.photos/seed/staging-demo-dm/400/300', imageId: 'staging-demo-image-dm'
         }
       ];
-      for (let i = 0; i < script.length; i++) {
-        const entry = script[i];
-        await insertMessage('direct', conversationId, entry.from, {
-          id: `msg_staging_dm_${conversationId}_${i + 1}`,
-          text: entry.text,
-          imageUrl: entry.imageUrl,
-          imageId: entry.imageId
-        });
-      }
+      // Bulk single-round-trip insert instead of N sequential awaited
+      // insertMessage calls -- on a cold staging container the per-call
+      // round-trip latency of 9 serial inserts (each itself an INSERT +
+      // a follow-up SELECT) stacked behind the boot-time fetch chain in
+      // app.js was enough to blow past the checks harness's selector-wait
+      // timeout on a genuinely fresh DB. created_at is spaced explicitly
+      // (rather than left to each row's own `now()`) so message order is
+      // deterministic regardless of statement execution order.
+      const baseTime = Date.now() - script.length * 1000;
+      const params = [conversationId];
+      const rowSql = script.map((entry, i) => {
+        const p = params.length;
+        params.push(
+          `msg_staging_dm_${conversationId}_${i + 1}`,
+          entry.from.id,
+          entry.from.username || entry.from.id,
+          entry.text,
+          entry.imageUrl || null,
+          entry.imageId || null,
+          new Date(baseTime + i * 1000)
+        );
+        return `($${p + 1}, 'direct', $1, $${p + 2}, $${p + 3}, $${p + 4}, $${p + 5}, $${p + 6}, $${p + 7})`;
+      });
+      await pool.query(
+        `INSERT INTO messages
+           (id, conversation_type, conversation_id, sender_user_id, sender_username, text, image_url, image_id, created_at)
+         VALUES ${rowSql.join(', ')}
+         ON CONFLICT (id) DO NOTHING`,
+        params
+      );
     }
   } catch (err) {
     console.error('Staging primary DM seed error:', err);

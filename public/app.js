@@ -8528,75 +8528,91 @@ document.addEventListener('DOMContentLoaded', () => {
   // Listen for hash changes
   window.addEventListener('hashchange', handleNavigation);
 
-  // Initial render. Identity and server-backed groups are hydrated first so
-  // the first paint already knows who "You" is and which groups are real.
+  // Initial render. Identity is hydrated first so the first paint already
+  // knows who "You" is (groups/channels tag ownership off currentUser).
+  // Everything after that has no cross-dependency except "the SHOT_* delivery
+  // fetches must land before hydrateServerDirectConversations reads them" and
+  // "hydrateConversationUserState must run after conversations/groups/channels
+  // are populated" (it only attaches overrides onto entries that already
+  // exist) -- so those are the only two serialization points kept. On a real
+  // (non-loopback) staging deploy, this cuts the boot-to-first-render chain
+  // from ~7 sequential round trips down to 3, which matters because
+  // handleNavigation() (the actual page render) doesn't run until this whole
+  // async function resolves.
   (async () => {
     await fetchUserData();
-    await fetchSuggestedUsers();
-    await hydrateServerGroups();
-    await hydrateServerChannels();
-    // Screenshot-state: deliver a real DM before hydrating, so the Messages
-    // list's server-backed preview/timestamp pick it up on first paint --
-    // regression check for a bug where a freshly-hydrated conversation's
-    // preview stayed blank forever.
-    if (SHOT_DC_PREVIEW) {
-      try {
-        await fetch(`/api/messages/direct/${SHOT_DC_PREVIEW_PEER_ID}`, {
-          method: 'POST',
-          headers: authHeaders({ 'Content-Type': 'application/json' }),
-          body: JSON.stringify({ id: `shot_dc_${Date.now()}`, text: SHOT_DC_PREVIEW_TEXT })
-        });
-      } catch (error) {
-        console.warn('Could not deliver shot dc-preview message:', error);
-      }
-    }
-    // Screenshot-state: message a fixture peer that already has a pending
-    // request seeded against 'user_self' (see SHOT_DM_NO_DUP_PEER_ID above).
-    // Regression check for getOrCreateDirectConversation's sentinel-matching
-    // bug: it used to compare the fixture's counterpart only against the
-    // alphabetically-later of the two ids, so it missed the existing pending
-    // row whenever the caller's real id sorted after the fixture's, and
-    // created a second, duplicate direct_conversations row underneath it.
-    if (SHOT_DM_NO_DUP) {
-      try {
-        await fetch(`/api/messages/direct/${SHOT_DM_NO_DUP_PEER_ID}`, {
-          method: 'POST',
-          headers: authHeaders({ 'Content-Type': 'application/json' }),
-          body: JSON.stringify({ id: `shot_nodup_${Date.now()}`, text: SHOT_DM_NO_DUP_TEXT })
-        });
-      } catch (error) {
-        console.warn('Could not deliver shot dm-no-dup message:', error);
-      }
-    }
-    if (SHOT_DM_RELOAD_LO || SHOT_DM_RELOAD_HI) {
-      const peerId = SHOT_DM_RELOAD_LO ? SHOT_DM_RELOAD_LO_PEER_ID : SHOT_DM_RELOAD_HI_PEER_ID;
-      try {
-        await fetch(`/api/messages/direct/${peerId}`, {
-          method: 'POST',
-          headers: authHeaders({ 'Content-Type': 'application/json' }),
-          body: JSON.stringify({ id: `shot_reload_${Date.now()}`, text: SHOT_DM_RELOAD_TEXT })
-        });
-      } catch (error) {
-        console.warn('Could not deliver shot dm-reload message:', error);
-      }
-    }
-    if (SHOT_DM_USERNAME_DUP) {
-      try {
-        await fetch(`/api/messages/direct/${SHOT_DM_USERNAME_DUP_PEER_ID_1}`, {
-          method: 'POST',
-          headers: authHeaders({ 'Content-Type': 'application/json' }),
-          body: JSON.stringify({ id: `shot_userdup_1_${Date.now()}`, text: SHOT_DM_USERNAME_DUP_TEXT })
-        });
-        await fetch(`/api/messages/direct/${SHOT_DM_USERNAME_DUP_PEER_ID_2}`, {
-          method: 'POST',
-          headers: authHeaders({ 'Content-Type': 'application/json' }),
-          body: JSON.stringify({ id: `shot_userdup_2_${Date.now()}`, text: SHOT_DM_USERNAME_DUP_TEXT })
-        });
-      } catch (error) {
-        console.warn('Could not deliver shot dm-username-dup messages:', error);
-      }
-    }
-    await hydrateServerDirectConversations();
+    await Promise.all([
+      fetchSuggestedUsers(),
+      hydrateServerGroups(),
+      hydrateServerChannels(),
+      (async () => {
+        // Screenshot-state: deliver a real DM before hydrating, so the Messages
+        // list's server-backed preview/timestamp pick it up on first paint --
+        // regression check for a bug where a freshly-hydrated conversation's
+        // preview stayed blank forever.
+        if (SHOT_DC_PREVIEW) {
+          try {
+            await fetch(`/api/messages/direct/${SHOT_DC_PREVIEW_PEER_ID}`, {
+              method: 'POST',
+              headers: authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ id: `shot_dc_${Date.now()}`, text: SHOT_DC_PREVIEW_TEXT })
+            });
+          } catch (error) {
+            console.warn('Could not deliver shot dc-preview message:', error);
+          }
+        }
+        // Screenshot-state: message a fixture peer that already has a pending
+        // request seeded against 'user_self' (see SHOT_DM_NO_DUP_PEER_ID above).
+        // Regression check for getOrCreateDirectConversation's sentinel-matching
+        // bug: it used to compare the fixture's counterpart only against the
+        // alphabetically-later of the two ids, so it missed the existing pending
+        // row whenever the caller's real id sorted after the fixture's, and
+        // created a second, duplicate direct_conversations row underneath it.
+        if (SHOT_DM_NO_DUP) {
+          try {
+            await fetch(`/api/messages/direct/${SHOT_DM_NO_DUP_PEER_ID}`, {
+              method: 'POST',
+              headers: authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ id: `shot_nodup_${Date.now()}`, text: SHOT_DM_NO_DUP_TEXT })
+            });
+          } catch (error) {
+            console.warn('Could not deliver shot dm-no-dup message:', error);
+          }
+        }
+        if (SHOT_DM_RELOAD_LO || SHOT_DM_RELOAD_HI) {
+          const peerId = SHOT_DM_RELOAD_LO ? SHOT_DM_RELOAD_LO_PEER_ID : SHOT_DM_RELOAD_HI_PEER_ID;
+          try {
+            await fetch(`/api/messages/direct/${peerId}`, {
+              method: 'POST',
+              headers: authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ id: `shot_reload_${Date.now()}`, text: SHOT_DM_RELOAD_TEXT })
+            });
+          } catch (error) {
+            console.warn('Could not deliver shot dm-reload message:', error);
+          }
+        }
+        if (SHOT_DM_USERNAME_DUP) {
+          try {
+            await fetch(`/api/messages/direct/${SHOT_DM_USERNAME_DUP_PEER_ID_1}`, {
+              method: 'POST',
+              headers: authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ id: `shot_userdup_1_${Date.now()}`, text: SHOT_DM_USERNAME_DUP_TEXT })
+            });
+            await fetch(`/api/messages/direct/${SHOT_DM_USERNAME_DUP_PEER_ID_2}`, {
+              method: 'POST',
+              headers: authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ id: `shot_userdup_2_${Date.now()}`, text: SHOT_DM_USERNAME_DUP_TEXT })
+            });
+          } catch (error) {
+            console.warn('Could not deliver shot dm-username-dup messages:', error);
+          }
+        }
+        await Promise.all([
+          hydrateServerDirectConversations(),
+          hydrateMessageRequests()
+        ]);
+      })()
+    ]);
     await hydrateConversationUserState();
 
     // Screenshot-state: clear the first real DM's chat via the real Clear Chat
@@ -8607,7 +8623,6 @@ document.addEventListener('DOMContentLoaded', () => {
       if (target) clearDMChat(target.id);
     }
 
-    await hydrateMessageRequests();
     if (SHOT_DM_NO_DUP) {
       // A duplicate direct_conversations row for the same peer would surface
       // as this peer being reachable through BOTH the Messages list (a
