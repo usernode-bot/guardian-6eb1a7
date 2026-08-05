@@ -1978,8 +1978,18 @@ async function seedStagingPrimaryDM(currentUser) {
   const conversationId = 'dm_staging_primary';
   const [a, b] = [currentUser.id, peer.id].sort();
 
+  // Every request from this account re-checks/repoints this fixed-id thread,
+  // so overlapping requests (double-effects, two tabs, back-to-back checks
+  // runs) can race the delete-then-insert below across separate pool
+  // connections. An advisory lock scoped to this conversation id serializes
+  // those calls so a losing racer sees the winner's already-correct row
+  // instead of deleting out from under it or double-inserting.
+  const client = await pool.connect();
   try {
-    const existing = await pool.query(
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [conversationId]);
+
+    const existing = await client.query(
       'SELECT user_id_a, user_id_b FROM direct_conversations WHERE id = $1',
       [conversationId]
     );
@@ -1987,22 +1997,31 @@ async function seedStagingPrimaryDM(currentUser) {
       existing.rows[0].user_id_a === a && existing.rows[0].user_id_b === b;
 
     if (!alreadyCorrect) {
-      await pool.query(
+      await client.query(
         `DELETE FROM messages WHERE conversation_type = 'direct' AND conversation_id IN (
            SELECT id FROM direct_conversations WHERE id = $1 OR (user_id_a = $2 AND user_id_b = $3)
          )`,
         [conversationId, a, b]
       );
-      await pool.query(
+      await client.query(
         'DELETE FROM direct_conversations WHERE id = $1 OR (user_id_a = $2 AND user_id_b = $3)',
         [conversationId, a, b]
       );
-      await pool.query(
+      await client.query(
         'INSERT INTO direct_conversations (id, user_id_a, user_id_b) VALUES ($1, $2, $3)',
         [conversationId, a, b]
       );
     }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Staging primary DM seed error:', err);
+    return;
+  } finally {
+    client.release();
+  }
 
+  try {
     const hasMessages = await pool.query(
       `SELECT 1 FROM messages WHERE conversation_type = 'direct' AND conversation_id = $1 LIMIT 1`,
       [conversationId]
