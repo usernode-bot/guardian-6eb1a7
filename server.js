@@ -692,21 +692,64 @@ app.put('/api/groups/:groupId/members/:memberId/role', async (req, res) => {
   });
 });
 
-// POST /api/groups/:groupId/leave - Leave the group
-app.post('/api/groups/:groupId/leave', (req, res) => {
+// POST /api/groups/:groupId/leave - Leave the group. If the leaving member
+// was the owner, hand ownership to the next admin (or oldest remaining
+// member); if they were the last member, the group is deleted entirely.
+app.post('/api/groups/:groupId/leave', async (req, res) => {
   const { groupId } = req.params;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-  // TODO: Validate user is member
-  // TODO: Check if user is only member (creator case)
-  // TODO: Update database
-  // TODO: Add system message to chat
-  res.json({
-    id: groupId,
-    members: [],
-    memberCount: 0,
-    isLeftByUser: true,
-    message: 'You have left the group'
-  });
+    const groupRes = await client.query('SELECT id FROM groups WHERE id = $1', [groupId]);
+    if (groupRes.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Group not found' });
+    }
+
+    const memberRes = await client.query(
+      'SELECT role FROM group_members WHERE group_id = $1 AND user_id = $2',
+      [groupId, req.user.id]
+    );
+    if (memberRes.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'You are not a member of this group' });
+    }
+    const leavingRole = memberRes.rows[0].role;
+
+    await client.query('DELETE FROM group_members WHERE group_id = $1 AND user_id = $2', [groupId, req.user.id]);
+
+    if (leavingRole === 'owner') {
+      const remaining = await client.query(
+        `SELECT user_id, username FROM group_members WHERE group_id = $1
+          ORDER BY CASE role WHEN 'admin' THEN 0 ELSE 1 END, joined_at ASC LIMIT 1`,
+        [groupId]
+      );
+      if (remaining.rowCount > 0) {
+        const next = remaining.rows[0];
+        await client.query(`UPDATE group_members SET role = 'owner' WHERE group_id = $1 AND user_id = $2`, [groupId, next.user_id]);
+        await client.query(
+          `UPDATE groups SET creator_user_id = $1, creator_username = $2, updated_at = now() WHERE id = $3`,
+          [next.user_id, next.username, groupId]
+        );
+      } else {
+        await client.query('DELETE FROM groups WHERE id = $1', [groupId]);
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      id: groupId,
+      isLeftByUser: true,
+      message: 'You have left the group'
+    });
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    console.error('[groups] leave failed:', err);
+    res.status(500).json({ error: 'Failed to leave group' });
+  } finally {
+    client.release();
+  }
 });
 
 // GET /api/groups/:groupId/join-requests - List pending join requests (owner/admin only)
@@ -878,7 +921,11 @@ app.get('/api/channels', async (req, res) => {
 
     const result = await pool.query(
       `SELECT c.*,
-              (SELECT COUNT(*) FROM channel_followers f WHERE f.channel_id = c.id) AS follower_count
+              (SELECT COUNT(*) FROM channel_followers f WHERE f.channel_id = c.id) AS follower_count,
+              EXISTS (
+                SELECT 1 FROM channel_followers f
+                 WHERE f.channel_id = c.id AND (f.user_id = $1 OR f.user_id = 'user_self')
+              ) AS is_following
          FROM channels c
         WHERE c.creator_user_id = $1
            OR c.creator_user_id = 'user_self'
@@ -890,7 +937,7 @@ app.get('/api/channels', async (req, res) => {
         LIMIT 100`,
       [req.user.id]
     );
-    res.json({ channels: result.rows.map((row) => shapeChannel(row, row.follower_count, true)) });
+    res.json({ channels: result.rows.map((row) => shapeChannel(row, row.follower_count, row.is_following)) });
   } catch (err) {
     console.error('[channels] list failed:', err);
     res.status(500).json({ error: 'Failed to load channels' });
@@ -2063,6 +2110,11 @@ async function seedStagingUsers() {
   const seeds = [
     { id: 'staging-demo-user-4', username: 'staging-demo-citra', pubkey: '0x1f3a9c2e7b5d44680a9f0c1e2d3b4a5968f7e6d5', offset: '5 minutes' },
     { id: 'staging-demo-user-5', username: 'staging-demo-dedi', pubkey: '0x8b2e4f6a1c9d3e5b7a0f2c4e6d8b9a1f3e5c7d09', offset: '2 hours' },
+    // Regression fixture peer for SHOT_PERSIST_REMOVAL -- a real group/channel/DM
+    // the shot creates and then leaves/unfollows/hides, to prove the removal
+    // survives a simulated app restart. Needs a `users` row of its own so the
+    // DM join in GET /api/direct-conversations resolves it.
+    { id: 'staging-demo-user-6', username: 'staging-demo-eko', pubkey: '0x6a8c0e2f4b6d8a0c2e4f6a8b0d1f3597', offset: '4 hours' },
     { id: 'staging-demo-user-7', username: 'staging-demo-fajar', pubkey: '0x4c7d9e1b3a5f60820c4e6a8f0b2d4e6c8a0f2e4d', offset: '3 days' },
     { id: 'staging-demo-user-8', username: 'staging-demo-gita', pubkey: '0x9e1c3a5b7d9f02460a8c0e2f4b6d8a0c2e4f6a8b', offset: '10 days' },
     { id: 'staging-demo-user-9', username: 'staging-demo-hasan', pubkey: '0x2a4c6e8b0d1f35970b9d1f3e5a7c9b1d3f5a7c9e', offset: '30 days' },
