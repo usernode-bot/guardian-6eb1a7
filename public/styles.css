@@ -499,6 +499,31 @@ html, body {
   text-align: right;
 }
 
+.message-timestamp.message-failed {
+  color: #ff3b30;
+  cursor: pointer;
+}
+
+.post-card-time.post-failed {
+  color: #ff3b30;
+  cursor: pointer;
+}
+
+.session-expired-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  background-color: #ff3b30;
+  color: #fff;
+  text-align: center;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .message-swipe-wrapper {
   position: relative;
   display: flex;
@@ -1669,6 +1694,26 @@ html, body {
   display: flex;
   flex-direction: column;
   animation: slideUp 250ms ease-out;
+}
+
+/* Centered variant — used for alert-style popups (e.g. showAlertDialog) so
+   the card appears mid-screen instead of as a bottom sheet. A bottom sheet
+   anchored to the viewport edge can end up hidden behind the on-screen
+   keyboard on mobile when it opens right after the user was typing, since
+   the keyboard covers the bottom of the visual viewport without affecting
+   `position: fixed` layout — centering avoids that dead zone entirely. */
+.dialog-overlay.dialog-overlay-centered {
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.dialog-overlay-centered .dialog {
+  width: 100%;
+  max-width: 400px;
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+  animation: fadeIn 200ms ease-out;
 }
 
 @keyframes slideUp {

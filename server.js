@@ -103,6 +103,7 @@ app.get('/api/state', async (req, res) => {
     } catch (err) {
       console.error('[users] upsert on /api/state failed:', err);
     }
+    await seedStagingOwnedEntities(req.user);
   }
   res.json({ status: 'ok', user: req.user || null });
 });
@@ -156,6 +157,75 @@ app.get('/api/users/search', async (req, res) => {
   } catch (err) {
     console.error('[users] search failed:', err);
     res.status(500).json({ error: 'Failed to search users' });
+  }
+});
+
+const MAX_BIO_LENGTH = 50;
+
+// GET /api/profile - the caller's own profile (bio/avatar are private-ish
+// editable fields, so this always reads the caller's own row, never anyone
+// else's).
+app.get('/api/profile', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, username, usernode_pubkey, bio, avatar_url, avatar_image_id
+         FROM users WHERE id = $1`,
+      [req.user.id]
+    );
+    const row = result.rows[0];
+    res.json({
+      profile: {
+        id: req.user.id,
+        username: (row && row.username) || req.user.username || req.user.id,
+        bio: (row && row.bio) || '',
+        avatarUrl: (row && row.avatar_url) || null,
+        avatarImageId: (row && row.avatar_image_id) || null,
+        walletAddress: (row && row.usernode_pubkey) || req.user.usernode_pubkey || null
+      }
+    });
+  } catch (err) {
+    console.error('[profile] fetch failed:', err);
+    res.status(500).json({ error: 'Failed to load profile' });
+  }
+});
+
+// PUT /api/profile - update the caller's own bio and/or avatar. Only the
+// uploaded file's URL/id are ever persisted here -- avatar bytes go through
+// window.usernode.uploadFile on the client and never pass through this route.
+app.put('/api/profile', async (req, res) => {
+  const { bio, avatarUrl, avatarImageId } = req.body || {};
+
+  if (typeof bio === 'string' && bio.length > MAX_BIO_LENGTH) {
+    return res.status(400).json({ error: `Bio must be ${MAX_BIO_LENGTH} characters or less` });
+  }
+
+  const bioVal = typeof bio === 'string' ? bio : null;
+  const avatarUrlVal = typeof avatarUrl === 'string' ? avatarUrl : null;
+  const avatarImageIdVal = typeof avatarImageId === 'string' ? avatarImageId : null;
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO users (id, username, usernode_pubkey, bio, avatar_url, avatar_image_id)
+       VALUES ($1, $2, $3, COALESCE($4, ''), $5, $6)
+       ON CONFLICT (id) DO UPDATE SET
+         bio = COALESCE($4, users.bio),
+         avatar_url = COALESCE($5, users.avatar_url),
+         avatar_image_id = COALESCE($6, users.avatar_image_id)
+       RETURNING bio, avatar_url, avatar_image_id`,
+      [req.user.id, req.user.username || req.user.id, req.user.usernode_pubkey || null, bioVal, avatarUrlVal, avatarImageIdVal]
+    );
+    const row = result.rows[0];
+    res.json({
+      profile: {
+        id: req.user.id,
+        bio: row.bio || '',
+        avatarUrl: row.avatar_url || null,
+        avatarImageId: row.avatar_image_id || null
+      }
+    });
+  } catch (err) {
+    console.error('[profile] update failed:', err);
+    res.status(500).json({ error: 'Failed to update profile' });
   }
 });
 
@@ -639,48 +709,338 @@ app.post('/api/groups/:groupId/leave', (req, res) => {
   });
 });
 
-// POST /api/groups/:groupId/join-requests - Request to join a private group
-app.post('/api/groups/:groupId/join-requests', (req, res) => {
+// GET /api/groups/:groupId/join-requests - List pending join requests (owner/admin only)
+app.get('/api/groups/:groupId/join-requests', async (req, res) => {
   const { groupId } = req.params;
-
-  // TODO: Validate group exists and is private
-  // TODO: Validate user isn't already a member or already has a pending request
-  // TODO: Update database
-  res.json({
-    id: groupId,
-    message: 'Join request sent'
-  });
+  try {
+    const role = await getGroupRole(groupId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Group not found' });
+    if (role !== 'owner' && role !== 'admin') {
+      return res.status(403).json({ error: 'Only owners and admins can view join requests' });
+    }
+    const result = await pool.query(
+      'SELECT user_id, username, requested_at FROM join_requests WHERE group_id = $1 ORDER BY requested_at',
+      [groupId]
+    );
+    res.json({
+      joinRequests: result.rows.map((r) => ({
+        userId: r.user_id,
+        username: r.username,
+        requestedAt: new Date(r.requested_at).getTime()
+      }))
+    });
+  } catch (err) {
+    console.error('[groups] join requests fetch failed:', err);
+    res.status(500).json({ error: 'Failed to load join requests' });
+  }
 });
 
-// POST /api/groups/:groupId/join-requests/:requestId/approve - Approve a join request
-app.post('/api/groups/:groupId/join-requests/:requestId/approve', (req, res) => {
-  const { groupId, requestId } = req.params;
+// POST /api/groups/:groupId/join-requests - Request to join a private group
+app.post('/api/groups/:groupId/join-requests', async (req, res) => {
+  const { groupId } = req.params;
+  try {
+    const groupRes = await pool.query('SELECT visibility FROM groups WHERE id = $1', [groupId]);
+    if (groupRes.rowCount === 0) return res.status(404).json({ error: 'Group not found' });
+    if (groupRes.rows[0].visibility !== 'private') {
+      return res.status(400).json({ error: 'This group does not require a join request' });
+    }
 
-  // TODO: Validate user is group creator/admin
-  // TODO: Move requester into group_members with role 'member'
-  // TODO: Update database
-  // TODO: Add system message to chat
-  res.json({
-    id: groupId,
-    requestId,
-    message: 'Join request approved'
-  });
+    const role = await memberRole(groupId, req.user.id);
+    if (role) return res.status(400).json({ error: 'You are already a member of this group' });
+
+    await pool.query(
+      `INSERT INTO join_requests (group_id, user_id, username)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (group_id, user_id) DO NOTHING`,
+      [groupId, req.user.id, req.user.username || req.user.id]
+    );
+    res.json({ id: groupId, message: 'Join request sent' });
+  } catch (err) {
+    console.error('[groups] join request failed:', err);
+    res.status(500).json({ error: 'Failed to send join request' });
+  }
+});
+
+// POST /api/groups/:groupId/join-requests/:requestId/approve - Approve a join request.
+// :requestId is the requester's user id (the client has no separate request-id concept).
+app.post('/api/groups/:groupId/join-requests/:requestId/approve', async (req, res) => {
+  const { groupId, requestId: userId } = req.params;
+  try {
+    const role = await getGroupRole(groupId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Group not found' });
+    if (role !== 'owner' && role !== 'admin') {
+      return res.status(403).json({ error: 'Only owners and admins can approve join requests' });
+    }
+
+    const reqRes = await pool.query(
+      'SELECT username FROM join_requests WHERE group_id = $1 AND user_id = $2',
+      [groupId, userId]
+    );
+    if (reqRes.rowCount === 0) return res.status(404).json({ error: 'Join request not found' });
+
+    await pool.query(
+      `INSERT INTO group_members (group_id, user_id, username, role, invited_by_user_id)
+       VALUES ($1, $2, $3, 'member', NULL)
+       ON CONFLICT (group_id, user_id) DO NOTHING`,
+      [groupId, userId, reqRes.rows[0].username]
+    );
+    await pool.query('DELETE FROM join_requests WHERE group_id = $1 AND user_id = $2', [groupId, userId]);
+
+    res.json({ id: groupId, requestId: userId, message: 'Join request approved' });
+  } catch (err) {
+    console.error('[groups] approve join request failed:', err);
+    res.status(500).json({ error: 'Failed to approve join request' });
+  }
 });
 
 // POST /api/groups/:groupId/join-requests/:requestId/deny - Deny a join request
-app.post('/api/groups/:groupId/join-requests/:requestId/deny', (req, res) => {
-  const { groupId, requestId } = req.params;
+app.post('/api/groups/:groupId/join-requests/:requestId/deny', async (req, res) => {
+  const { groupId, requestId: userId } = req.params;
+  try {
+    const role = await getGroupRole(groupId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Group not found' });
+    if (role !== 'owner' && role !== 'admin') {
+      return res.status(403).json({ error: 'Only owners and admins can deny join requests' });
+    }
+    await pool.query('DELETE FROM join_requests WHERE group_id = $1 AND user_id = $2', [groupId, userId]);
+    res.json({ id: groupId, requestId: userId, message: 'Join request denied' });
+  } catch (err) {
+    console.error('[groups] deny join request failed:', err);
+    res.status(500).json({ error: 'Failed to deny join request' });
+  }
+});
 
-  // TODO: Validate user is group creator/admin
-  // TODO: Update database
-  res.json({
-    id: groupId,
-    requestId,
-    message: 'Join request denied'
-  });
+// ---------------------------------------------------------------------------
+// Channel Management API Endpoints
+// ---------------------------------------------------------------------------
+
+const MAX_CHANNEL_NAME_LENGTH = 50;
+const MAX_CHANNEL_DESCRIPTION_LENGTH = 250;
+
+function generateChannelId() {
+  return 'channel_' + Date.now().toString(36) + crypto.randomBytes(4).toString('hex');
+}
+
+// Shape a channel row the way the frontend already consumes channels.
+function shapeChannel(row, followerCount, isFollowing) {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description || '',
+    avatar: row.avatar || defaultAvatar(row.name),
+    creatorId: row.creator_user_id,
+    creatorUsername: row.creator_username,
+    createdAt: new Date(row.created_at).getTime(),
+    followerCount: followerCount !== undefined && followerCount !== null ? Number(followerCount) : 0,
+    isFollowing: !!isFollowing,
+    isNew: row.is_new === undefined ? undefined : !!row.is_new
+  };
+}
+
+async function loadChannelWithFollowerCount(channelId, userId) {
+  const chRes = await pool.query('SELECT * FROM channels WHERE id = $1', [channelId]);
+  if (chRes.rowCount === 0) return null;
+  const countRes = await pool.query('SELECT COUNT(*) FROM channel_followers WHERE channel_id = $1', [channelId]);
+  let isFollowing = false;
+  if (userId) {
+    const followRes = await pool.query(
+      'SELECT 1 FROM channel_followers WHERE channel_id = $1 AND (user_id = $2 OR user_id = $3)',
+      [channelId, userId, 'user_self']
+    );
+    isFollowing = followRes.rowCount > 0;
+  }
+  return shapeChannel(chRes.rows[0], countRes.rows[0].count, isFollowing);
+}
+
+// GET /api/channels?scope=mine|discover - list the caller's followed/owned
+// channels, or channels they don't yet follow (the Discover feed).
+app.get('/api/channels', async (req, res) => {
+  const scope = req.query.scope === 'discover' ? 'discover' : 'mine';
+  try {
+    if (scope === 'discover') {
+      const result = await pool.query(
+        `SELECT c.*,
+                (SELECT COUNT(*) FROM channel_followers f WHERE f.channel_id = c.id) AS follower_count,
+                (c.created_at > now() - interval '7 days') AS is_new
+           FROM channels c
+          WHERE c.creator_user_id != $1
+            AND c.creator_user_id != 'user_self'
+            AND NOT EXISTS (
+              SELECT 1 FROM channel_followers f
+               WHERE f.channel_id = c.id AND f.user_id = $1
+            )
+          ORDER BY c.created_at DESC
+          LIMIT 100`,
+        [req.user.id]
+      );
+      return res.json({ channels: result.rows.map((row) => shapeChannel(row, row.follower_count, false)) });
+    }
+
+    const result = await pool.query(
+      `SELECT c.*,
+              (SELECT COUNT(*) FROM channel_followers f WHERE f.channel_id = c.id) AS follower_count
+         FROM channels c
+        WHERE c.creator_user_id = $1
+           OR c.creator_user_id = 'user_self'
+           OR EXISTS (
+                SELECT 1 FROM channel_followers f
+                 WHERE f.channel_id = c.id AND f.user_id = $1
+              )
+        ORDER BY c.created_at DESC
+        LIMIT 100`,
+      [req.user.id]
+    );
+    res.json({ channels: result.rows.map((row) => shapeChannel(row, row.follower_count, true)) });
+  } catch (err) {
+    console.error('[channels] list failed:', err);
+    res.status(500).json({ error: 'Failed to load channels' });
+  }
+});
+
+// GET /api/channels/:channelId - Fetch channel details (all channels are public).
+app.get('/api/channels/:channelId', async (req, res) => {
+  try {
+    const channel = await loadChannelWithFollowerCount(req.params.channelId, req.user.id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    res.json({ channel });
+  } catch (err) {
+    console.error('[channels] fetch failed:', err);
+    res.status(500).json({ error: 'Failed to load channel' });
+  }
+});
+
+// POST /api/channels - Create a new channel with the creator auto-followed.
+app.post('/api/channels', async (req, res) => {
+  const { name, description, avatar } = req.body || {};
+
+  const trimmedName = typeof name === 'string' ? name.trim() : '';
+  if (!trimmedName) {
+    return res.status(400).json({ error: 'Channel name is required' });
+  }
+  if (trimmedName.length > MAX_CHANNEL_NAME_LENGTH) {
+    return res.status(400).json({ error: 'Channel name must be 50 characters or less' });
+  }
+
+  const trimmedDescription = typeof description === 'string' ? description.trim() : '';
+  if (trimmedDescription.length > MAX_CHANNEL_DESCRIPTION_LENGTH) {
+    return res.status(400).json({ error: 'Description must be 250 characters or less' });
+  }
+
+  const channelId = generateChannelId();
+  const avatarValue = typeof avatar === 'string' && avatar ? avatar : defaultAvatar(trimmedName);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO channels (id, name, description, avatar, creator_user_id, creator_username)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [channelId, trimmedName, trimmedDescription, avatarValue, req.user.id, req.user.username || req.user.id]
+    );
+    await client.query(
+      `INSERT INTO channel_followers (channel_id, user_id)
+       VALUES ($1, $2)
+       ON CONFLICT (channel_id, user_id) DO NOTHING`,
+      [channelId, req.user.id]
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (rollbackErr) { /* already failed */ }
+    console.error('[channels] create failed:', err);
+    client.release();
+    return res.status(500).json({ error: 'Failed to create channel' });
+  }
+  client.release();
+
+  try {
+    const channel = await loadChannelWithFollowerCount(channelId, req.user.id);
+    res.status(201).json({ channel });
+  } catch (err) {
+    console.error('[channels] create readback failed:', err);
+    res.status(500).json({ error: 'Failed to create channel' });
+  }
+});
+
+// POST /api/channels/:channelId/follow - Follow a channel. Idempotent.
+app.post('/api/channels/:channelId/follow', async (req, res) => {
+  const { channelId } = req.params;
+  try {
+    const chRes = await pool.query('SELECT id FROM channels WHERE id = $1', [channelId]);
+    if (chRes.rowCount === 0) return res.status(404).json({ error: 'Channel not found' });
+
+    await pool.query(
+      `INSERT INTO channel_followers (channel_id, user_id)
+       VALUES ($1, $2)
+       ON CONFLICT (channel_id, user_id) DO NOTHING`,
+      [channelId, req.user.id]
+    );
+    const channel = await loadChannelWithFollowerCount(channelId, req.user.id);
+    res.json({ channel });
+  } catch (err) {
+    console.error('[channels] follow failed:', err);
+    res.status(500).json({ error: 'Failed to follow channel' });
+  }
+});
+
+// DELETE /api/channels/:channelId/follow - Unfollow a channel. Idempotent.
+app.delete('/api/channels/:channelId/follow', async (req, res) => {
+  const { channelId } = req.params;
+  try {
+    await pool.query('DELETE FROM channel_followers WHERE channel_id = $1 AND user_id = $2', [channelId, req.user.id]);
+    const channel = await loadChannelWithFollowerCount(channelId, req.user.id);
+    res.json({ channel });
+  } catch (err) {
+    console.error('[channels] unfollow failed:', err);
+    res.status(500).json({ error: 'Failed to unfollow channel' });
+  }
+});
+
+// DELETE /api/channels/:channelId - Delete a channel (owner only)
+app.delete('/api/channels/:channelId', async (req, res) => {
+  const { channelId } = req.params;
+  try {
+    const role = await getChannelRole(channelId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Channel not found' });
+    if (role !== 'owner') {
+      return res.status(403).json({ error: 'Only the channel creator can delete this channel' });
+    }
+    await pool.query('DELETE FROM channels WHERE id = $1', [channelId]);
+    res.json({ id: channelId, message: 'Channel deleted' });
+  } catch (err) {
+    console.error('[channels] delete failed:', err);
+    res.status(500).json({ error: 'Failed to delete channel' });
+  }
 });
 
 // Conversation Management API Endpoints
+
+// GET /api/conversations/state - Bulk read-back of the caller's own view
+// state (pin, manually-marked-unread, hidden-from-inbox) for every
+// conversation they have an override for, keyed by the client-synthesized
+// conversation id. Called once at boot so pin/unread state set via the PUT
+// below survives a reload instead of resetting to the client-side defaults.
+app.get('/api/conversations/state', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+
+  try {
+    const result = await pool.query(
+      `SELECT conversation_id, pinned, manually_marked_unread, hidden_from_inbox
+       FROM conversation_user_state WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const states = {};
+    for (const row of result.rows) {
+      states[row.conversation_id] = {
+        pinned: row.pinned,
+        manuallyMarkedUnread: row.manually_marked_unread,
+        hiddenFromInbox: row.hidden_from_inbox
+      };
+    }
+    res.json({ states });
+  } catch (err) {
+    console.error('[conversations] state fetch failed:', err);
+    res.status(500).json({ error: 'Failed to fetch conversation state' });
+  }
+});
 
 // PUT /api/conversations/:id/state - Update the caller's own view of a
 // conversation: pin, manually-marked-unread, or hidden-from-inbox (the local
@@ -692,23 +1052,25 @@ app.put('/api/conversations/:id/state', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
 
   const { id } = req.params;
-  const { pinned, manuallyMarkedUnread, hiddenFromInbox } = req.body || {};
+  const { pinned, manuallyMarkedUnread, hiddenFromInbox, markRead } = req.body || {};
   const pinnedVal = typeof pinned === 'boolean' ? pinned : null;
   const unreadVal = typeof manuallyMarkedUnread === 'boolean' ? manuallyMarkedUnread : null;
   const hiddenVal = typeof hiddenFromInbox === 'boolean' ? hiddenFromInbox : null;
+  const markReadVal = markRead === true;
 
   try {
     const result = await pool.query(
       `INSERT INTO conversation_user_state
-         (conversation_id, user_id, pinned, manually_marked_unread, hidden_from_inbox)
-       VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false), COALESCE($5, false))
+         (conversation_id, user_id, pinned, manually_marked_unread, hidden_from_inbox, last_read_at)
+       VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false), COALESCE($5, false), now())
        ON CONFLICT (conversation_id, user_id) DO UPDATE SET
          pinned = COALESCE($3, conversation_user_state.pinned),
          manually_marked_unread = COALESCE($4, conversation_user_state.manually_marked_unread),
          hidden_from_inbox = COALESCE($5, conversation_user_state.hidden_from_inbox),
+         last_read_at = CASE WHEN $6 THEN now() ELSE conversation_user_state.last_read_at END,
          updated_at = now()
-       RETURNING pinned, manually_marked_unread, hidden_from_inbox`,
-      [id, req.user.id, pinnedVal, unreadVal, hiddenVal]
+       RETURNING pinned, manually_marked_unread, hidden_from_inbox, last_read_at`,
+      [id, req.user.id, pinnedVal, unreadVal, hiddenVal, markReadVal]
     );
     const row = result.rows[0];
     res.json({
@@ -716,6 +1078,7 @@ app.put('/api/conversations/:id/state', async (req, res) => {
       pinned: row.pinned,
       manuallyMarkedUnread: row.manually_marked_unread,
       hiddenFromInbox: row.hidden_from_inbox,
+      lastReadAt: row.last_read_at ? new Date(row.last_read_at).getTime() : null,
       message: 'Conversation state updated'
     });
   } catch (err) {
@@ -736,19 +1099,55 @@ app.put('/api/conversations/:id/state', async (req, res) => {
 // something both sides agree on.
 async function getOrCreateDirectConversation(userIdA, userIdB, requesterId) {
   const [a, b] = [userIdA, userIdB].sort();
-  // Also match a row where one side is the 'user_self' sentinel and the other
-  // is userIdB -- same OR-match pattern as getGroupRole/getChannelRole below,
-  // applied here so a staging-seeded demo DM (seeded against 'user_self')
-  // resolves to whichever real user is currently logged in, instead of a
-  // second, duplicate conversation being created underneath it.
+  // Match the stored (sorted) pair in either comparison order -- the row was
+  // inserted using the sorted a/b below, but the exact-pair clause here must
+  // still work regardless of which of userIdA/userIdB sorts first. Also match
+  // a row where one side is the 'user_self' sentinel and the other is EITHER
+  // input id (not just the alphabetically-later one) -- same OR-match pattern
+  // as getGroupRole/getChannelRole below, applied here so a staging-seeded
+  // demo DM (seeded against 'user_self') resolves to whichever real user is
+  // currently logged in, instead of a second, duplicate conversation being
+  // created underneath it. (Comparing only against the sorted-later id was
+  // the bug: when a real user's id sorted after the fixture's id, the
+  // sentinel clause silently missed the seeded row and a duplicate got
+  // inserted.)
   const existing = await pool.query(
     `SELECT id, status, requested_by_user_id FROM direct_conversations
       WHERE (user_id_a = $1 AND user_id_b = $2)
-         OR (user_id_a = 'user_self' AND user_id_b = $2)
-         OR (user_id_b = 'user_self' AND user_id_a = $2)`,
-    [a, b]
+         OR (user_id_a = $2 AND user_id_b = $1)
+         OR (user_id_a = 'user_self' AND (user_id_b = $1 OR user_id_b = $2))
+         OR (user_id_b = 'user_self' AND (user_id_a = $1 OR user_id_a = $2))`,
+    [userIdA, userIdB]
   );
   if (existing.rowCount > 0) return existing.rows[0];
+
+  // No row matches either input id exactly. Before creating a brand new one,
+  // check whether EITHER input id already has a conversation with a
+  // DIFFERENT peer id that resolves to the OTHER input id's username --
+  // users.id isn't guaranteed stable across sessions/logins and
+  // users.username has no uniqueness constraint, so a returning contact
+  // (on either side of this pair) can otherwise look like a new peer and a
+  // second row gets created for what the human sees as the same contact.
+  // Checked both ways round since either userIdA or userIdB could be the
+  // "new" id for a returning party. (mergeDuplicateDirectConversationsByUsername
+  // cleans up rows that were already created this way before this check
+  // existed.)
+  const reuse = await pool.query(
+    `SELECT dc.id, dc.status, dc.requested_by_user_id
+       FROM direct_conversations dc
+       JOIN users peer ON peer.id = (CASE WHEN dc.user_id_a = $1 THEN dc.user_id_b ELSE dc.user_id_a END)
+      WHERE (dc.user_id_a = $1 OR dc.user_id_b = $1)
+        AND lower(peer.username) = lower((SELECT username FROM users WHERE id = $2))
+      UNION
+     SELECT dc.id, dc.status, dc.requested_by_user_id
+       FROM direct_conversations dc
+       JOIN users peer ON peer.id = (CASE WHEN dc.user_id_a = $2 THEN dc.user_id_b ELSE dc.user_id_a END)
+      WHERE (dc.user_id_a = $2 OR dc.user_id_b = $2)
+        AND lower(peer.username) = lower((SELECT username FROM users WHERE id = $1))
+      LIMIT 1`,
+    [userIdA, userIdB]
+  );
+  if (reuse.rowCount > 0) return reuse.rows[0];
 
   const id = 'dm_' + crypto.randomBytes(12).toString('hex');
   await pool.query(
@@ -851,7 +1250,9 @@ app.get('/api/direct-conversations', async (req, res) => {
     const result = await pool.query(
       `SELECT dc.id, dc.user_id_a, dc.user_id_b, dc.status, dc.requested_by_user_id,
               u.username AS peer_username, u.usernode_pubkey AS peer_pubkey,
-              lm.text AS last_text, lm.sender_user_id AS last_sender_id, lm.created_at AS last_at
+              lm.text AS last_text, lm.sender_user_id AS last_sender_id, lm.created_at AS last_at,
+              cus.pinned AS pinned, cus.hidden_from_inbox AS hidden_from_inbox,
+              COALESCE(unread.count, 0) AS unread_count
          FROM direct_conversations dc
          JOIN users u ON u.id = (CASE WHEN dc.user_id_a = $1 OR dc.user_id_a = 'user_self' THEN dc.user_id_b ELSE dc.user_id_a END)
          LEFT JOIN LATERAL (
@@ -859,22 +1260,47 @@ app.get('/api/direct-conversations', async (req, res) => {
             WHERE conversation_type = 'direct' AND conversation_id = dc.id
             ORDER BY created_at DESC LIMIT 1
          ) lm ON true
+         LEFT JOIN conversation_user_state cus
+           ON cus.conversation_id = 'conv_' || (CASE WHEN dc.user_id_a = $1 OR dc.user_id_a = 'user_self' THEN dc.user_id_b ELSE dc.user_id_a END)
+          AND cus.user_id = $1
+         LEFT JOIN LATERAL (
+           SELECT count(*)::int AS count FROM messages
+            WHERE conversation_type = 'direct' AND conversation_id = dc.id
+              AND sender_user_id != $1
+              AND cus.last_read_at IS NOT NULL
+              AND created_at > cus.last_read_at
+         ) unread ON true
         WHERE (dc.user_id_a = $1 OR dc.user_id_b = $1 OR dc.user_id_a = 'user_self' OR dc.user_id_b = 'user_self')
           AND (dc.status = 'accepted' OR dc.requested_by_user_id = $1)
         ORDER BY COALESCE(lm.created_at, dc.created_at) DESC`,
       [req.user.id]
     );
-    res.json({
-      conversations: result.rows.map((row) => ({
+    // Two rows can legitimately resolve to the same peer username (see
+    // mergeDuplicateDirectConversationsByUsername) if the migration hasn't
+    // run since the duplicate appeared -- dedupe defensively here too so the
+    // inbox never shows the same contact twice. Rows already arrive ordered
+    // by most-recent activity first, so keeping the first occurrence per
+    // (lowercased) username keeps the most active thread.
+    const seenPeerUsernames = new Set();
+    const conversations = [];
+    for (const row of result.rows) {
+      const usernameKey = (row.peer_username || '').toLowerCase();
+      if (seenPeerUsernames.has(usernameKey)) continue;
+      seenPeerUsernames.add(usernameKey);
+      conversations.push({
         peerId: (row.user_id_a === req.user.id || row.user_id_a === 'user_self') ? row.user_id_b : row.user_id_a,
         peerUsername: row.peer_username,
         peerWalletAddress: row.peer_pubkey || null,
         lastMessage: row.last_text || null,
         lastMessageSenderId: row.last_sender_id || null,
         lastMessageAt: row.last_at ? new Date(row.last_at).getTime() : null,
-        requestStatus: row.status === 'pending' ? 'pending_sent' : 'accepted'
-      }))
-    });
+        requestStatus: row.status === 'pending' ? 'pending_sent' : 'accepted',
+        pinned: row.pinned || false,
+        hiddenFromInbox: row.hidden_from_inbox || false,
+        unreadCount: row.unread_count || 0
+      });
+    }
+    res.json({ conversations });
   } catch (err) {
     console.error('[messages] direct-conversations list failed:', err);
     res.status(500).json({ error: 'Failed to load conversations' });
@@ -975,9 +1401,15 @@ app.post('/api/message-requests/:conversationId/decline', async (req, res) => {
 app.get('/api/messages/direct/:peerId', async (req, res) => {
   try {
     const peerId = req.params.peerId;
+    // The stored row's (user_id_a, user_id_b) is alphabetically sorted (see
+    // getOrCreateDirectConversation), so the exact-pair match has to check
+    // both orderings -- otherwise this silently returns zero rows (and an
+    // empty thread) whenever req.user.id sorts after peerId, even though the
+    // conversation and its messages exist.
     const convRes = await pool.query(
       `SELECT id FROM direct_conversations
         WHERE (user_id_a = $1 AND user_id_b = $2)
+           OR (user_id_a = $2 AND user_id_b = $1)
            OR (user_id_a = 'user_self' AND user_id_b = $2)
            OR (user_id_b = 'user_self' AND user_id_a = $2)`,
       [req.user.id, peerId]
@@ -1112,6 +1544,9 @@ async function initDatabase() {
         last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
     `);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT ''`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_image_id TEXT`);
 
     await pool.query(
       `CREATE INDEX IF NOT EXISTS users_last_seen_idx ON users (last_seen_at DESC)`
@@ -1179,6 +1614,17 @@ async function initDatabase() {
       );
     `);
 
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS join_requests (
+        id BIGSERIAL PRIMARY KEY,
+        group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (group_id, user_id)
+      );
+    `);
+
     // The single message store for all three surfaces (DM/group/channel),
     // discriminated by (conversation_type, conversation_id). This is the
     // table that never existed before -- sent messages only ever lived in
@@ -1217,6 +1663,14 @@ async function initDatabase() {
       );
     `);
 
+    // No row here yet means "never explicitly read" -- GET /api/direct-conversations
+    // treats a missing row as 0 unread (not "everything since forever"), so
+    // existing threads don't retroactively light up unread the moment this
+    // column ships. Only messages that arrive *after* a row exists count.
+    await pool.query(
+      `ALTER TABLE conversation_user_state ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMPTZ`
+    );
+
     await pool.query(
       `CREATE INDEX IF NOT EXISTS conversation_user_state_user_idx
          ON conversation_user_state (user_id)`
@@ -1248,27 +1702,8 @@ async function initDatabase() {
     // to every client regardless of environment).
     await pool.query(`COMMENT ON TABLE channels IS 'staging:private'`);
     await pool.query(`COMMENT ON TABLE channel_followers IS 'staging:private'`);
-
-    // These 4 ids/names/creators mirror the `channels` fixture array baked
-    // into public/app.js (shipped unconditionally, not just in staging), so
-    // this seed runs in every environment to give that same fixture data a
-    // real row to persist messages against. channel_1/channel_3 keep a
-    // creator no real logged-in user ever matches (their composer is never
-    // shown), same as the client already models them.
-    const channelSeeds = [
-      { id: 'channel_1', name: 'Solana Indonesia', creatorId: 'user_4', creatorUsername: 'user_4' },
-      { id: 'channel_2', name: 'Web3 Builders', creatorId: 'user_self', creatorUsername: 'user_self' },
-      { id: 'channel_3', name: 'Design Tips', creatorId: 'user_8', creatorUsername: 'user_8' },
-      { id: 'channel_4', name: 'Builder Notes', creatorId: 'user_self', creatorUsername: 'user_self' }
-    ];
-    for (const seed of channelSeeds) {
-      await pool.query(
-        `INSERT INTO channels (id, name, creator_user_id, creator_username)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (id) DO NOTHING`,
-        [seed.id, seed.name, seed.creatorId, seed.creatorUsername]
-      );
-    }
+    // Private: ties a real user_id to which private group they've asked to join.
+    await pool.query(`COMMENT ON TABLE join_requests IS 'staging:private'`);
 
     console.log('Database initialized');
   } catch (err) {
@@ -1277,7 +1712,83 @@ async function initDatabase() {
     throw err;
   }
 
+  await mergeDuplicateDirectConversationsByUsername();
   await seedStagingData();
+}
+
+// direct_conversations has a UNIQUE (user_id_a, user_id_b) constraint, so two
+// rows can never share the exact same pair of ids -- but a caller can still
+// end up with two rows for what looks like the same contact if that peer's
+// users.id changed across logins (the JWT's `id` claim isn't documented as
+// stable long-term) or two accounts share a username (users.username has no
+// uniqueness constraint). Either way it surfaces as the same contact
+// duplicated in the Messages list. This merges such rows -- created before
+// the reuse check in getOrCreateDirectConversation existed to prevent new
+// ones -- into whichever row has the most message activity, moving messages
+// over rather than dropping them. Sentinel ('user_self') rows are excluded:
+// those are staging fixtures shared across every real user and are handled
+// separately by getOrCreateDirectConversation's sentinel matching.
+async function mergeDuplicateDirectConversationsByUsername() {
+  try {
+    const groups = await pool.query(`
+      WITH endpoints AS (
+        SELECT id AS dc_id, user_id_a AS caller_id, user_id_b AS peer_id FROM direct_conversations
+         WHERE user_id_a != 'user_self' AND user_id_b != 'user_self'
+        UNION ALL
+        SELECT id AS dc_id, user_id_b AS caller_id, user_id_a AS peer_id FROM direct_conversations
+         WHERE user_id_a != 'user_self' AND user_id_b != 'user_self'
+      )
+      SELECT e.caller_id AS caller_id, lower(u.username) AS peer_username_lc,
+             array_agg(DISTINCT e.dc_id) AS dc_ids
+        FROM endpoints e
+        JOIN users u ON u.id = e.peer_id
+       GROUP BY e.caller_id, lower(u.username)
+      HAVING count(DISTINCT e.dc_id) > 1
+    `);
+
+    for (const group of groups.rows) {
+      // Re-check which ids still exist -- an earlier group in this loop may
+      // already have deleted one (a row can appear in two different callers'
+      // duplicate groups at once).
+      const rows = (await pool.query(
+        `SELECT dc.id, dc.user_id_a, dc.user_id_b, dc.created_at,
+                (SELECT count(*) FROM messages WHERE conversation_type = 'direct' AND conversation_id = dc.id) AS message_count,
+                (SELECT max(created_at) FROM messages WHERE conversation_type = 'direct' AND conversation_id = dc.id) AS last_message_at
+           FROM direct_conversations dc WHERE dc.id = ANY($1)`,
+        [group.dc_ids]
+      )).rows;
+      if (rows.length < 2) continue;
+
+      rows.sort((r1, r2) => {
+        if (r1.message_count !== r2.message_count) return r2.message_count - r1.message_count;
+        const t1 = r1.last_message_at ? new Date(r1.last_message_at).getTime() : 0;
+        const t2 = r2.last_message_at ? new Date(r2.last_message_at).getTime() : 0;
+        if (t1 !== t2) return t2 - t1;
+        return new Date(r1.created_at) - new Date(r2.created_at);
+      });
+      const canonical = rows[0];
+      const stale = rows.slice(1);
+
+      for (const row of stale) {
+        await pool.query(
+          `UPDATE messages SET conversation_id = $1 WHERE conversation_type = 'direct' AND conversation_id = $2`,
+          [canonical.id, row.id]
+        );
+        const stalePeerId = row.user_id_a === group.caller_id ? row.user_id_b : row.user_id_a;
+        await pool.query(
+          `DELETE FROM conversation_user_state WHERE conversation_id = $1 AND user_id = $2`,
+          ['conv_' + stalePeerId, group.caller_id]
+        );
+        await pool.query(`DELETE FROM direct_conversations WHERE id = $1`, [row.id]);
+      }
+      console.log(
+        `[migration] merged ${stale.length} duplicate direct_conversations row(s) for caller ${group.caller_id} ` +
+        `(peer username "${group.peer_username_lc}") into ${canonical.id}`
+      );
+    }
+  } catch (err) {
+    console.error('[migration] mergeDuplicateDirectConversationsByUsername failed:', err);
+  }
 }
 
 // Staging seed. Both group tables are staging:private (schema-only copy), so
@@ -1347,8 +1858,198 @@ async function seedStagingData() {
     console.error('Staging seed error:', err);
   }
 
+  const channelSeeds = [
+    {
+      id: 'channel_staging_1',
+      name: 'Staging Demo Announcements',
+      description: 'Staging demo channel — public announcements feed.',
+      avatar: 'SA',
+      owner: { id: 'staging-demo-user-1', username: 'staging-demo-owner' },
+      followers: [
+        { id: 'staging-demo-user-2', username: 'staging-demo-ana' },
+        { id: 'staging-demo-user-3', username: 'staging-demo-budi' }
+      ]
+    },
+    {
+      id: 'channel_staging_2',
+      name: 'Staging Demo Builders',
+      description: 'Staging demo channel — a second channel for the Discover list.',
+      avatar: 'SB',
+      owner: { id: 'staging-demo-user-4', username: 'staging-demo-citra' },
+      followers: [{ id: 'staging-demo-user-2', username: 'staging-demo-ana' }]
+    }
+  ];
+
+  try {
+    for (const seed of channelSeeds) {
+      await pool.query(
+        `INSERT INTO channels (id, name, description, avatar, creator_user_id, creator_username)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (id) DO NOTHING`,
+        [seed.id, seed.name, seed.description, seed.avatar, seed.owner.id, seed.owner.username]
+      );
+      await pool.query(
+        `INSERT INTO channel_followers (channel_id, user_id) VALUES ($1, $2)
+         ON CONFLICT (channel_id, user_id) DO NOTHING`,
+        [seed.id, seed.owner.id]
+      );
+      for (const follower of seed.followers) {
+        await pool.query(
+          `INSERT INTO channel_followers (channel_id, user_id) VALUES ($1, $2)
+           ON CONFLICT (channel_id, user_id) DO NOTHING`,
+          [seed.id, follower.id]
+        );
+      }
+    }
+    console.log('Staging demo channels seeded');
+  } catch (err) {
+    console.error('Staging channel seed error:', err);
+  }
+
+  // A pending join request against the private staging group, from a
+  // staging-demo user who isn't already a member -- gives the Join Requests
+  // page something real to approve/deny in staging.
+  try {
+    await pool.query(
+      `INSERT INTO join_requests (group_id, user_id, username)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (group_id, user_id) DO NOTHING`,
+      ['group_staging_private_1', 'staging-demo-user-3', 'staging-demo-budi']
+    );
+    console.log('Staging demo join request seeded');
+  } catch (err) {
+    console.error('Staging join request seed error:', err);
+  }
+
+  // Real, persisted thread history for the staging groups/channels above --
+  // idempotent via insertMessage's fixed ids, so this is safe to re-run.
+  try {
+    const owner = { id: 'staging-demo-user-1', username: 'staging-demo-owner' };
+    const ana = { id: 'staging-demo-user-2', username: 'staging-demo-ana' };
+    const budi = { id: 'staging-demo-user-3', username: 'staging-demo-budi' };
+    const citra = { id: 'staging-demo-user-4', username: 'staging-demo-citra' };
+
+    await insertMessage('group', 'group_staging_public_1', owner, { id: 'msg_staging_gp1_1', text: 'Welcome to the staging demo public group!' });
+    await insertMessage('group', 'group_staging_public_1', ana, { id: 'msg_staging_gp1_2', text: 'Glad to be here 👋' });
+    await insertMessage('group', 'group_staging_public_1', budi, {
+      id: 'msg_staging_gp1_3', text: 'Staging demo photo',
+      imageUrl: 'https://picsum.photos/seed/staging-demo-group/400/300', imageId: 'staging-demo-image-group'
+    });
+
+    await insertMessage('group', 'group_staging_public_2', ana, { id: 'msg_staging_gp2_1', text: 'This is the second staging demo group.' });
+    await insertMessage('group', 'group_staging_public_2', budi, { id: 'msg_staging_gp2_2', text: 'Nice, another one to try Discover with.' });
+
+    await insertMessage('group', 'group_staging_private_1', owner, { id: 'msg_staging_gpr1_1', text: 'This is the private staging demo group.' });
+    await insertMessage('group', 'group_staging_private_1', ana, { id: 'msg_staging_gpr1_2', text: 'Thanks for the invite!' });
+
+    await insertMessage('channel', 'channel_staging_1', owner, { id: 'msg_staging_ch1_1', text: 'Welcome to the staging demo announcements channel.' });
+    await insertMessage('channel', 'channel_staging_1', owner, {
+      id: 'msg_staging_ch1_2', text: 'Staging demo photo',
+      imageUrl: 'https://picsum.photos/seed/staging-demo-channel/400/300', imageId: 'staging-demo-image-channel'
+    });
+    await insertMessage('channel', 'channel_staging_2', citra, { id: 'msg_staging_ch2_1', text: 'First staging demo builder update.' });
+
+    console.log('Staging demo message history seeded');
+  } catch (err) {
+    console.error('Staging message seed error:', err);
+  }
+
   await seedStagingUsers();
   await seedStagingDirectConversations();
+}
+
+// Staging-only, idempotent seed that gives whoever is CURRENTLY testing in
+// staging one group and one channel they actually own. Every other seed above
+// is fixed to the staging-demo-* accounts, which the real, currently
+// authenticated test user never is — so owner-only UI (managed-groups list,
+// admin toggle, Add Admins, Edit/Delete Post) would otherwise have nothing
+// real to exercise. Uses fixed ids and re-points ownership to the caller on
+// every call, since dapp.json paths are static strings and can't reference a
+// per-user id — this is a single-tester fixture, not a multi-user table.
+async function seedStagingOwnedEntities(currentUser) {
+  if (!IS_STAGING || !currentUser) return;
+  const me = { id: currentUser.id, username: currentUser.username || currentUser.id };
+  const helper = { id: 'staging-demo-user-2', username: 'staging-demo-ana' };
+  const groupId = 'group_staging_owned_1';
+  const channelId = 'channel_staging_owned_1';
+
+  try {
+    await pool.query(
+      `INSERT INTO groups (id, name, description, avatar, visibility, creator_user_id, creator_username)
+       VALUES ($1, 'Staging Demo Owned Group', 'Staging demo group — owned by whoever is currently testing, for owner-only UI checks.', 'SO', 'public', $2, $3)
+       ON CONFLICT (id) DO UPDATE SET creator_user_id = EXCLUDED.creator_user_id, creator_username = EXCLUDED.creator_username`,
+      [groupId, me.id, me.username]
+    );
+    await pool.query(
+      `INSERT INTO group_members (group_id, user_id, username, role, invited_by_user_id)
+       VALUES ($1, $2, $3, 'owner', NULL)
+       ON CONFLICT (group_id, user_id) DO UPDATE SET role = 'owner', username = EXCLUDED.username`,
+      [groupId, me.id, me.username]
+    );
+    await pool.query(
+      `INSERT INTO group_members (group_id, user_id, username, role, invited_by_user_id)
+       VALUES ($1, $2, $3, 'member', $4)
+       ON CONFLICT (group_id, user_id) DO NOTHING`,
+      [groupId, helper.id, helper.username, me.id]
+    );
+    const groupHasMessages = await pool.query(
+      `SELECT 1 FROM messages WHERE conversation_type = 'group' AND conversation_id = $1 LIMIT 1`,
+      [groupId]
+    );
+    if (groupHasMessages.rowCount === 0) {
+      await insertMessage('group', groupId, me, { id: `msg_${groupId}_1`, text: 'This group is owned by you, for testing owner-only actions.' });
+      await insertMessage('group', groupId, helper, {
+        id: `msg_${groupId}_2`, text: 'Staging demo photo',
+        imageUrl: 'https://picsum.photos/seed/staging-demo-owned-group/400/300', imageId: 'staging-demo-image-owned-group'
+      });
+    }
+
+    await pool.query(
+      `INSERT INTO channels (id, name, description, avatar, creator_user_id, creator_username)
+       VALUES ($1, 'Staging Demo Owned Channel', 'Staging demo channel — owned by whoever is currently testing, for owner-only UI checks.', 'SC', $2, $3)
+       ON CONFLICT (id) DO UPDATE SET creator_user_id = EXCLUDED.creator_user_id, creator_username = EXCLUDED.creator_username`,
+      [channelId, me.id, me.username]
+    );
+    await pool.query(
+      `INSERT INTO channel_followers (channel_id, user_id) VALUES ($1, $2)
+       ON CONFLICT (channel_id, user_id) DO NOTHING`,
+      [channelId, me.id]
+    );
+    await pool.query(
+      `INSERT INTO channel_followers (channel_id, user_id) VALUES ($1, $2)
+       ON CONFLICT (channel_id, user_id) DO NOTHING`,
+      [channelId, helper.id]
+    );
+    const channelHasMessages = await pool.query(
+      `SELECT 1 FROM messages WHERE conversation_type = 'channel' AND conversation_id = $1 LIMIT 1`,
+      [channelId]
+    );
+    if (channelHasMessages.rowCount === 0) {
+      await insertMessage('channel', channelId, me, { id: `msg_${channelId}_1`, text: 'This channel is owned by you, for testing owner-only actions.' });
+    }
+
+    // Pin/unread state is per-user real data (conversation_user_state), keyed
+    // by the CLIENT-synthesized conversation id and the real caller's own id
+    // -- so unlike the fixed group/channel ids above, this needs no
+    // re-pointing: user_id already IS whoever is currently testing. Both flags
+    // are set on the same owned-group conversation row -- ON CONFLICT DO
+    // UPDATE only touches the named column, so the two inserts don't clobber
+    // each other regardless of order.
+    await pool.query(
+      `INSERT INTO conversation_user_state (conversation_id, user_id, pinned)
+       VALUES ($1, $2, true)
+       ON CONFLICT (conversation_id, user_id) DO UPDATE SET pinned = true`,
+      [`conv_${groupId}`, me.id]
+    );
+    await pool.query(
+      `INSERT INTO conversation_user_state (conversation_id, user_id, manually_marked_unread)
+       VALUES ($1, $2, true)
+       ON CONFLICT (conversation_id, user_id) DO UPDATE SET manually_marked_unread = true`,
+      [`conv_${groupId}`, me.id]
+    );
+  } catch (err) {
+    console.error('Staging owned entities seed error:', err);
+  }
 }
 
 // Staging seed for the `users` directory table. `users` is public (full copy
@@ -1362,10 +2063,22 @@ async function seedStagingUsers() {
   const seeds = [
     { id: 'staging-demo-user-4', username: 'staging-demo-citra', pubkey: '0x1f3a9c2e7b5d44680a9f0c1e2d3b4a5968f7e6d5', offset: '5 minutes' },
     { id: 'staging-demo-user-5', username: 'staging-demo-dedi', pubkey: '0x8b2e4f6a1c9d3e5b7a0f2c4e6d8b9a1f3e5c7d09', offset: '2 hours' },
-    { id: 'staging-demo-user-6', username: 'staging-demo-eka', pubkey: null, offset: '1 day' },
     { id: 'staging-demo-user-7', username: 'staging-demo-fajar', pubkey: '0x4c7d9e1b3a5f60820c4e6a8f0b2d4e6c8a0f2e4d', offset: '3 days' },
     { id: 'staging-demo-user-8', username: 'staging-demo-gita', pubkey: '0x9e1c3a5b7d9f02460a8c0e2f4b6d8a0c2e4f6a8b', offset: '10 days' },
-    { id: 'staging-demo-user-9', username: 'staging-demo-hasan', pubkey: '0x2a4c6e8b0d1f35970b9d1f3e5a7c9b1d3f5a7c9e', offset: '30 days' }
+    { id: 'staging-demo-user-9', username: 'staging-demo-hasan', pubkey: '0x2a4c6e8b0d1f35970b9d1f3e5a7c9b1d3f5a7c9e', offset: '30 days' },
+    // Ids deliberately picked to sort below/above any realistic real user id
+    // (wallet-style hex, uuid, numeric) -- regression fixtures for the DM
+    // history reload bug, which only reproduced when the caller's id sorted
+    // on a particular side of the peer's id. See SHOT_DM_RELOAD_LO/HI.
+    { id: '0000-reload-order-lo', username: 'staging-demo-zero', pubkey: null, offset: '15 days' },
+    { id: 'zzzz-reload-order-hi', username: 'staging-demo-zulu', pubkey: null, offset: '16 days' },
+    // Two DIFFERENT ids sharing the SAME username -- regression fixture for
+    // the "same contact shows up twice" bug: users.id isn't guaranteed
+    // stable across sessions and users.username has no uniqueness
+    // constraint, so a returning contact can look like a brand new peer.
+    // See SHOT_DM_USERNAME_DUP.
+    { id: 'staging-demo-user-10', username: 'staging-demo-dup-name', pubkey: null, offset: '20 days' },
+    { id: 'staging-demo-user-11', username: 'staging-demo-dup-name', pubkey: null, offset: '1 minute' }
   ];
 
   try {
@@ -1422,21 +2135,45 @@ async function seedStagingDirectConversations() {
                'Let me know if you want to grab a call sometime.', now() - '23 hours'::interval)
        ON CONFLICT (id) DO NOTHING`
     );
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+       VALUES ('msg_staging_accepted_3', 'direct', 'dm_staging_accepted_1', 'staging-demo-user-5', 'staging-demo-dedi',
+               'Here''s the doc I mentioned: https://example.com/staging-demo-doc', now() - '22 hours'::interval)
+       ON CONFLICT (id) DO NOTHING`
+    );
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, image_url, image_id, created_at)
+       VALUES ('msg_staging_accepted_4', 'direct', 'dm_staging_accepted_1', 'staging-demo-user-5', 'staging-demo-dedi',
+               'Staging demo photo', 'https://picsum.photos/seed/staging-demo-accepted-dm/400/300', 'staging-demo-image-accepted-dm',
+               now() - '21 hours'::interval)
+       ON CONFLICT (id) DO NOTHING`
+    );
     console.log('Staging demo direct conversations seeded');
   } catch (err) {
     console.error('Staging direct conversation seed error:', err);
   }
 }
 
-// Start server
-const server = app.listen(PORT, async () => {
-  console.log(`Server listening on port ${PORT}`);
+// Start server. initDatabase() (schema + staging seeds) must finish BEFORE
+// the socket starts accepting connections -- app.listen()'s own callback
+// firing after bind is too late, since Express can already be routing
+// requests to handlers (including GET /api/state's staging seed calls)
+// while that callback's async body is still running. On a genuinely cold
+// container, the checks harness's very first request could land mid-init:
+// tables not yet created, or a staging seed row not yet inserted, silently
+// breaking a lookup like the INNER JOIN in GET /api/direct-conversations
+// and making a seeded row invisible even though it's fine moments later.
+let server;
+(async () => {
   try {
     await initDatabase();
   } catch (err) {
     console.error('Database schema unavailable — group endpoints will fail.');
   }
-});
+  server = app.listen(PORT, () => {
+    console.log(`Server listening on port ${PORT}`);
+  });
+})();
 
 // Graceful shutdown: the platform SIGTERMs the container on every deploy and
 // gives it a few seconds before SIGKILL.
@@ -1446,9 +2183,9 @@ async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[shutdown] ${signal} received, draining`);
-  server.close(() => {});
-  server.closeIdleConnections?.();
-  const t = setTimeout(() => server.closeAllConnections?.(), DRAIN_MS);
+  server?.close(() => {});
+  server?.closeIdleConnections?.();
+  const t = setTimeout(() => server?.closeAllConnections?.(), DRAIN_MS);
   t.unref?.();
   try {
     await pool.end();

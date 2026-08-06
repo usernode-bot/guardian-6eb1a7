@@ -26,15 +26,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Screenshot-state deep links. Each boots a long, deterministic thread so
   // interaction-gated UI is reachable from a plain URL. Pure UI state — nothing
-  // is persisted, and none of it is gated on the environment.
+  // is persisted, and none of it is gated on the environment. Whichever real/
+  // staging-seeded conversation, group or channel the path opens is padded/
+  // mutated client-side only, so these work against any real thread, not a
+  // specific hardcoded id.
   //
-  //   ?shot=scroll-fab        thread parked at the TOP    → FAB must be on screen
-  //   ?shot=scroll-fab-bottom thread parked at the BOTTOM → FAB must be hidden
+  //   ?shot=scroll-fab        thread padded + parked at the TOP    → FAB must be on screen
+  //   ?shot=scroll-fab-bottom thread padded + parked at the BOTTOM → FAB must be hidden
   //   ?shot=send-stay         sends one message on load   → thread must survive
   //   ?shot=channel-send-stay publishes one post on load (owned channel only) → post must render
-  //   ?shot=message-deleted   forces group_1's seeded deleted messages         → placeholder must render
+  //   ?shot=message-deleted   marks the open group's last message deleted    → placeholder must render
   //   ?shot=dm-menu           clicks the DM header's ⋮ button on load          → options menu must render
-  //   ?shot=dm-cleared        clears conv_1's chat via the real Clear Chat fn  → list preview must read "No messages yet"
+  //   ?shot=dm-cleared        clears the first real DM's chat via the real Clear Chat fn → list preview must read "No messages yet"
   //   ?shot=post-reactions    long-presses the first post card                  → reaction picker must render
   //   ?shot=forward-sheet     ⋯ menu → Forward on the first post              → target rows + enabled Send must render
   //   ?shot=post-menu         opens the first post's ⋯ menu                    → Forward / Copy text (+ owner items) must render
@@ -45,6 +48,13 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=search-users             runs a real /api/users/search query        → matching staging-demo user must render
   //   ?shot=requests-tab             opens Messages straight into the Requests tab → seeded pending request must render
   //   ?shot=dc-preview                sends a real DM to a staging peer on load  → Messages list preview must show its text, not be blank
+  //   ?shot=channel-admin            seeds one client-only admin on the open owned channel → Channel Info must list them
+  //   ?shot=dm-no-dup                 messages a fixture peer with an existing pending request → total Messages+Requests references to that peer must stay at 1, not 2
+  //   ?shot=dm-reload-lo              sends a DM to a peer id sorting below any real id  → history must survive a plain reload
+  //   ?shot=dm-reload-hi              sends a DM to a peer id sorting above any real id  → history must survive a plain reload
+  //   ?shot=dm-username-dup           messages two different peer ids sharing one username → Messages list must show that username only once
+  //   ?shot=channel-send-fail         publishes one post that deterministically fails (owned channel only) → "Failed to send" + retry must render
+  //   ?shot=session-expired           simulates a 401 on load                                  → session-expired banner must render, polling halted
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -72,14 +82,46 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_SEARCH_USERS = SHOT === 'search-users';
   const SHOT_REQUESTS_TAB = SHOT === 'requests-tab';
   const SHOT_DC_PREVIEW = SHOT === 'dc-preview';
+  const SHOT_CHANNEL_ADMIN = SHOT === 'channel-admin';
+  const SHOT_SEND_FAIL = SHOT === 'send-fail';
+  const SHOT_CHANNEL_SEND_FAIL = SHOT === 'channel-send-fail';
+  const SHOT_SESSION_EXPIRED = SHOT === 'session-expired';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
   const SHOT_CREATE_GROUP_NAME = 'Staging demo one-invite group';
   const SHOT_SEARCH_QUERY = 'citra';
   // Any staging-seeded user works as the DM peer here -- seedStagingUsers()
   // always creates this one regardless of which account the test itself runs as.
-  const SHOT_DC_PREVIEW_PEER_ID = 'staging-demo-user-6';
+  const SHOT_DC_PREVIEW_PEER_ID = 'staging-demo-user-7';
   const SHOT_DC_PREVIEW_TEXT = 'Shot dc preview check';
+  const SHOT_DM_NO_DUP = SHOT === 'dm-no-dup';
+  // staging-demo-user-4 already has a pending request seeded TO 'user_self'
+  // (dm_staging_pending_1) -- regression check for getOrCreateDirectConversation
+  // creating a second, duplicate direct_conversations row instead of reusing
+  // that one when the caller messages the same peer first.
+  const SHOT_DM_NO_DUP_PEER_ID = 'staging-demo-user-4';
+  const SHOT_DM_NO_DUP_TEXT = 'Shot no-dup check';
+  // Regression check for GET /api/messages/direct/:peerId's history query only
+  // matching one alphabetical ordering of (caller id, peer id) -- the stored
+  // direct_conversations row is always sorted, so the peer id here is picked
+  // to sit at an extreme end of sort order (below/above any realistic real
+  // user id), guaranteeing the pair lands on whichever ordering direction the
+  // old unsorted query missed, regardless of what the real caller's id is.
+  const SHOT_DM_RELOAD_LO = SHOT === 'dm-reload-lo';
+  const SHOT_DM_RELOAD_HI = SHOT === 'dm-reload-hi';
+  const SHOT_DM_RELOAD_LO_PEER_ID = '0000-reload-order-lo';
+  const SHOT_DM_RELOAD_HI_PEER_ID = 'zzzz-reload-order-hi';
+  const SHOT_DM_RELOAD_TEXT = 'Shot reload order check';
+  // Regression check for the "same contact appears twice" bug: messages TWO
+  // DIFFERENT staging fixture ids that share the same username, one after
+  // the other. getOrCreateDirectConversation's username-based reuse check
+  // should fold the second message into the conversation the first one
+  // created, so the Messages list only ever shows ONE row for this username.
+  const SHOT_DM_USERNAME_DUP = SHOT === 'dm-username-dup';
+  const SHOT_DM_USERNAME_DUP_PEER_ID_1 = 'staging-demo-user-10';
+  const SHOT_DM_USERNAME_DUP_PEER_ID_2 = 'staging-demo-user-11';
+  const SHOT_DM_USERNAME_DUP_USERNAME = 'staging-demo-dup-name';
+  const SHOT_DM_USERNAME_DUP_TEXT = 'Shot username dup check';
 
   // The signed-in Usernode user, hydrated from /api/state at boot. Server rows
   // for this id are mapped onto the app's long-standing 'user_self' sentinel so
@@ -104,6 +146,46 @@ document.addEventListener('DOMContentLoaded', () => {
     const token = localStorage.getItem('usernode-token');
     if (token) headers['x-usernode-token'] = token;
     return headers;
+  }
+
+  // Once the token's rejected server-side there's nothing more polling/hydrating
+  // can do -- every subsequent request would just 401 again -- so this latches
+  // permanently for the rest of the tab's lifetime rather than re-checking.
+  let sessionExpired = false;
+
+  function showSessionExpiredBanner() {
+    if (document.querySelector('.session-expired-banner')) return;
+    const banner = document.createElement('div');
+    banner.className = 'session-expired-banner';
+    banner.textContent = 'Your session expired — tap to reload';
+    banner.addEventListener('click', () => window.location.reload());
+    document.body.appendChild(banner);
+  }
+
+  // Halts both polling loops so no further request can retrigger this, then
+  // surfaces the banner. stopThreadPolling/stopMessagesListPolling are declared
+  // later in this same scope but hoisted, so calling them from here is safe.
+  function handleSessionExpired() {
+    if (sessionExpired) return;
+    sessionExpired = true;
+    stopThreadPolling();
+    stopMessagesListPolling();
+    showSessionExpiredBanner();
+  }
+
+  // Drop-in replacement for fetch() used by every hydrate/deliver call site --
+  // detects an expired/invalid token (401) in one place instead of each caller
+  // separately checking for it, since none of them currently do.
+  async function authFetch(url, options) {
+    // Screenshot-state: force the banner deterministically instead of actually
+    // invalidating the token, so dapp.json can assert it renders on demand.
+    if (SHOT_SESSION_EXPIRED) {
+      handleSessionExpired();
+      return new Response(null, { status: 401 });
+    }
+    const response = await fetch(url, options);
+    if (response.status === 401) handleSessionExpired();
+    return response;
   }
 
   // Helper copy shown under the Create Group privacy toggle.
@@ -131,113 +213,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const bottomNav = document.getElementById('bottom-nav');
   const navTabs = document.querySelectorAll('.nav-tab');
 
-  // Dummy conversations data with messages
-  let conversations = [
-    {
-      id: 'conv_1',
-      type: 'direct',
-      username: 'Alice Chen',
-      avatar: 'AC',
-      lastMessage: '📷 Staging demo photo',
-      timestamp: Date.now() - 1 * 60 * 1000, // 1 minute ago
-      unreadCount: 2,
-      onlineStatus: true,
-      archived: false,
-      pinned: true,
-      mutedByUsers: {},
-      messages: [
-        { id: 'msg_1', text: "Hey! How's it going?", timestamp: Date.now() - 5*60*1000, isOutgoing: false },
-        { id: 'msg_2', text: "Great! Just finished work", timestamp: Date.now() - 4.5*60*1000, isOutgoing: true },
-        { id: 'msg_3', text: "Nice! Want to grab dinner?", timestamp: Date.now() - 4*60*1000, isOutgoing: false },
-        { id: 'msg_4', text: "Sure! When?", timestamp: Date.now() - 3.5*60*1000, isOutgoing: true },
-        { id: 'msg_5', text: "How about 7pm?", timestamp: Date.now() - 3*60*1000, isOutgoing: false },
-        { id: 'msg_6', text: "That sounds great! Let's meet up soon.", timestamp: Date.now() - 2*60*1000, isOutgoing: true, replyTo: { messageId: 'msg_5', senderName: 'Alice Chen', previewText: 'How about 7pm?' } },
-        { id: 'msg_demo_image', text: 'Staging demo photo', imageUrl: DEMO_IMAGE_BLUE, timestamp: Date.now() - 1*60*1000, isOutgoing: false }
-      ]
-    },
-    {
-      id: 'conv_2',
-      type: 'direct',
-      username: 'Bob Wilson',
-      avatar: 'BW',
-      lastMessage: '↗ Mainnet Beta is Live 🚀',
-      timestamp: Date.now() - 30 * 60 * 1000, // 30 minutes ago
-      unreadCount: 0,
-      onlineStatus: false,
-      archived: false,
-      pinned: false,
-      mutedByUsers: {},
-      messages: [
-        { id: 'msg_1', text: "Check out the new features", timestamp: Date.now() - 2*60*60*1000, isOutgoing: false },
-        { id: 'msg_2', text: "Looking good!", timestamp: Date.now() - 1.5*60*60*1000, isOutgoing: true },
-        { id: 'msg_link_demo', text: "Docs are here: https://guardian.example.com/docs — check it out!", timestamp: Date.now() - 1.25*60*60*1000, isOutgoing: false },
-        { id: 'msg_3', text: "Did you see the latest updates?", timestamp: Date.now() - 60*60*1000, isOutgoing: false },
-        {
-          id: 'msg_4',
-          text: 'Mainnet Beta is Live 🚀\n\nExciting times ahead as we launch the next phase of development!',
-          timestamp: Date.now() - 30*60*1000,
-          isOutgoing: true,
-          forwardedFrom: { channelId: 'channel_1', channelName: 'Solana Indonesia', channelAvatar: 'SI', postId: 'post_1' }
-        }
-      ]
-    },
-    {
-      id: 'conv_3',
-      type: 'direct',
-      username: 'Carol Davis',
-      avatar: 'CD',
-      lastMessage: 'Thanks for the help yesterday!',
-      timestamp: Date.now() - 24 * 60 * 60 * 1000, // 1 day ago (yesterday)
-      unreadCount: 1,
-      onlineStatus: true,
-      archived: false,
-      pinned: false,
-      mutedByUsers: {},
-      messages: [
-        { id: 'msg_1', text: "I need some help with a project", timestamp: Date.now() - 26*60*60*1000, isOutgoing: false },
-        { id: 'msg_2', text: "Happy to help! What do you need?", timestamp: Date.now() - 25.5*60*60*1000, isOutgoing: true },
-        { id: 'msg_3', text: "Can you review this code?", timestamp: Date.now() - 25*60*60*1000, isOutgoing: false },
-        { id: 'msg_4', text: "Of course, sending notes now", timestamp: Date.now() - 24.5*60*60*1000, isOutgoing: true },
-        { id: 'msg_5', text: "Thanks for the help yesterday!", timestamp: Date.now() - 24*60*60*1000, isOutgoing: false }
-      ]
-    },
-    {
-      id: 'conv_4',
-      type: 'direct',
-      username: 'David Lee',
-      avatar: 'DL',
-      lastMessage: 'Looking forward to the event next week',
-      timestamp: Date.now() - 2 * 24 * 60 * 60 * 1000, // 2 days ago
-      unreadCount: 0,
-      onlineStatus: false,
-      archived: false,
-      pinned: false,
-      manuallyMarkedUnread: true, // Staging demo — proves the unread dot renders independent of unreadCount
-      mutedByUsers: {},
-      messages: [
-        { id: 'msg_1', text: "See you at the event!", timestamp: Date.now() - 3*24*60*60*1000, isOutgoing: false },
-        { id: 'msg_2', text: "Definitely! Can't wait", timestamp: Date.now() - 2.5*24*60*60*1000, isOutgoing: true },
-        { id: 'msg_3', text: "Looking forward to the event next week", timestamp: Date.now() - 2*24*60*60*1000, isOutgoing: false }
-      ]
-    },
-    {
-      id: 'conv_staging_hidden_1',
-      type: 'direct',
-      username: 'Staging Demo Hidden User',
-      avatar: 'SH',
-      lastMessage: 'Staging demo — deleted from inbox, proves the hidden-from-inbox filter',
-      timestamp: Date.now() - 3 * 24 * 60 * 60 * 1000,
-      unreadCount: 0,
-      onlineStatus: false,
-      archived: false,
-      pinned: false,
-      hiddenFromInbox: true,
-      mutedByUsers: {},
-      messages: [
-        { id: 'msg_1', text: 'Staging demo message', timestamp: Date.now() - 3*24*60*60*1000, isOutgoing: false }
-      ]
-    }
-  ];
+  // Conversations are hydrated from the server (see hydrateServerGroups,
+  // hydrateServerChannels, hydrateServerDirectConversations) instead of being
+  // seeded here -- this app now shows only real users' real conversations.
+  let conversations = [];
 
   // Suggested users, hydrated from the real `users` directory on the server
   // (GET /api/users/suggested) instead of these fixtures. Populated by
@@ -328,259 +307,31 @@ document.addEventListener('DOMContentLoaded', () => {
     window.location.hash = `/conversation/${convId}`;
   }
 
-  // Dummy groups data with messages
-  let groups = [
-    {
-      id: 'group_1',
-      name: 'Seeker Club',
-      avatar: 'SC',
-      description: 'A community of seekers and explorers',
-      memberCount: 128,
-      visibility: 'public',
-      creatorId: 'user_self',
-      members: [
-        { id: 'user_self', username: 'You', role: 'owner' },
-        { id: 'user_alice', username: 'Alice', role: 'admin' },
-        { id: 'user_bob', username: 'Bob', role: 'member' },
-        { id: 'user_charlie', username: 'Charlie', role: 'member' }
-      ],
-      joinRequests: [],
-      messages: [
-        { id: 'msg_1', senderId: 'user_alice', senderName: 'Alice', text: 'Hey everyone!', timestamp: Date.now() - 10*60*1000, isOutgoing: false },
-        { id: 'msg_2', senderId: 'user_bob', senderName: 'Bob', text: 'Welcome to the group!', timestamp: Date.now() - 9*60*1000, isOutgoing: false, isDeleted: true },
-        { id: 'msg_3', senderId: 'user_self', text: 'Thanks for adding me!', timestamp: Date.now() - 8*60*1000, isOutgoing: true },
-        { id: 'msg_4', senderId: 'user_charlie', senderName: 'Charlie', text: 'Great to have you here!', timestamp: Date.now() - 7*60*1000, isOutgoing: false, isDeleted: true, deletedByAdmin: true },
-        { id: 'msg_5', senderId: 'user_alice', senderName: 'Alice', text: 'Let\'s catch up soon!', timestamp: Date.now() - 6*60*1000, isOutgoing: false },
-        { id: 'msg_6', senderId: 'user_self', text: 'Absolutely! Looking forward to it.', timestamp: Date.now() - 5*60*1000, isOutgoing: true, replyTo: { messageId: 'msg_5', senderName: 'Alice', previewText: "Let's catch up soon!" } },
-        {
-          id: 'msg_7',
-          senderId: 'user_self',
-          text: 'Mainnet Beta is Live 🚀\n\nExciting times ahead as we launch the next phase of development!',
-          timestamp: Date.now() - 4*60*1000,
-          isOutgoing: true,
-          forwardedFrom: { channelId: 'channel_1', channelName: 'Solana Indonesia', channelAvatar: 'SI', postId: 'post_1' }
-        },
-        { id: 'msg_demo_image', senderId: 'user_alice', senderName: 'Alice', text: 'Staging demo photo', imageUrl: DEMO_IMAGE_ORANGE, timestamp: Date.now() - 3.5*60*1000, isOutgoing: false }
-      ]
-    },
-    {
-      id: 'group_2',
-      name: 'Design Team',
-      avatar: 'DT',
-      description: 'Collaborate on visual designs and UI/UX',
-      memberCount: 3,
-      visibility: 'private',
-      creatorId: 'user_8',
-      members: [
-        { id: 'user_self', username: 'You', role: 'member' },
-        { id: 'user_1', username: 'aksaranft', role: 'member' },
-        { id: 'user_8', username: 'designpro', role: 'owner' }
-      ],
-      joinRequests: [
-        { userId: 'user_join_req_1', username: 'Staging Demo User', requestedAt: Date.now() - 2*60*60*1000 },
-        { userId: 'user_join_req_2', username: 'Staging Demo User 2', requestedAt: Date.now() - 45*60*1000 }
-      ],
-      messages: [
-        { id: 'msg_1', senderId: 'user_8', senderName: 'designpro', text: 'Just posted the new mockups', timestamp: Date.now() - 30*60*1000, isOutgoing: false },
-        { id: 'msg_2', senderId: 'user_self', text: 'Thanks! Reviewing now', timestamp: Date.now() - 25*60*1000, isOutgoing: true },
-        { id: 'msg_link_demo', senderId: 'user_8', senderName: 'designpro', text: 'Full spec doc: https://guardian.example.com/design-spec', timestamp: Date.now() - 20*60*1000, isOutgoing: false }
-      ]
-    },
-    {
-      // Admin-but-not-creator: proves the Create menu lists groups the user
-      // administers, not just the ones they created.
-      id: 'group_3',
-      name: 'Guardian Mods',
-      avatar: 'GM',
-      description: 'Moderation crew for the Guardian community',
-      memberCount: 12,
-      visibility: 'private',
-      creatorId: 'user_1',
-      createdAt: Date.now() - 18*24*60*60*1000,
-      members: [
-        { id: 'user_1', username: 'aksaranft', role: 'owner' },
-        { id: 'user_self', username: 'You', role: 'admin' },
-        { id: 'user_3', username: 'nodeart', role: 'member' }
-      ],
-      joinRequests: [],
-      messages: [
-        { id: 'msg_1', senderId: 'user_1', senderName: 'aksaranft', text: 'Added you as a mod — welcome aboard!', timestamp: Date.now() - 3*60*60*1000, isOutgoing: false },
-        { id: 'msg_2', senderId: 'user_self', text: 'On it. I\'ll watch the reports queue.', timestamp: Date.now() - 2.5*60*60*1000, isOutgoing: true }
-      ]
-    },
-    {
-      id: 'group_4',
-      name: 'Alpha Signals',
-      avatar: 'AS',
-      description: 'Early calls and market chatter',
-      memberCount: 42,
-      visibility: 'private',
-      creatorId: 'user_self',
-      createdAt: Date.now() - 9*24*60*60*1000,
-      members: [
-        { id: 'user_self', username: 'You', role: 'owner' },
-        { id: 'user_2', username: 'cryptosmith', role: 'member' }
-      ],
-      joinRequests: [],
-      messages: [
-        { id: 'msg_1', senderId: 'user_self', text: 'Room is open — drop your theses here.', timestamp: Date.now() - 6*60*60*1000, isOutgoing: true }
-      ]
-    },
-    {
-      id: 'group_5',
-      name: 'Node Runners',
-      avatar: 'NR',
-      description: 'Validator and node operator talk',
-      memberCount: 67,
-      visibility: 'public',
-      creatorId: 'user_self',
-      createdAt: Date.now() - 21*24*60*60*1000,
-      members: [
-        { id: 'user_self', username: 'You', role: 'owner' },
-        { id: 'user_5', username: 'chainwizard', role: 'admin' },
-        { id: 'user_7', username: 'webbuilder', role: 'member' }
-      ],
-      joinRequests: [],
-      messages: [
-        { id: 'msg_1', senderId: 'user_5', senderName: 'chainwizard', text: 'Uptime is back to 100% after the patch.', timestamp: Date.now() - 8*60*60*1000, isOutgoing: false }
-      ]
-    }
-  ];
-
-  // Add group conversations to the conversations list
-  conversations = conversations.concat([
-    {
-      id: 'conv_group_1',
-      type: 'group',
-      groupId: 'group_1',
-      name: 'Seeker Club',
-      avatar: 'SC',
-      lastMessage: '📷 Staging demo photo',
-      timestamp: Date.now() - 3.5*60*1000,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    },
-    {
-      id: 'conv_group_2',
-      type: 'group',
-      groupId: 'group_2',
-      name: 'Design Team',
-      avatar: 'DT',
-      lastMessage: 'Full spec doc: https://guardian.example.com/design-spec',
-      timestamp: Date.now() - 20*60*1000,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    },
-    {
-      id: 'conv_group_3',
-      type: 'group',
-      groupId: 'group_3',
-      name: 'Guardian Mods',
-      avatar: 'GM',
-      lastMessage: 'On it. I\'ll watch the reports queue.',
-      timestamp: Date.now() - 2.5*60*60*1000,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    },
-    {
-      id: 'conv_group_4',
-      type: 'group',
-      groupId: 'group_4',
-      name: 'Alpha Signals',
-      avatar: 'AS',
-      lastMessage: 'Room is open — drop your theses here.',
-      timestamp: Date.now() - 6*60*60*1000,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    },
-    {
-      id: 'conv_group_5',
-      type: 'group',
-      groupId: 'group_5',
-      name: 'Node Runners',
-      avatar: 'NR',
-      lastMessage: 'Uptime is back to 100% after the patch.',
-      timestamp: Date.now() - 8*60*60*1000,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    }
-  ]);
-
-  // Screenshot-state seed: pad the demo threads so the message list actually
-  // scrolls, which is what makes the scroll-to-latest FAB appear.
-  if (SHOT_LONG_THREAD) {
-    const directThread = conversations.find(c => c.id === 'conv_1');
-    if (directThread) {
-      const padded = [];
-      for (let i = 0; i < 24; i++) {
-        padded.push({
-          id: `shot_msg_${i + 1}`,
-          text: `Staging demo message #${i + 1} in this conversation.`,
-          timestamp: Date.now() - (60 - i) * 60 * 1000,
-          isOutgoing: i % 3 === 0
-        });
-      }
-      directThread.messages = padded.concat(directThread.messages);
-    }
-
-    const demoGroup = groups.find(g => g.id === 'group_1');
-    if (demoGroup) {
-      const paddedGroup = [];
-      for (let i = 0; i < 24; i++) {
-        const outgoing = i % 3 === 0;
-        paddedGroup.push({
-          id: `shot_gmsg_${i + 1}`,
-          senderId: outgoing ? 'user_self' : 'user_alice',
-          senderName: outgoing ? undefined : 'Alice',
-          text: `Staging demo group message #${i + 1}.`,
-          timestamp: Date.now() - (60 - i) * 60 * 1000,
-          isOutgoing: outgoing
-        });
-      }
-      demoGroup.messages = paddedGroup.concat(demoGroup.messages);
-    }
-  }
-
-  // Screenshot-state seed: force group_1's deleted-message placeholders to
-  // exist regardless of any future edits to the base seed data above.
-  if (SHOT_MESSAGE_DELETED) {
-    const group1 = groups.find(g => g.id === 'group_1');
-    if (group1) {
-      const ownDeleted = group1.messages.find(m => m.id === 'msg_2');
-      if (ownDeleted) {
-        ownDeleted.isDeleted = true;
-        ownDeleted.deletedByAdmin = false;
-      }
-      const adminDeleted = group1.messages.find(m => m.id === 'msg_4');
-      if (adminDeleted) {
-        adminDeleted.isDeleted = true;
-        adminDeleted.deletedByAdmin = true;
-      }
-    }
-  }
-
-  // Screenshot-state seed: exercise the real Clear Chat function on conv_1 so
-  // the deep link locks in the "list preview goes stale after clearing" fix.
-  if (SHOT_DM_CLEARED) {
-    clearDMChat('conv_1');
-  }
+  // Groups, channels, and requests are hydrated from the server (see
+  // hydrateServerGroups, hydrateServerChannels below, and
+  // hydrateMessageRequests below) instead of being seeded here -- this app
+  // now shows only real users' real groups/channels.
+  let groups = [];
+  let requests = [];
+  let discoverGroups = [];
+  let discoverChannels = [];
+  let channels = [];
 
   // Message requests: incoming DMs from someone the user hasn't accepted yet.
   // Hydrated from GET /api/message-requests by hydrateMessageRequests() below
   // instead of these fixtures.
-  let requests = [];
+
+  // Id of the direct conversation whose thread is currently on screen (null
+  // otherwise), so a concurrent Messages-list poll doesn't clobber a local
+  // "just marked read" state before the server-side markRead PUT lands.
+  let currentOpenConversationId = null;
 
   async function hydrateMessageRequests() {
     try {
-      const response = await fetch('/api/message-requests', { headers: authHeaders() });
-      if (!response.ok) return;
+      const response = await authFetch('/api/message-requests', { headers: authHeaders() });
+      if (!response.ok) return false;
       const data = await response.json();
-      requests = (data.requests || []).map(r => ({
+      const nextRequests = (data.requests || []).map(r => ({
         id: r.id,
         senderId: r.senderId,
         senderName: r.senderUsername,
@@ -588,366 +339,12 @@ document.addEventListener('DOMContentLoaded', () => {
         messagePreview: r.messagePreview || '',
         timestamp: r.timestamp
       }));
+      const changed = JSON.stringify(nextRequests) !== JSON.stringify(requests);
+      requests = nextRequests;
+      return changed;
     } catch (err) {
       console.error('Failed to fetch message requests:', err);
-    }
-  }
-
-  // Discover communities data
-  let discoverGroups = [
-    {
-      id: 'discover_group_1',
-      name: 'Tech Enthusiasts',
-      description: 'A community for tech lovers and innovators',
-      avatar: 'TE',
-      memberCount: 256,
-      visibility: 'public',
-      members: [],
-      joinRequests: [],
-      isFeatured: true,
-      isNew: false,
-      createdAt: Date.now() - 60*24*60*60*1000
-    },
-    {
-      id: 'discover_group_2',
-      name: 'Design Community',
-      description: 'Collaborate and share design ideas and projects',
-      avatar: 'DC',
-      memberCount: 189,
-      visibility: 'private',
-      members: [],
-      joinRequests: [],
-      isFeatured: true,
-      isNew: false,
-      createdAt: Date.now() - 45*24*60*60*1000
-    },
-    {
-      id: 'discover_group_3',
-      name: 'Photography Club',
-      description: 'Share and discuss photography techniques',
-      avatar: 'PC',
-      memberCount: 412,
-      visibility: 'public',
-      members: [],
-      joinRequests: [],
-      isFeatured: false,
-      isNew: false,
-      createdAt: Date.now() - 30*24*60*60*1000
-    },
-    {
-      id: 'discover_group_4',
-      name: 'Book Lovers',
-      description: 'Discuss books, authors, and reading experiences',
-      avatar: 'BL',
-      memberCount: 178,
-      visibility: 'public',
-      members: [],
-      joinRequests: [],
-      isFeatured: false,
-      isNew: true,
-      createdAt: Date.now() - 3*24*60*60*1000
-    },
-    {
-      id: 'discover_group_5',
-      name: 'Fitness Squad',
-      description: 'Share fitness goals, workouts, and health tips',
-      avatar: 'FS',
-      memberCount: 334,
-      visibility: 'public',
-      members: [],
-      joinRequests: [],
-      isFeatured: false,
-      isNew: false,
-      createdAt: Date.now() - 20*24*60*60*1000
-    },
-    {
-      id: 'discover_group_6',
-      name: 'AI & ML Discussion',
-      description: 'Deep dive into artificial intelligence and machine learning',
-      avatar: 'AM',
-      memberCount: 567,
-      visibility: 'public',
-      members: [],
-      joinRequests: [],
-      isFeatured: true,
-      isNew: false,
-      createdAt: Date.now() - 15*24*60*60*1000
-    },
-    {
-      id: 'discover_group_7',
-      name: 'Web3 Builders',
-      description: 'Build and discuss decentralized applications',
-      avatar: 'WB',
-      memberCount: 291,
-      visibility: 'public',
-      members: [],
-      joinRequests: [],
-      isFeatured: false,
-      isNew: true,
-      createdAt: Date.now() - 5*24*60*60*1000
-    },
-    {
-      id: 'discover_group_8',
-      name: 'Indie Hackers',
-      description: 'Connect with independent developers and entrepreneurs',
-      avatar: 'IH',
-      memberCount: 445,
-      visibility: 'public',
-      members: [],
-      joinRequests: [],
-      isFeatured: false,
-      isNew: false,
-      createdAt: Date.now() - 12*24*60*60*1000
-    }
-  ];
-
-  // The hardcoded demo groups stay client-only: writing "Seeker Club" and
-  // "Tech Enthusiasts" into Postgres would put obviously-fake rows in the
-  // production database. Server-backed groups carry source: 'server' instead,
-  // and mutation helpers use this flag to decide whether to call the API.
-  groups.forEach(g => { g.source = 'local'; });
-  discoverGroups.forEach(g => { g.source = 'local'; });
-
-  let discoverChannels = [
-    {
-      id: 'discover_channel_1',
-      name: 'Announcements',
-      description: 'Important platform announcements and updates',
-      avatar: 'A',
-      visibility: 'public',
-      memberCount: 523,
-      isFeatured: true,
-      isNew: false,
-      createdAt: Date.now() - 90*24*60*60*1000
-    },
-    {
-      id: 'discover_channel_2',
-      name: 'Updates',
-      description: 'Latest news and feature updates',
-      avatar: 'U',
-      visibility: 'public',
-      memberCount: 412,
-      isFeatured: true,
-      isNew: false,
-      createdAt: Date.now() - 75*24*60*60*1000
-    },
-    {
-      id: 'discover_channel_3',
-      name: '#news',
-      description: 'Community news and trending topics',
-      avatar: 'N',
-      visibility: 'public',
-      memberCount: 1245,
-      isFeatured: false,
-      isNew: false,
-      createdAt: Date.now() - 60*24*60*60*1000
-    },
-    {
-      id: 'discover_channel_4',
-      name: '#tips',
-      description: 'Useful tips, tricks, and best practices',
-      avatar: 'T',
-      visibility: 'public',
-      memberCount: 856,
-      isFeatured: false,
-      isNew: false,
-      createdAt: Date.now() - 50*24*60*60*1000
-    },
-    {
-      id: 'discover_channel_5',
-      name: '#events',
-      description: 'Community events and gatherings',
-      avatar: 'E',
-      visibility: 'public',
-      memberCount: 234,
-      isFeatured: false,
-      isNew: true,
-      createdAt: Date.now() - 7*24*60*60*1000
-    },
-    {
-      id: 'discover_channel_6',
-      name: 'VIP Discussions',
-      description: 'Private discussions for premium members',
-      avatar: 'VD',
-      visibility: 'private',
-      memberCount: 45,
-      isFeatured: false,
-      isNew: false,
-      createdAt: Date.now() - 40*24*60*60*1000
-    },
-    {
-      id: 'discover_channel_7',
-      name: 'Team Updates',
-      description: 'Internal team communications and updates',
-      avatar: 'TU',
-      visibility: 'private',
-      memberCount: 28,
-      isFeatured: false,
-      isNew: true,
-      createdAt: Date.now() - 2*24*60*60*1000
-    },
-    {
-      id: 'discover_channel_8',
-      name: '#projects',
-      description: 'Showcase and collaborate on projects',
-      avatar: 'P',
-      visibility: 'public',
-      memberCount: 678,
-      isFeatured: true,
-      isNew: false,
-      createdAt: Date.now() - 35*24*60*60*1000
-    }
-  ];
-
-  // Broadcast channels data
-  let channels = [
-    {
-      id: 'channel_1',
-      name: 'Solana Indonesia',
-      description: 'Latest news and updates about Solana ecosystem in Indonesia',
-      avatar: 'SI',
-      isPublic: true,
-      creatorId: 'user_4',
-      createdAt: Date.now() - 7 * 24 * 60 * 60 * 1000,
-      followerCount: 12500,
-      followers: { 'user_self': true, 'user_1': true, 'user_2': true },
-      mutedByUsers: {},
-      admins: [],
-      posts: [
-        {
-          id: 'post_1',
-          channelId: 'channel_1',
-          authorId: 'user_4',
-          text: 'Mainnet Beta is Live 🚀\n\nExciting times ahead as we launch the next phase of development!',
-          timestamp: Date.now() - 2 * 60 * 1000,
-          reactions: {
-            '❤️': { 'user_self': true, 'user_1': true, 'user_2': true },
-            '👍': { 'user_1': true, 'user_2': true },
-            '🎉': { 'user_3': true }
-          },
-          isPinned: false
-        },
-        {
-          id: 'post_2',
-          channelId: 'channel_1',
-          authorId: 'user_4',
-          text: 'Monthly Update: Progress Report\n\nWe\'ve completed major milestones this month. Check the roadmap for details.',
-          timestamp: Date.now() - 24 * 60 * 60 * 1000,
-          reactions: { '😂': { 'user_1': true } },
-          isPinned: false
-        },
-        {
-          id: 'post_5',
-          channelId: 'channel_1',
-          authorId: 'user_4',
-          text: 'FAQ: https://guardian.example.com/solana-faq for common questions.',
-          timestamp: Date.now() - 48 * 60 * 60 * 1000,
-          reactions: {},
-          isPinned: false
-        }
-      ]
-    },
-    {
-      id: 'channel_2',
-      name: 'Web3 Builders',
-      description: 'Community for web3 developers and creators',
-      avatar: 'WB',
-      isPublic: true,
-      creatorId: 'user_self',
-      createdAt: Date.now() - 3 * 24 * 60 * 60 * 1000,
-      followerCount: 245,
-      followers: { 'user_self': true },
-      mutedByUsers: {},
-      // Staging demo data: one existing admin so the Channel Info page's
-      // Admins list and owner-only "Remove" control both have something to show.
-      admins: [{ id: 'user_1', username: 'aksaranft', avatar: 'AK', walletAddress: null }],
-      posts: [
-        {
-          id: 'post_3',
-          channelId: 'channel_2',
-          authorId: 'user_self',
-          text: 'Welcome to Web3 Builders! 👨‍💻\n\nThis is a space to share projects, learn together, and build the future of web3.',
-          timestamp: Date.now() - 60 * 60 * 1000,
-          reactions: {},
-          isPinned: false
-        }
-      ]
-    },
-    {
-      id: 'channel_3',
-      name: 'Design Tips',
-      description: 'Daily design inspiration and tutorials',
-      avatar: 'DT',
-      isPublic: true,
-      creatorId: 'user_8',
-      createdAt: Date.now() - 10 * 24 * 60 * 60 * 1000,
-      followerCount: 2000,
-      followers: {},
-      mutedByUsers: {},
-      admins: [],
-      posts: [
-        {
-          id: 'post_4',
-          channelId: 'channel_3',
-          authorId: 'user_8',
-          text: 'Tip of the day: Golden Ratio in UI Design\n\nUsing the golden ratio can create more aesthetically pleasing layouts.',
-          timestamp: Date.now() - 12 * 60 * 60 * 1000,
-          reactions: { '❤️': { 'user_1': true, 'user_2': true } },
-          isPinned: false
-        }
-      ]
-    },
-    {
-      // Second user-created channel — gives the Create menu's channel list
-      // more than one row and covers the no-posts sort-key fallback.
-      id: 'channel_4',
-      name: 'Builder Notes',
-      description: 'Short notes from things I ship',
-      avatar: 'BN',
-      isPublic: true,
-      creatorId: 'user_self',
-      createdAt: Date.now() - 36 * 60 * 60 * 1000,
-      followerCount: 18,
-      followers: { 'user_self': true },
-      mutedByUsers: {},
-      admins: [],
-      posts: [
-        {
-          id: 'post_6',
-          channelId: 'channel_4',
-          authorId: 'user_self',
-          text: 'Shipped a new badge design ✨',
-          imageUrl: DEMO_IMAGE_GREEN,
-          timestamp: Date.now() - 10 * 60 * 1000,
-          reactions: {},
-          isPinned: false
-        }
-      ]
-    }
-  ];
-
-  // Screenshot-state seed: pad channel_1's feed so it actually scrolls, same
-  // reasoning as the DM/group padding above (SHOT_LONG_THREAD is declared
-  // before `channels` exists, so this seed has to live down here instead).
-  // channel.posts is newest-first in storage, so filler posts are appended to
-  // the END (older than the seeded posts) rather than concatenated at the
-  // front like the DM/group arrays above.
-  if (SHOT_LONG_THREAD) {
-    const demoChannel = channels.find(c => c.id === 'channel_1');
-    if (demoChannel) {
-      const paddedPosts = [];
-      for (let i = 0; i < 24; i++) {
-        paddedPosts.push({
-          id: `shot_post_${i + 1}`,
-          channelId: 'channel_1',
-          authorId: 'user_4',
-          text: `Staging demo post #${i + 1} in this channel.`,
-          timestamp: Date.now() - (49 + i) * 60 * 60 * 1000,
-          reactions: {},
-          isPinned: false
-        });
-      }
-      demoChannel.posts = demoChannel.posts.concat(paddedPosts);
+      return false;
     }
   }
 
@@ -957,26 +354,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const POST_REACTIONS = ['❤️', '👍', '😂', '🎉', '😮', '😢'];
   const LIKE_EMOJI = POST_REACTIONS[0];
 
-  // Reactions live at post.reactions = { emoji: { userId: true } }. Posts used to
-  // carry a flat `likes` map instead; fold any that survive into the heart bucket
-  // so a stray seed (or a merge from another branch) can't break rendering.
-  function normalizePostReactions() {
-    channels.forEach(channel => {
-      (channel.posts || []).forEach(post => {
-        if (!post.reactions || typeof post.reactions !== 'object') post.reactions = {};
-        if (post.likes && typeof post.likes === 'object') {
-          post.reactions[LIKE_EMOJI] = Object.assign({}, post.reactions[LIKE_EMOJI], post.likes);
-          delete post.likes;
-        }
-        // Drop any emoji bucket that ended up empty so no zero-count chip renders.
-        Object.keys(post.reactions).forEach(emoji => {
-          if (Object.keys(post.reactions[emoji] || {}).length === 0) delete post.reactions[emoji];
-        });
-      });
-    });
-  }
-  normalizePostReactions();
-
   // Count / membership helpers for a post's reaction map.
   function reactionCount(post, emoji) {
     return Object.keys((post.reactions && post.reactions[emoji]) || {}).length;
@@ -985,46 +362,6 @@ document.addEventListener('DOMContentLoaded', () => {
   function userReacted(post, emoji) {
     return !!(post.reactions && post.reactions[emoji] && post.reactions[emoji]['user_self']);
   }
-
-  // Add channel conversations to the conversations list
-  conversations = conversations.concat([
-    {
-      id: 'conv_channel_1',
-      type: 'channel',
-      channelId: 'channel_1',
-      name: 'Solana Indonesia',
-      avatar: 'SI',
-      lastMessage: 'Mainnet Beta is Live 🚀\n\nExciting times ahead as we launch the next phase of development!',
-      timestamp: Date.now() - 2 * 60 * 1000,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    },
-    {
-      id: 'conv_channel_2',
-      type: 'channel',
-      channelId: 'channel_2',
-      name: 'Web3 Builders',
-      avatar: 'WB',
-      lastMessage: 'Welcome to Web3 Builders! 👨‍💻\n\nThis is a space to share projects, learn together, and build the future of web3.',
-      timestamp: Date.now() - 60 * 60 * 1000,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    },
-    {
-      id: 'conv_channel_4',
-      type: 'channel',
-      channelId: 'channel_4',
-      name: 'Builder Notes',
-      avatar: 'BN',
-      lastMessage: '📷 Shipped a new badge design ✨',
-      timestamp: Date.now() - 10 * 60 * 1000,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    }
-  ]);
 
   // Active tab state
   let activeMessagesTab = 'all';
@@ -1251,15 +588,117 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Insert a server-returned channel (plus its conversation row) into local
+  // state. Shared by the create-channel flow, follow/unfollow, and boot-time
+  // hydration so all produce exactly the same shape.
+  //
+  // Channels have no members array (unlike groups), so ownership elsewhere in
+  // this file is checked directly via channel.creatorId === 'user_self' --
+  // that means the sentinel translation groups get for free from
+  // mapServerMember has to happen explicitly here instead.
+  function addServerChannelToState(serverChannel) {
+    const isMe = currentUser && serverChannel.creatorId === currentUser.id;
+    const existing = channels.find(c => c.id === serverChannel.id);
+    const shaped = {
+      id: serverChannel.id,
+      name: serverChannel.name,
+      description: serverChannel.description || '',
+      avatar: serverChannel.avatar || generateDefaultAvatar(serverChannel.name),
+      isPublic: true,
+      creatorId: isMe ? 'user_self' : serverChannel.creatorId,
+      createdAt: serverChannel.createdAt || Date.now(),
+      followerCount: serverChannel.followerCount || 0,
+      followers: Object.assign({}, existing && existing.followers, serverChannel.isFollowing ? { user_self: true } : {}),
+      mutedByUsers: (existing && existing.mutedByUsers) || {},
+      admins: (existing && existing.admins) || [],
+      // Real history is hydrated lazily when the channel is opened (see
+      // hydrateChannelPosts) -- keep whatever posts are already loaded.
+      posts: (existing && existing.posts) || [],
+      source: 'server'
+    };
+
+    if (existing) {
+      Object.assign(existing, shaped);
+    } else {
+      channels.push(shaped);
+    }
+
+    const lastPost = shaped.posts[0];
+    const existingConv = conversations.find(c => c.type === 'channel' && c.channelId === serverChannel.id);
+    if (existingConv) {
+      existingConv.name = shaped.name;
+      existingConv.avatar = shaped.avatar;
+    } else if (shaped.followers['user_self']) {
+      conversations.unshift({
+        id: 'conv_channel_' + serverChannel.id,
+        type: 'channel',
+        channelId: serverChannel.id,
+        name: shaped.name,
+        avatar: shaped.avatar,
+        lastMessage: lastPost ? truncateText(messagePreviewText(lastPost), 100) : 'No posts yet',
+        timestamp: lastPost ? lastPost.timestamp : shaped.createdAt,
+        unreadCount: 0,
+        archived: false,
+        pinned: false
+      });
+    }
+
+    // A channel you now follow must not linger in the Discover feed.
+    discoverChannels = discoverChannels.filter(c => c.id !== serverChannel.id);
+
+    return shaped;
+  }
+
+  // Hydrate server-backed channels: the caller's own/followed channels, and
+  // the public channels they haven't followed yet (the Discover feed).
+  // Non-fatal -- a network or DB hiccup just leaves the lists empty.
+  async function hydrateServerChannels() {
+    try {
+      const [mineRes, discoverRes] = await Promise.all([
+        fetch('/api/channels?scope=mine', { headers: authHeaders() }),
+        fetch('/api/channels?scope=discover', { headers: authHeaders() })
+      ]);
+
+      if (mineRes.ok) {
+        const payload = await mineRes.json();
+        (payload.channels || []).forEach(c => addServerChannelToState(c));
+      }
+
+      if (discoverRes.ok) {
+        const payload = await discoverRes.json();
+        (payload.channels || []).forEach(c => {
+          if (channels.some(existing => existing.id === c.id)) return;
+          if (discoverChannels.some(existing => existing.id === c.id)) return;
+          discoverChannels.push({
+            id: c.id,
+            name: c.name,
+            description: c.description || '',
+            avatar: c.avatar || generateDefaultAvatar(c.name),
+            visibility: 'public',
+            memberCount: c.followerCount || 0,
+            creatorId: c.creatorId,
+            isFeatured: false,
+            isNew: !!c.isNew,
+            createdAt: c.createdAt || Date.now(),
+            source: 'server'
+          });
+        });
+      }
+    } catch (error) {
+      console.warn('Could not load server channels:', error);
+    }
+  }
+
   // Hydrate the inbox with real DM conversations the caller has actually sent
   // or received a message in. Without this, a real conv_<peerId> conversation
   // -- created purely in-memory by startConversationWith -- vanishes from the
   // Messages list the moment the page reloads, even though the messages
   // themselves are now persisted server-side.
   async function hydrateServerDirectConversations() {
+    let changed = false;
     try {
-      const response = await fetch('/api/direct-conversations', { headers: authHeaders() });
-      if (!response.ok) return;
+      const response = await authFetch('/api/direct-conversations', { headers: authHeaders() });
+      if (!response.ok) return false;
       const payload = await response.json();
       (payload.conversations || []).forEach(dc => {
         const convId = 'conv_' + dc.peerId;
@@ -1282,21 +721,63 @@ document.addEventListener('DOMContentLoaded', () => {
             onlineStatus: false,
             archived: false,
             pinned: false,
+            hiddenFromInbox: false,
             mutedByUsers: {},
             messages: []
           };
           conversations.unshift(conv);
+          changed = true;
         }
         if (dc.lastMessage !== null && (dc.lastMessageAt || 0) >= (conv.timestamp || 0)) {
+          if (conv.lastMessage !== truncateText(dc.lastMessage, 100) || conv.timestamp !== (dc.lastMessageAt || conv.timestamp)) changed = true;
           conv.lastMessage = truncateText(dc.lastMessage, 100);
           conv.timestamp = dc.lastMessageAt || conv.timestamp;
         }
         // 'pending_sent' means the caller started this thread and the other
         // side hasn't accepted yet -- renderConversationPage shows a banner.
+        if (conv.requestStatus !== dc.requestStatus) changed = true;
         conv.requestStatus = dc.requestStatus;
+        if (conv.pinned !== dc.pinned) changed = true;
+        conv.pinned = dc.pinned;
+        if (conv.hiddenFromInbox !== dc.hiddenFromInbox) changed = true;
+        conv.hiddenFromInbox = dc.hiddenFromInbox;
+        // Server is the source of truth for unread count, except while this
+        // conversation's thread is the one currently open -- a poll response
+        // in flight before the markRead PUT lands shouldn't flip it back to
+        // unread out from under the user who is actively reading it.
+        if (currentOpenConversationId !== convId) {
+          if (conv.unreadCount !== dc.unreadCount) changed = true;
+          conv.unreadCount = dc.unreadCount;
+        }
       });
+      return changed;
     } catch (error) {
       console.warn('Could not load direct conversations:', error);
+      return false;
+    }
+  }
+
+  // Bulk read-back of the caller's own pin/unread/hidden overrides, applied
+  // onto whichever conversations are already in state. Must run after the
+  // group/channel/direct hydrations above so every conv this account has a
+  // real override for already exists in `conversations` to match against --
+  // otherwise the override would have nothing to attach to and be dropped.
+  async function hydrateConversationUserState() {
+    try {
+      const response = await authFetch('/api/conversations/state', { headers: authHeaders() });
+      if (!response.ok) return;
+      const payload = await response.json();
+      const states = payload.states || {};
+      Object.keys(states).forEach(convId => {
+        const conv = conversations.find(c => c.id === convId);
+        if (!conv) return;
+        const state = states[convId];
+        conv.pinned = !!state.pinned;
+        conv.manuallyMarkedUnread = !!state.manuallyMarkedUnread;
+        if (state.hiddenFromInbox) conv.hiddenFromInbox = true;
+      });
+    } catch (error) {
+      console.warn('Could not load conversation state:', error);
     }
   }
 
@@ -1350,7 +831,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function hydrateThreadMessages(type, id, thread) {
     if (!id) return false;
     try {
-      const response = await fetch(`/api/messages/${type}/${encodeURIComponent(id)}`, { headers: authHeaders() });
+      const response = await authFetch(`/api/messages/${type}/${encodeURIComponent(id)}`, { headers: authHeaders() });
       if (!response.ok) return false;
       const payload = await response.json();
       let changed = false;
@@ -1371,7 +852,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // first, since publishPost unshifts) rather than a chat thread's `.messages`.
   async function hydrateChannelPosts(channelId, channel) {
     try {
-      const response = await fetch(`/api/messages/channel/${encodeURIComponent(channelId)}`, { headers: authHeaders() });
+      const response = await authFetch(`/api/messages/channel/${encodeURIComponent(channelId)}`, { headers: authHeaders() });
       if (!response.ok) return false;
       const payload = await response.json();
       let changed = false;
@@ -1401,24 +882,108 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Screenshot-state helper: pad a real (possibly short) thread/feed with
+  // synthetic, client-only filler so there is enough scrollable height for the
+  // scroll-fab tests to mean anything. Never sent to the server -- exists only
+  // for the lifetime of this render, on whichever thread the deep link opened.
+  const SHOT_LONG_THREAD_TARGET_COUNT = 30;
+  function padForShotLongThread(items, sortAscending, makeFiller) {
+    if (!SHOT_LONG_THREAD) return;
+    if (items.length >= SHOT_LONG_THREAD_TARGET_COUNT) return;
+    const timestamps = items.map(i => i.timestamp).filter(t => typeof t === 'number');
+    const oldest = timestamps.length ? Math.min(...timestamps) : Date.now();
+    const needed = SHOT_LONG_THREAD_TARGET_COUNT - items.length;
+    for (let i = needed; i >= 1; i--) {
+      items.push(makeFiller(oldest - i * 60000, needed - i + 1));
+    }
+    items.sort((a, b) => sortAscending ? a.timestamp - b.timestamp : b.timestamp - a.timestamp);
+  }
+
   // At most one thread polls at a time -- only one conversation/group/channel
   // screen is ever open at once, so there's nothing to key this by.
   let activeThreadPollTimer = null;
   const THREAD_POLL_INTERVAL_MS = 4000;
+
+  // Whichever screen's polling is currently active (a thread or the Messages
+  // list -- never both, since the two poll loops are mutually exclusive)
+  // registers its own "re-fetch and retry" closure here. The visibilitychange/
+  // online listeners below call this instead of tracking per-screen state
+  // themselves, so a tab regaining focus/connectivity immediately re-syncs
+  // whatever's actually on screen.
+  let activeScreenResync = null;
 
   function stopThreadPolling() {
     if (activeThreadPollTimer) {
       clearInterval(activeThreadPollTimer);
       activeThreadPollTimer = null;
     }
+    activeScreenResync = null;
   }
 
-  function startThreadPolling(hydrateFn, onChanged) {
+  // retryFailed is optional: called only during a foreground/reconnect resync
+  // (never on the regular interval poll below), so a flaky connection doesn't
+  // spam retries every 4s -- only once when the tab actually comes back.
+  function startThreadPolling(hydrateFn, onChanged, retryFailed) {
     stopThreadPolling();
+    if (sessionExpired) return;
+    activeScreenResync = async () => {
+      const changed = await hydrateFn();
+      if (changed) onChanged();
+      if (typeof retryFailed === 'function' && retryFailed()) onChanged();
+    };
     activeThreadPollTimer = setInterval(async () => {
       const changed = await hydrateFn();
       if (changed) onChanged();
     }, THREAD_POLL_INTERVAL_MS);
+  }
+
+  // Keep the Messages list / Requests tab live too -- without this, a newly
+  // received DM (or an incoming request) only shows up after the user leaves
+  // and re-opens the Messages screen, since nothing else refetches those two
+  // endpoints while this screen is just sitting open.
+  let messagesListPollTimer = null;
+  const MESSAGES_LIST_POLL_INTERVAL_MS = 7000;
+
+  function stopMessagesListPolling() {
+    if (messagesListPollTimer) {
+      clearInterval(messagesListPollTimer);
+      messagesListPollTimer = null;
+    }
+    activeScreenResync = null;
+  }
+
+  function startMessagesListPolling() {
+    stopMessagesListPolling();
+    if (sessionExpired) return;
+    activeScreenResync = async () => {
+      const [conversationsChanged, requestsChanged] = await Promise.all([
+        hydrateServerDirectConversations(),
+        hydrateMessageRequests()
+      ]);
+      if (conversationsChanged || requestsChanged) renderMessagesPage();
+    };
+    messagesListPollTimer = setInterval(async () => {
+      const [conversationsChanged, requestsChanged] = await Promise.all([
+        hydrateServerDirectConversations(),
+        hydrateMessageRequests()
+      ]);
+      if (conversationsChanged || requestsChanged) renderMessagesPage();
+    }, MESSAGES_LIST_POLL_INTERVAL_MS);
+  }
+
+  // Foreground/reconnect resync: a tab coming back into view, or the network
+  // coming back online, is exactly when the 4-7s poll interval is most likely
+  // to have just missed something (or to have been suspended entirely, which
+  // background tabs commonly do to throttled timers) -- so re-run whatever
+  // screen's hydrate is currently active right away instead of waiting out
+  // the rest of that interval.
+  async function resyncActiveScreen() {
+    if (sessionExpired || !activeScreenResync) return;
+    try {
+      await activeScreenResync();
+    } catch (error) {
+      console.warn('Foreground resync failed:', error);
+    }
   }
 
   // Best-effort delivery of an already-optimistically-rendered DM/group
@@ -1426,9 +991,18 @@ document.addEventListener('DOMContentLoaded', () => {
   // setupComposer -- this just makes the OTHER participant actually see it
   // too (and lets it survive a reload), instead of it living only in this
   // tab's JS heap.
-  function deliverThreadMessage(type, id, message) {
+  function deliverThreadMessage(type, id, message, onFailure) {
     if (!id) return;
-    fetch(`/api/messages/${type}/${encodeURIComponent(id)}`, {
+    delete message.failed;
+    // Screenshot-state: simulate a delivery failure deterministically instead
+    // of actually breaking the network, so dapp.json can assert the "Failed
+    // to send" indicator renders.
+    if (SHOT_SEND_FAIL) {
+      message.failed = true;
+      if (typeof onFailure === 'function') onFailure();
+      return;
+    }
+    authFetch(`/api/messages/${type}/${encodeURIComponent(id)}`, {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
@@ -1438,7 +1012,24 @@ document.addEventListener('DOMContentLoaded', () => {
         imageId: message.imageId,
         replyTo: message.replyTo
       })
-    }).catch(error => console.warn(`Could not deliver ${type} message:`, error));
+    }).then(res => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    }).catch(error => {
+      console.warn(`Could not deliver ${type} message:`, error);
+      message.failed = true;
+      if (typeof onFailure === 'function') onFailure();
+    });
+  }
+
+  // Persist "caller has read up to now" for a conversation server-side, so
+  // unreadCount computed by GET /api/direct-conversations reflects reality on
+  // the next hydrate/poll instead of only resetting in this tab's memory.
+  function markConversationRead(conversationId) {
+    fetch(`/api/conversations/${encodeURIComponent(conversationId)}/state`, {
+      method: 'PUT',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ markRead: true })
+    }).catch(error => console.warn('Could not mark conversation read:', error));
   }
 
   // Format relative timestamp for conversation list
@@ -1707,6 +1298,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (conv) {
           conv.unreadCount = 0;
           conv.manuallyMarkedUnread = false;
+          markConversationRead(convId);
         }
         window.location.hash = routeHash;
       });
@@ -1873,47 +1465,26 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Follow a channel from discover
-  function followDiscoverChannel(channelId) {
+  async function followDiscoverChannel(channelId) {
     const discoverChannel = discoverChannels.find(c => c.id === channelId);
     if (!discoverChannel) return;
 
-    const newChannel = {
-      id: channelId,
-      name: discoverChannel.name,
-      description: discoverChannel.description,
-      avatar: discoverChannel.avatar,
-      isPublic: discoverChannel.visibility === 'public',
-      creatorId: 'user_other',
-      createdAt: Date.now(),
-      // Channels use `followerCount`/`followers`/`posts` (a broadcast feed),
-      // not the `memberCount`/`messages` shape discoverChannels items have --
-      // an empty feed here is what renderChannelView already shows as "No
-      // posts yet".
-      followerCount: (discoverChannel.memberCount || 0) + 1,
-      followers: { 'user_self': true },
-      mutedByUsers: {},
-      posts: []
-    };
-
-    channels.push(newChannel);
-
-    const newConversation = {
-      id: `conv_channel_${channelId}`,
-      type: 'channel',
-      channelId: channelId,
-      name: discoverChannel.name,
-      avatar: discoverChannel.avatar,
-      lastMessage: 'You followed this channel.',
-      timestamp: Date.now(),
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    };
-
-    conversations.unshift(newConversation);
-    discoverChannels = discoverChannels.filter(c => c.id !== channelId);
-
-    renderDiscoverPage(activeDiscoverTab);
+    try {
+      const response = await fetch(`/api/channels/${encodeURIComponent(channelId)}/follow`, {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' })
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to follow channel');
+      }
+      const payload = await response.json();
+      addServerChannelToState(payload.channel);
+      renderDiscoverPage(activeDiscoverTab);
+    } catch (error) {
+      console.error(error);
+      showToast(error.message || 'Failed to follow channel', { type: 'error' });
+    }
   }
 
   // Render discover page
@@ -2252,6 +1823,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Setup long-press context menu for conversations
     setupConversationLongPress();
+
+    // Poll while this screen stays open so a new incoming DM or request shows
+    // up without the user having to leave and come back.
+    startMessagesListPolling();
   }
 
   // Accept request and create conversation
@@ -2787,8 +2362,17 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    conversation.unreadCount = 0;
+    conversation.manuallyMarkedUnread = false;
+    markConversationRead(conversationId);
+    currentOpenConversationId = conversationId;
+
     const peerId = directPeerId(conversationId);
     await hydrateThreadMessages('direct', peerId, conversation);
+    padForShotLongThread(conversation.messages, true, (ts, n) => ({
+      id: `shot-pad-dm-${n}`, senderId: peerId, senderName: conversation.username,
+      text: `Filler message ${n}`, timestamp: ts, isOutgoing: false
+    }));
     // Refresh requestStatus too, so re-opening this thread right after sending
     // the first message (or after the peer accepts/replies) shows an accurate
     // pending banner instead of a stale one from boot-time hydration.
@@ -2822,7 +2406,9 @@ document.addEventListener('DOMContentLoaded', () => {
         ${renderPinBadge(msg)}
         <div class="message-bubble${messageBubbleClass(msg)}" data-message-id="${msg.id}">${messageBodyHTML(msg)}</div>
         <div class="message-reaction-chips" data-message-id="${msg.id}">${messageReactionChipsHTML(msg)}</div>
-        <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
+        ${msg.failed
+          ? `<div class="message-timestamp message-failed" data-retry-message-id="${msg.id}">⚠️ Failed to send · Tap to retry</div>`
+          : `<div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>`}
       </div>`;
 
       messageHTML += `</div>`;
@@ -2902,16 +2488,33 @@ document.addEventListener('DOMContentLoaded', () => {
     // Set up send button and reply state management
     setupComposer(conversation, { isGroup: false });
 
+    // Tap a "Failed to send" label to retry delivering that message.
+    conversationRoot.querySelectorAll('[data-retry-message-id]').forEach(el => {
+      el.addEventListener('click', () => {
+        const msg = conversation.messages.find(m => m.id === el.dataset.retryMessageId);
+        if (!msg) return;
+        deliverThreadMessage('direct', peerId, msg, () => renderConversationPage(conversationId));
+        renderConversationPage(conversationId);
+      });
+    });
+
     // Poll for messages the other participant sends while this thread stays
     // open -- there's no websocket/push infra in this app, so this is the
     // only way an incoming message ever shows up without a manual reload.
     startThreadPolling(
       () => hydrateThreadMessages('direct', peerId, conversation),
-      () => renderConversationPage(conversationId)
+      () => renderConversationPage(conversationId),
+      () => {
+        const failed = conversation.messages.filter(m => m.failed);
+        if (!failed.length) return false;
+        failed.forEach(msg => deliverThreadMessage('direct', peerId, msg, () => renderConversationPage(conversationId)));
+        return true;
+      }
     );
 
     // Must stay last: the send re-renders this page underneath us.
     if (SHOT_SEND_STAY && !fromSend) sendShotMessage(conversationRoot);
+    if (SHOT_SEND_FAIL && !fromSend) sendShotMessage(conversationRoot);
 
     // Screenshot-state: click the real ⋮ button so the deep link exercises the
     // actual event listener wiring, not just the dialog-rendering function.
@@ -4409,9 +4012,9 @@ document.addEventListener('DOMContentLoaded', () => {
       // (and so it survives a reload) -- best-effort, the bubble above is
       // already shown regardless of whether this succeeds.
       if (isGroup) {
-        deliverThreadMessage('group', conversation.id, newMessage);
+        deliverThreadMessage('group', conversation.id, newMessage, rerender);
       } else {
-        deliverThreadMessage('direct', directPeerId(conversation.id), newMessage);
+        deliverThreadMessage('direct', directPeerId(conversation.id), newMessage, rerender);
       }
 
       // Re-render the SAME screen we're on, so the user stays in the thread.
@@ -4496,7 +4099,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const hasPendingRequest = !isMember && isPrivate && (group.joinRequests || []).some(r => r.userId === 'user_self');
     group.messages = group.messages || [];
     await hydrateThreadMessages('group', groupId, group);
+    padForShotLongThread(group.messages, true, (ts, n) => ({
+      id: `shot-pad-group-${n}`, senderId: 'staging-demo-user-2', senderName: 'staging-demo-ana',
+      text: `Filler message ${n}`, timestamp: ts, isOutgoing: false
+    }));
     const messages = group.messages;
+
+    // Screenshot-state: mark the last real message deleted so the tombstone
+    // placeholder is reachable from a plain deep link, on whichever real/
+    // staging-seeded group thread this is -- no fixture-specific id needed.
+    if (SHOT_MESSAGE_DELETED && messages.length) {
+      const target = messages[messages.length - 1];
+      target.isDeleted = true;
+      target.deletedByAdmin = false;
+    }
 
     const messagesList = messages.map(msg => {
       let messageHTML = `<div class="message-swipe-wrapper ${msg.isOutgoing ? 'wrapper-outgoing' : 'wrapper-incoming'}" data-message-id="${msg.id}">`;
@@ -4537,7 +4153,9 @@ document.addEventListener('DOMContentLoaded', () => {
           ${renderPinBadge(msg)}
           <div class="${bubbleClass}" data-message-id="${msg.id}">${bubbleBody}</div>
           ${reactionChipsRow}
-          <div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>
+          ${msg.failed
+            ? `<div class="message-timestamp message-failed" data-retry-message-id="${msg.id}">⚠️ Failed to send · Tap to retry</div>`
+            : `<div class="message-timestamp">${formatMessageTime(msg.timestamp)}</div>`}
         </div>`;
       } else {
         messageHTML += `
@@ -4702,14 +4320,32 @@ document.addEventListener('DOMContentLoaded', () => {
     // button wired above instead.
     if (isMember) {
       setupComposer(group, { isGroup: true });
+
+      // Tap a "Failed to send" label to retry delivering that message.
+      groupRoot.querySelectorAll('[data-retry-message-id]').forEach(el => {
+        el.addEventListener('click', () => {
+          const msg = group.messages.find(m => m.id === el.dataset.retryMessageId);
+          if (!msg) return;
+          deliverThreadMessage('group', groupId, msg, () => renderGroupConversationPage(groupId));
+          renderGroupConversationPage(groupId);
+        });
+      });
+
       startThreadPolling(
         () => hydrateThreadMessages('group', groupId, group),
-        () => renderGroupConversationPage(groupId)
+        () => renderGroupConversationPage(groupId),
+        () => {
+          const failed = group.messages.filter(m => m.failed);
+          if (!failed.length) return false;
+          failed.forEach(msg => deliverThreadMessage('group', groupId, msg, () => renderGroupConversationPage(groupId)));
+          return true;
+        }
       );
     }
 
     // Must stay last: the send re-renders this page underneath us.
     if (isMember && SHOT_SEND_STAY && !fromSend) sendShotMessage(groupRoot);
+    if (isMember && SHOT_SEND_FAIL && !fromSend) sendShotMessage(groupRoot);
   }
 
   // Show group menu with all options (members, edit description, leave)
@@ -5199,7 +4835,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="members-chips-container" id="members-chips-container"></div>
 
         <div class="suggested-users-section-create">
-          <div class="section-header">Suggested Users</div>
+          <div class="section-header" id="suggested-users-header">Suggested Users</div>
           <div class="users-list" id="suggested-users-list">
             ${usersList}
           </div>
@@ -5219,10 +4855,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const avatarPlaceholder = document.getElementById('avatar-placeholder');
     const avatarFileInput = document.getElementById('avatar-file-input');
     const suggestedUsersList = document.getElementById('suggested-users-list');
+    const usersSectionHeader = document.getElementById('suggested-users-header');
     const membersChipsContainer = document.getElementById('members-chips-container');
     const createGroupButton = document.getElementById('create-group-button');
     const nameError = document.getElementById('name-error');
     const membersError = document.getElementById('members-error');
+
+    let searchTimeout = null;
+    let currentResults = suggestedUsers;
 
     // Helper function to update avatar display
     function updateAvatarDisplay() {
@@ -5251,9 +4891,13 @@ document.addEventListener('DOMContentLoaded', () => {
       createGroupButton.disabled = isDisabled;
     }
 
-    // Helper function to find user by ID
+    // Helper function to find user by ID — checks the currently displayed
+    // (suggested or live search) results first, then already-selected members
+    // so a chip can still be removed after the search results change underneath it.
     function findUserById(userId) {
-      return suggestedUsers.find(u => u.id === userId);
+      return currentResults.find(u => u.id === userId) ||
+        suggestedUsers.find(u => u.id === userId) ||
+        state.selectedMembers.find(u => u.id === userId);
     }
 
     // Helper function to check if user is selected
@@ -5305,27 +4949,45 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    // Helper function to filter and display users based on search
-    function filterAndDisplayUsers() {
-      const query = state.searchQuery.toLowerCase();
-      const filteredUsers = query === ''
-        ? suggestedUsers
-        : suggestedUsers.filter(user =>
-            user.username.toLowerCase().includes(query) ||
-            (user.walletAddress && user.walletAddress.toLowerCase().includes(query))
-          );
+    // Renders a list of users into the users-list panel and (re)attaches
+    // click-to-toggle handlers.
+    function renderUsersList(users) {
+      suggestedUsersList.innerHTML = users.length > 0
+        ? users.map(user => renderUserListItemHtml(user, {
+            selectable: true,
+            selected: isUserSelected(user.id)
+          })).join('')
+        : '<div class="empty-state">No users found.</div>';
 
-      suggestedUsersList.innerHTML = filteredUsers.map(user => renderUserListItemHtml(user, {
-        selectable: true,
-        selected: isUserSelected(user.id)
-      })).join('');
-
-      // Re-attach event listeners
       document.querySelectorAll('.suggested-user-item').forEach(item => {
         item.addEventListener('click', () => {
           const userId = item.dataset.userId;
           toggleUser(userId);
         });
+      });
+    }
+
+    // Helper function to filter and display users based on search — queries the
+    // real directory (GET /api/users/search, matching username or usernode
+    // address, case-insensitive) instead of only filtering the locally cached
+    // "suggested" list, so an admin can find any real user, not just the 20
+    // most-recently-active ones.
+    function filterAndDisplayUsers() {
+      const query = state.searchQuery.trim();
+      if (!query) {
+        currentResults = suggestedUsers;
+        usersSectionHeader.textContent = 'Suggested Users';
+        renderUsersList(currentResults);
+        return;
+      }
+      searchUsers(query).then(results => {
+        if (state.searchQuery.trim() !== query) return; // stale response, a newer query has since landed
+        currentResults = results;
+        usersSectionHeader.textContent = 'Search Results';
+        renderUsersList(currentResults);
+        if (results.length === 0) {
+          showAlertDialog('No Results', 'User tidak ditemukan');
+        }
       });
     }
 
@@ -5385,22 +5047,22 @@ document.addEventListener('DOMContentLoaded', () => {
       e.target.value = state.groupDescription;
     });
 
-    // Search members input handler
+    // Search members input handler — debounced, backed by the real directory search.
     searchMembersInput.addEventListener('input', (e) => {
       state.searchQuery = e.target.value;
-      filterAndDisplayUsers();
+      if (searchTimeout) clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(filterAndDisplayUsers, 300);
     });
 
-    // Suggested user item handlers
-    document.querySelectorAll('.suggested-user-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const userId = item.dataset.userId;
-        toggleUser(userId);
-      });
-    });
+    // Initial render + click handlers for the suggested users list already in the page
+    renderUsersList(currentResults);
 
     // Refresh Suggested Users with the latest directory each time this screen opens.
-    fetchSuggestedUsers().then(filterAndDisplayUsers);
+    fetchSuggestedUsers().then(() => {
+      if (state.searchQuery.trim()) return; // a search is already in progress; don't clobber it
+      currentResults = suggestedUsers;
+      renderUsersList(currentResults);
+    });
 
     // Create Group button handler
     async function submitCreateGroup() {
@@ -5643,7 +5305,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (SHOT_ADMIN_TOGGLE && !shotAdminToggleFired) {
       shotAdminToggleFired = true;
-      const toggleBtn = document.querySelector('.member-admin-toggle-btn[data-member-id="user_bob"]');
+      const toggleBtn = document.querySelector('.member-admin-toggle-btn');
       if (toggleBtn) toggleBtn.click();
     }
 
@@ -6461,48 +6123,36 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Create a new channel
-  function createChannel(name, description, visibility, avatarData) {
-    const channelId = 'channel_' + Date.now();
-    const timestamp = Date.now();
-    const avatarValue = avatarData || name.charAt(0).toUpperCase();
-
-    const newChannel = {
-      id: channelId,
-      name: name,
-      description: description,
-      avatar: avatarValue,
-      isPublic: visibility === 'public',
-      creatorId: 'user_self',
-      createdAt: timestamp,
-      followerCount: 1,
-      followers: { 'user_self': true },
-      mutedByUsers: {},
-      admins: [],
-      posts: []
-    };
-
-    channels.push(newChannel);
-
-    const newConversation = {
-      id: 'conv_channel_' + channelId,
-      type: 'channel',
-      channelId: channelId,
-      name: name,
-      avatar: avatarValue,
-      lastMessage: 'No posts yet',
-      timestamp: timestamp,
-      unreadCount: 0,
-      archived: false,
-      pinned: false
-    };
-
-    conversations.unshift(newConversation);
-    return channelId;
+  // Best-effort delivery of an already-optimistically-rendered channel post.
+  // The card is already on screen from the local unshift in publishPost --
+  // this just makes it actually reach the server (and survive a reload),
+  // mirroring deliverThreadMessage's DM/group shape.
+  function deliverPost(channelId, post, onFailure) {
+    delete post.failed;
+    // Screenshot-state: simulate a delivery failure deterministically instead
+    // of actually breaking the network, so dapp.json can assert the "Failed
+    // to send" indicator renders.
+    if (SHOT_CHANNEL_SEND_FAIL) {
+      post.failed = true;
+      if (typeof onFailure === 'function') onFailure();
+      return;
+    }
+    authFetch(`/api/messages/channel/${encodeURIComponent(channelId)}`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ id: post.id, text: post.text, imageUrl: post.imageUrl, imageId: post.imageId })
+    }).then(res => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    }).catch(error => {
+      console.warn('Could not deliver channel post:', error);
+      post.failed = true;
+      if (typeof onFailure === 'function') onFailure();
+    });
   }
 
+  // Create a new channel
   // Publish a post to a channel
-  function publishPost(channelId, text, image) {
+  function publishPost(channelId, text, image, onFailure) {
     const channel = channels.find(c => c.id === channelId);
     if (!channel || channel.creatorId !== 'user_self') {
       return null;
@@ -6528,13 +6178,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     channel.posts.unshift(newPost);
 
-    // Deliver to the server so followers actually see it (and it survives a
-    // reload) -- best-effort, the card above is already shown regardless.
-    fetch(`/api/messages/channel/${encodeURIComponent(channelId)}`, {
-      method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ id: postId, text, imageUrl: newPost.imageUrl, imageId: newPost.imageId })
-    }).catch(error => console.warn('Could not deliver channel post:', error));
+    deliverPost(channelId, newPost, onFailure);
 
     // Update last post in conversation
     const conv = conversations.find(c => c.type === 'channel' && c.channelId === channelId);
@@ -6580,6 +6224,13 @@ document.addEventListener('DOMContentLoaded', () => {
       };
       conversations.unshift(newConversation);
     }
+
+    // Best-effort, matching the optimistic-then-deliver pattern used by
+    // publishPost -- the UI above already reflects the follow regardless.
+    fetch(`/api/channels/${encodeURIComponent(channelId)}/follow`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' })
+    }).catch(error => console.warn('Could not deliver channel follow:', error));
   }
 
   // Unfollow a channel
@@ -6595,6 +6246,11 @@ document.addEventListener('DOMContentLoaded', () => {
       conv.archived = true;
       conv.hiddenFromInbox = true;
     }
+
+    fetch(`/api/channels/${encodeURIComponent(channelId)}/follow`, {
+      method: 'DELETE',
+      headers: authHeaders()
+    }).catch(error => console.warn('Could not deliver channel unfollow:', error));
   }
 
   // Toggle one emoji reaction on a post for the current user. Each emoji toggles
@@ -6658,13 +6314,26 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Delete a channel (owner only)
-  function deleteChannel(channelId) {
+  async function deleteChannel(channelId) {
     const channelIndex = channels.findIndex(c => c.id === channelId);
     if (channelIndex > -1) {
       channels.splice(channelIndex, 1);
     }
 
     conversations = conversations.filter(c => !(c.type === 'channel' && c.channelId === channelId));
+
+    try {
+      const response = await fetch(`/api/channels/${encodeURIComponent(channelId)}`, {
+        method: 'DELETE',
+        headers: authHeaders()
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to delete channel');
+      }
+    } catch (error) {
+      console.warn('Could not delete channel on server:', error);
+    }
   }
 
   // Compact follower counts for the channel header: 12500 → "12.5K", 2000 → "2K".
@@ -6710,7 +6379,9 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="post-card-head">
           <div class="post-card-avatar">${channel.avatar}</div>
           <div class="post-card-channel">${channel.name}</div>
-          <div class="post-card-time">${formatTimestamp(post.timestamp)}</div>
+          ${post.failed
+            ? `<div class="post-card-time post-failed" data-retry-post-id="${post.id}">⚠️ Failed to send · Tap to retry</div>`
+            : `<div class="post-card-time">${formatTimestamp(post.timestamp)}</div>`}
         </div>
         <div class="post-content${messageBubbleClass(post)}">${messageBodyHTML(post)}</div>
         <div class="post-reaction-chips">${postReactionChipsHTML(post)}</div>
@@ -6824,6 +6495,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     await hydrateChannelPosts(channelId, channel);
+    padForShotLongThread(channel.posts, false, (ts, n) => ({
+      id: `shot-pad-channel-${n}`, channelId: channelId, authorId: channel.creatorId,
+      text: `Filler post ${n}`, timestamp: ts, reactions: {}, isPinned: false
+    }));
 
     const isOwner = channel.creatorId === 'user_self';
     const isAdmin = isCurrentUserChannelAdmin(channel);
@@ -7036,6 +6711,16 @@ document.addEventListener('DOMContentLoaded', () => {
           showPostMenu(channelId, menuBtn.dataset.postId, isOwner);
           return;
         }
+
+        const retryEl = e.target.closest('[data-retry-post-id]');
+        if (retryEl) {
+          e.stopPropagation();
+          const post = channel.posts.find(p => p.id === retryEl.dataset.retryPostId);
+          if (!post) return;
+          deliverPost(channelId, post, () => renderChannelView(channelId));
+          renderChannelView(channelId);
+          return;
+        }
       });
 
       // Long-press a post card to open the reaction picker. This is now the ONLY
@@ -7136,7 +6821,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // An image on its own is a valid post - text is optional, same as DMs/groups
         if (!text && !readyImage) return;
 
-        publishPost(channelId, text, readyImage);
+        publishPost(channelId, text, readyImage, () => renderChannelView(channelId));
         composerInput.value = '';
         composerInput.style.height = '40px';
         imageAttachment.clearPendingImage();
@@ -7146,6 +6831,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Must stay last: the publish click above re-renders this page underneath us.
       if (SHOT_CHANNEL_SEND_STAY && !fromSend) sendShotMessage(document, '.publish-button');
+      if (SHOT_CHANNEL_SEND_FAIL && !fromSend) sendShotMessage(document, '.publish-button');
     }
 
     // Image lightbox for post images - the feed is the channel's own scroll
@@ -7159,7 +6845,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // long-press timer calls.
     if (SHOT_POST_REACTIONS) {
       const firstCard = feed?.querySelector('.post-card');
-      if (firstCard) openReactionPicker(firstCard.dataset.postId);
+      if (firstCard) {
+        const postId = firstCard.dataset.postId;
+        togglePostReaction(channelId, postId, POST_REACTIONS[0]);
+        refreshPostReactions(channelId, postId);
+        openReactionPicker(postId);
+      }
     }
     // Forward moved into the ⋯ menu, so the deep link now walks the same two
     // taps a user does: open the menu, then pick Forward.
@@ -7180,7 +6871,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // see the owner's next post show up without a manual reload.
     startThreadPolling(
       () => hydrateChannelPosts(channelId, channel),
-      () => renderChannelView(channelId)
+      () => renderChannelView(channelId),
+      () => {
+        const failed = channel.posts.filter(p => p.failed);
+        if (!failed.length) return false;
+        failed.forEach(post => deliverPost(channelId, post, () => renderChannelView(channelId)));
+        return true;
+      }
     );
   }
 
@@ -7717,6 +7414,43 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Centered modal popup with a single OK/dismiss button — same
+  // .dialog-overlay/.dialog shell as showConfirmDialog, minus the cancel
+  // button, with the centered layout variant instead of the bottom-sheet
+  // default. Blurring the active element first dismisses any open mobile
+  // keyboard (e.g. a search field the user was just typing into) so the
+  // dialog isn't rendered behind it.
+  function showAlertDialog(title, message) {
+    if (document.activeElement && document.activeElement.blur) {
+      document.activeElement.blur();
+    }
+
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay dialog-overlay-centered';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>${title}</h2>
+      </div>
+      <div class="dialog-content">
+        <p>${message}</p>
+      </div>
+      <div class="dialog-footer">
+        <button class="button-primary" id="alert-ok-btn">OK</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    document.getElementById('alert-ok-btn').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+  }
+
   // Share a link via the native share sheet, falling back to clipboard, then
   // a copy-friendly textarea, then a plain prompt if nothing else works.
   function shareLink(title, link) {
@@ -7790,6 +7524,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!isOwner && !isAdmin) {
       window.location.hash = `/channel/${channelId}`;
       return;
+    }
+
+    // Screenshot-state: channel.admins is a local-only roster (Add Admins never
+    // persists to the server), so a plain deep link to Channel Info never has
+    // anyone to list. Seed one client-only admin on whichever owned channel
+    // this is, the same real staging follower used elsewhere as a stand-in
+    // second person.
+    if (SHOT_CHANNEL_ADMIN && !(channel.admins && channel.admins.length)) {
+      channel.admins = [{
+        id: 'staging-demo-user-2',
+        username: 'staging-demo-ana',
+        avatar: generateDefaultAvatar('staging-demo-ana'),
+        walletAddress: null
+      }];
     }
 
     const adminRows = (channel.admins || []).map(admin => `
@@ -8572,7 +8320,7 @@ document.addEventListener('DOMContentLoaded', () => {
       e.target.value = state.channelDescription;
     });
 
-    createChannelButton.addEventListener('click', () => {
+    async function submitCreateChannel() {
       nameError.innerHTML = '';
 
       if (!state.channelName.trim()) {
@@ -8580,15 +8328,41 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      const channelId = createChannel(
-        state.channelName,
-        state.channelDescription,
-        'public',
-        state.avatarPreview
-      );
+      createChannelButton.disabled = true;
+      const originalLabel = createChannelButton.textContent;
+      createChannelButton.textContent = 'Creating…';
 
-      window.location.hash = `/channel/${channelId}`;
-    });
+      try {
+        const response = await fetch('/api/channels', {
+          method: 'POST',
+          headers: authHeaders({ 'content-type': 'application/json' }),
+          body: JSON.stringify({
+            name: state.channelName,
+            description: state.channelDescription,
+            avatar: state.avatarPreview
+          })
+        });
+
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          nameError.innerHTML = payload.error || 'Failed to create channel.';
+          createChannelButton.textContent = originalLabel;
+          updateButtonState();
+          return;
+        }
+
+        const shaped = addServerChannelToState(payload.channel);
+        window.location.hash = `/channel/${shaped.id}`;
+      } catch (error) {
+        console.error('Failed to create channel:', error);
+        nameError.innerHTML = 'Failed to create channel. Please try again.';
+        createChannelButton.textContent = originalLabel;
+        updateButtonState();
+      }
+    }
+
+    createChannelButton.addEventListener('click', submitCreateChannel);
 
     updateButtonState();
   }
@@ -8626,6 +8400,21 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     } catch (err) {
       console.error('Failed to fetch user data:', err);
+    }
+
+    try {
+      const profileResponse = await fetch('/api/profile', { headers: authHeaders() });
+      if (profileResponse.ok) {
+        const data = await profileResponse.json();
+        if (data.profile) {
+          profileState.bio = data.profile.bio || '';
+          profileState.avatarUrl = data.profile.avatarUrl || null;
+          profileState.avatarImageId = data.profile.avatarImageId || null;
+          if (data.profile.walletAddress) profileState.walletAddress = data.profile.walletAddress;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch profile data:', err);
     }
   }
 
@@ -8692,6 +8481,11 @@ document.addEventListener('DOMContentLoaded', () => {
               profileState.avatarUrl = stored.url;
               profileState.avatarImageId = stored.id;
               renderProfilePage();
+              fetch('/api/profile', {
+                method: 'PUT',
+                headers: authHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ avatarUrl: stored.url, avatarImageId: stored.id })
+              }).catch(err => console.warn('Could not save avatar to profile:', err));
             } catch (err) {
               console.error('Avatar upload failed:', err);
             }
@@ -8793,6 +8587,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('edit-bio-save-btn').addEventListener('click', () => {
       profileState.bio = textarea.value;
       window.location.hash = '/profile';
+      fetch('/api/profile', {
+        method: 'PUT',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ bio: profileState.bio })
+      }).catch(err => console.warn('Could not save bio to profile:', err));
     });
 
     // Auto-focus textarea
@@ -8841,6 +8640,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // onChanged callback would yank the user back into that thread's render
     // out from under whatever screen they navigated to.
     stopThreadPolling();
+    stopMessagesListPolling();
+    currentOpenConversationId = null;
 
     const hash = window.location.hash.slice(1) || 'messages';
     const path = hash.startsWith('/') ? hash.slice(1) : hash;
@@ -8963,29 +8764,146 @@ document.addEventListener('DOMContentLoaded', () => {
   // Listen for hash changes
   window.addEventListener('hashchange', handleNavigation);
 
-  // Initial render. Identity and server-backed groups are hydrated first so
-  // the first paint already knows who "You" is and which groups are real.
+  // Re-sync whatever's on screen when the tab regains focus or the network
+  // comes back -- see resyncActiveScreen above.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') resyncActiveScreen();
+  });
+  window.addEventListener('online', resyncActiveScreen);
+
+  // Initial render. Identity is hydrated first so the first paint already
+  // knows who "You" is (groups/channels tag ownership off currentUser).
+  // Everything after that has no cross-dependency except "the SHOT_* delivery
+  // fetches must land before hydrateServerDirectConversations reads them" and
+  // "hydrateConversationUserState must run after conversations/groups/channels
+  // are populated" (it only attaches overrides onto entries that already
+  // exist) -- so those are the only two serialization points kept. On a real
+  // (non-loopback) staging deploy, this cuts the boot-to-first-render chain
+  // from ~7 sequential round trips down to 3, which matters because
+  // handleNavigation() (the actual page render) doesn't run until this whole
+  // async function resolves.
   (async () => {
     await fetchUserData();
-    await fetchSuggestedUsers();
-    await hydrateServerGroups();
-    // Screenshot-state: deliver a real DM before hydrating, so the Messages
-    // list's server-backed preview/timestamp pick it up on first paint --
-    // regression check for a bug where a freshly-hydrated conversation's
-    // preview stayed blank forever.
-    if (SHOT_DC_PREVIEW) {
-      try {
-        await fetch(`/api/messages/direct/${SHOT_DC_PREVIEW_PEER_ID}`, {
-          method: 'POST',
-          headers: authHeaders({ 'Content-Type': 'application/json' }),
-          body: JSON.stringify({ id: `shot_dc_${Date.now()}`, text: SHOT_DC_PREVIEW_TEXT })
-        });
-      } catch (error) {
-        console.warn('Could not deliver shot dc-preview message:', error);
-      }
+    await Promise.all([
+      fetchSuggestedUsers(),
+      hydrateServerGroups(),
+      hydrateServerChannels(),
+      (async () => {
+        // Screenshot-state: deliver a real DM before hydrating, so the Messages
+        // list's server-backed preview/timestamp pick it up on first paint --
+        // regression check for a bug where a freshly-hydrated conversation's
+        // preview stayed blank forever.
+        if (SHOT_DC_PREVIEW) {
+          try {
+            await fetch(`/api/messages/direct/${SHOT_DC_PREVIEW_PEER_ID}`, {
+              method: 'POST',
+              headers: authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ id: `shot_dc_${Date.now()}`, text: SHOT_DC_PREVIEW_TEXT })
+            });
+          } catch (error) {
+            console.warn('Could not deliver shot dc-preview message:', error);
+          }
+        }
+        // Screenshot-state: message a fixture peer that already has a pending
+        // request seeded against 'user_self' (see SHOT_DM_NO_DUP_PEER_ID above).
+        // Regression check for getOrCreateDirectConversation's sentinel-matching
+        // bug: it used to compare the fixture's counterpart only against the
+        // alphabetically-later of the two ids, so it missed the existing pending
+        // row whenever the caller's real id sorted after the fixture's, and
+        // created a second, duplicate direct_conversations row underneath it.
+        if (SHOT_DM_NO_DUP) {
+          try {
+            await fetch(`/api/messages/direct/${SHOT_DM_NO_DUP_PEER_ID}`, {
+              method: 'POST',
+              headers: authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ id: `shot_nodup_${Date.now()}`, text: SHOT_DM_NO_DUP_TEXT })
+            });
+          } catch (error) {
+            console.warn('Could not deliver shot dm-no-dup message:', error);
+          }
+        }
+        if (SHOT_DM_RELOAD_LO || SHOT_DM_RELOAD_HI) {
+          const peerId = SHOT_DM_RELOAD_LO ? SHOT_DM_RELOAD_LO_PEER_ID : SHOT_DM_RELOAD_HI_PEER_ID;
+          try {
+            await fetch(`/api/messages/direct/${peerId}`, {
+              method: 'POST',
+              headers: authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ id: `shot_reload_${Date.now()}`, text: SHOT_DM_RELOAD_TEXT })
+            });
+          } catch (error) {
+            console.warn('Could not deliver shot dm-reload message:', error);
+          }
+        }
+        if (SHOT_DM_USERNAME_DUP) {
+          try {
+            await fetch(`/api/messages/direct/${SHOT_DM_USERNAME_DUP_PEER_ID_1}`, {
+              method: 'POST',
+              headers: authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ id: `shot_userdup_1_${Date.now()}`, text: SHOT_DM_USERNAME_DUP_TEXT })
+            });
+            await fetch(`/api/messages/direct/${SHOT_DM_USERNAME_DUP_PEER_ID_2}`, {
+              method: 'POST',
+              headers: authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ id: `shot_userdup_2_${Date.now()}`, text: SHOT_DM_USERNAME_DUP_TEXT })
+            });
+          } catch (error) {
+            console.warn('Could not deliver shot dm-username-dup messages:', error);
+          }
+        }
+        await Promise.all([
+          hydrateServerDirectConversations(),
+          hydrateMessageRequests()
+        ]);
+      })()
+    ]);
+    await hydrateConversationUserState();
+
+    // Screenshot-state: clear the first real DM's chat via the real Clear Chat
+    // function, so "no messages yet" is reachable from a plain deep link on
+    // whichever real/staging-seeded DM this account has, not a fixture id.
+    if (SHOT_DM_CLEARED) {
+      const target = conversations.find(c => c.type === 'direct');
+      if (target) clearDMChat(target.id);
     }
-    await hydrateServerDirectConversations();
-    await hydrateMessageRequests();
+
+    if (SHOT_DM_NO_DUP) {
+      // A duplicate direct_conversations row for the same peer would surface
+      // as this peer being reachable through BOTH the Messages list (a
+      // freshly-created pending_sent conversation) and the Requests tab (the
+      // original seeded incoming request) -- two separate references to what
+      // should be a single conversation. Correct behavior reuses the existing
+      // row, so the caller's message just joins the pending incoming request
+      // and this total stays at 1.
+      const refCount =
+        conversations.filter(c => c.id === 'conv_' + SHOT_DM_NO_DUP_PEER_ID).length +
+        requests.filter(r => r.senderId === SHOT_DM_NO_DUP_PEER_ID).length;
+      const marker = document.createElement('div');
+      marker.setAttribute('data-testid', 'dm-no-dup-count');
+      marker.setAttribute('data-count', String(refCount));
+      marker.style.display = 'none';
+      marker.textContent = 'DupRefs:' + refCount;
+      document.body.appendChild(marker);
+    }
+    if (SHOT_DM_USERNAME_DUP) {
+      // Two different peer ids share the same username here -- a correctly
+      // deduped inbox shows exactly ONE conversation entry for that username,
+      // no matter which of the two ids it ends up keyed under.
+      const refCount = conversations.filter(
+        c => (c.username || '').toLowerCase() === SHOT_DM_USERNAME_DUP_USERNAME
+      ).length;
+      const marker = document.createElement('div');
+      marker.setAttribute('data-testid', 'dm-username-dup-count');
+      marker.setAttribute('data-count', String(refCount));
+      marker.style.display = 'none';
+      marker.textContent = 'UsernameDupRefs:' + refCount;
+      document.body.appendChild(marker);
+    }
+    // Screenshot-state: force the session-expired banner on boot via the real
+    // authFetch 401-handling path, rather than just rendering the banner markup
+    // directly, so the deep link exercises the actual detection code.
+    if (SHOT_SESSION_EXPIRED) {
+      handleSessionExpired();
+    }
     handleNavigation();
   })();
 });
