@@ -439,7 +439,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return {
       id: isMe ? 'user_self' : member.id,
       username: isMe ? 'You' : member.username,
-      avatar: generateDefaultAvatar(isMe ? 'You' : member.username),
+      avatar: member.avatarUrl || generateDefaultAvatar(isMe ? 'You' : member.username),
       role: member.role || 'member'
     };
   }
@@ -477,13 +477,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const lastMessage = shaped.messages[shaped.messages.length - 1];
-    const existingConv = conversations.find(c => c.groupId === serverGroup.id);
+    let existingConv = conversations.find(c => c.groupId === serverGroup.id);
     if (existingConv) {
       existingConv.name = shaped.name;
       existingConv.avatar = shaped.avatar;
-      existingConv.lastMessage = lastMessage ? lastMessage.text : '';
     } else {
-      conversations.unshift({
+      existingConv = {
         id: 'conv_' + serverGroup.id,
         type: 'group',
         groupId: serverGroup.id,
@@ -494,7 +493,19 @@ document.addEventListener('DOMContentLoaded', () => {
         unreadCount: 0,
         archived: false,
         pinned: false
-      });
+      };
+      conversations.unshift(existingConv);
+    }
+
+    // Prefer the server's real last message over the local "Group created."
+    // placeholder once the thread actually has history -- mirrors how direct
+    // conversations sync their preview text in hydrateServerDirectConversations,
+    // and is what keeps the inbox preview showing e.g. "X was removed from the
+    // group" instead of going stale while the Messages list just sits open.
+    if (serverGroup.lastMessage !== undefined && serverGroup.lastMessage !== null
+        && (serverGroup.lastMessageAt || 0) >= (existingConv.timestamp || 0)) {
+      existingConv.lastMessage = truncateText(serverGroup.lastMessage, 100);
+      existingConv.timestamp = serverGroup.lastMessageAt || existingConv.timestamp;
     }
 
     // A group you're now a member of must not linger in the Discover feed.
@@ -551,6 +562,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // they haven't joined (the Discover feed). Non-fatal — the hardcoded demo
   // fixtures still render if the network or the DB is unavailable.
   async function hydrateServerGroups() {
+    let changed = false;
     try {
       const [mineRes, discoverRes] = await Promise.all([
         fetch('/api/groups?scope=mine', { headers: authHeaders() }),
@@ -564,7 +576,14 @@ document.addEventListener('DOMContentLoaded', () => {
         // silently dropping every group after it (including brand-new ones).
         (payload.groups || []).forEach(g => {
           try {
+            const before = conversations.find(c => c.groupId === g.id);
+            const prevLastMessage = before ? before.lastMessage : undefined;
+            const prevTimestamp = before ? before.timestamp : undefined;
             addServerGroupToState(g);
+            const after = conversations.find(c => c.groupId === g.id);
+            if (!before || (after && (after.lastMessage !== prevLastMessage || after.timestamp !== prevTimestamp))) {
+              changed = true;
+            }
           } catch (error) {
             console.error('Failed to hydrate group ' + g.id + ':', error);
           }
@@ -596,6 +615,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
       console.warn('Could not load server groups:', error);
     }
+    return changed;
   }
 
   // Insert a server-returned channel (plus its conversation row) into local
@@ -819,6 +839,9 @@ document.addEventListener('DOMContentLoaded', () => {
       timestamp: serverMsg.timestamp,
       isOutgoing: !!(currentUser && serverMsg.senderId === currentUser.id)
     };
+    if (serverMsg.isSystemMessage) {
+      msg.isSystemMessage = true;
+    }
     if (serverMsg.imageUrl) {
       msg.imageUrl = serverMsg.imageUrl;
       msg.imageId = serverMsg.imageId;
@@ -966,18 +989,20 @@ document.addEventListener('DOMContentLoaded', () => {
     stopMessagesListPolling();
     if (sessionExpired) return;
     activeScreenResync = async () => {
-      const [conversationsChanged, requestsChanged] = await Promise.all([
+      const [conversationsChanged, requestsChanged, groupsChanged] = await Promise.all([
         hydrateServerDirectConversations(),
-        hydrateMessageRequests()
+        hydrateMessageRequests(),
+        hydrateServerGroups()
       ]);
-      if (conversationsChanged || requestsChanged) renderMessagesPage();
+      if (conversationsChanged || requestsChanged || groupsChanged) renderMessagesPage();
     };
     messagesListPollTimer = setInterval(async () => {
-      const [conversationsChanged, requestsChanged] = await Promise.all([
+      const [conversationsChanged, requestsChanged, groupsChanged] = await Promise.all([
         hydrateServerDirectConversations(),
-        hydrateMessageRequests()
+        hydrateMessageRequests(),
+        hydrateServerGroups()
       ]);
-      if (conversationsChanged || requestsChanged) renderMessagesPage();
+      if (conversationsChanged || requestsChanged || groupsChanged) renderMessagesPage();
     }, MESSAGES_LIST_POLL_INTERVAL_MS);
   }
 
@@ -4082,7 +4107,7 @@ document.addEventListener('DOMContentLoaded', () => {
               memberCount: payload.group.memberCount,
               visibility: payload.group.visibility,
               creatorId: payload.group.creatorId,
-              members: [],
+              members: (payload.group.members || []).map(mapServerMember),
               joinRequests: [],
               createdAt: payload.group.createdAt,
               source: 'server'
@@ -4125,6 +4150,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const messagesList = messages.map(msg => {
+      if (msg.isSystemMessage) {
+        return `<div class="message-system" data-message-id="${msg.id}">${escapeHtml(msg.text)}</div>`;
+      }
       let messageHTML = `<div class="message-swipe-wrapper ${msg.isOutgoing ? 'wrapper-outgoing' : 'wrapper-incoming'}" data-message-id="${msg.id}">`;
       messageHTML += `<div class="message-reply-icon" aria-hidden="true">↩️</div>`;
       messageHTML += `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming has-avatar'}" data-message-id="${msg.id}">`;
@@ -4450,7 +4478,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const roleLabel = member.role === 'owner' ? 'Owner' : member.role === 'admin' ? 'Admin' : '';
       return `
       <div class="members-sheet-item" data-member-id="${member.id}">
-        <div class="member-avatar">${member.avatar || member.username.charAt(0).toUpperCase()}</div>
+        <div class="member-avatar">${renderCommunityAvatar(member.avatar, member.username)}</div>
         <div class="member-info">
           <div class="member-name">${member.username}</div>
           ${roleLabel ? `<div class="member-role-badge">${roleLabel}</div>` : ''}
@@ -5184,7 +5212,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       return `
         <div class="group-member-item" data-member-id="${member.id}">
-          <div class="member-avatar">${member.avatar || member.username.charAt(0).toUpperCase()}</div>
+          <div class="member-avatar">${renderCommunityAvatar(member.avatar, member.username)}</div>
           <div class="member-info">
             <div class="member-name">${member.username}</div>
             ${roleLabel ? `<div class="member-role-badge">${roleLabel}</div>` : ''}
@@ -5849,7 +5877,7 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
       <div class="dialog-content">
         <div class="member-confirm-card">
-          <div class="member-avatar">${member.avatar || member.username.charAt(0).toUpperCase()}</div>
+          <div class="member-avatar">${renderCommunityAvatar(member.avatar, member.username)}</div>
           <div class="member-confirm-info">
             <div class="member-name">${member.username}</div>
             <div class="member-text">Remove ${member.username}? They can rejoin with an invite link.</div>
@@ -5888,17 +5916,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         group.members = group.members.filter(m => m.id !== memberId);
         group.memberCount = group.members.length;
-
-        // Add system message
-        group.messages.push({
-          id: 'msg_' + Date.now(),
-          senderId: 'system',
-          senderName: 'System',
-          text: `${member.username} was removed`,
-          timestamp: Date.now(),
-          isOutgoing: false,
-          isSystemMessage: true
-        });
 
         // Update header member count
         const headerMemberCount = document.querySelector('.header-member-count');
@@ -5972,17 +5989,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const conv = conversations.find(c => c.type === 'group' && c.groupId === groupId);
         if (conv) conv.hiddenFromInbox = true;
-
-        // Add system message
-        group.messages.push({
-          id: 'msg_' + Date.now(),
-          senderId: 'system',
-          senderName: 'System',
-          text: 'You left the group',
-          timestamp: Date.now(),
-          isOutgoing: false,
-          isSystemMessage: true
-        });
 
         overlay.remove();
         // Setting an unchanged hash doesn't fire 'hashchange' (e.g. leaving

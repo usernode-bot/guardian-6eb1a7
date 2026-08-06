@@ -307,7 +307,8 @@ function shapeGroup(row, memberRows) {
   const members = (memberRows || []).map((m) => ({
     id: m.user_id,
     username: m.username,
-    role: m.role
+    role: m.role,
+    avatarUrl: m.avatar_url || null
   }));
   return {
     id: row.id,
@@ -322,7 +323,10 @@ function shapeGroup(row, memberRows) {
       ? Number(row.member_count)
       : members.length,
     members,
-    isNew: row.is_new === undefined ? undefined : !!row.is_new
+    isNew: row.is_new === undefined ? undefined : !!row.is_new,
+    lastMessage: row.last_text !== undefined ? (row.last_text || null) : undefined,
+    lastMessageSenderUsername: row.last_sender_username || null,
+    lastMessageAt: row.last_at ? new Date(row.last_at).getTime() : null
   };
 }
 
@@ -330,9 +334,10 @@ async function loadGroupWithMembers(groupId) {
   const groupRes = await pool.query('SELECT * FROM groups WHERE id = $1', [groupId]);
   if (groupRes.rowCount === 0) return null;
   const memberRes = await pool.query(
-    `SELECT user_id, username, role FROM group_members
-      WHERE group_id = $1
-      ORDER BY CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, joined_at`,
+    `SELECT gm.user_id, gm.username, gm.role, u.avatar_url FROM group_members gm
+      LEFT JOIN users u ON u.id = gm.user_id
+      WHERE gm.group_id = $1
+      ORDER BY CASE gm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, gm.joined_at`,
     [groupId]
   );
   const row = groupRes.rows[0];
@@ -377,8 +382,14 @@ app.get('/api/groups', async (req, res) => {
 
     const result = await pool.query(
       `SELECT g.*,
-              (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS member_count
+              (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS member_count,
+              lm.text AS last_text, lm.sender_username AS last_sender_username, lm.created_at AS last_at
          FROM groups g
+         LEFT JOIN LATERAL (
+           SELECT text, sender_username, created_at FROM messages
+            WHERE conversation_type = 'group' AND conversation_id = g.id
+            ORDER BY created_at DESC LIMIT 1
+         ) lm ON true
         WHERE EXISTS (
                 SELECT 1 FROM group_members m
                  WHERE m.group_id = g.id AND m.user_id = $1
@@ -391,9 +402,10 @@ app.get('/api/groups', async (req, res) => {
 
     const ids = result.rows.map((r) => r.id);
     const memberRes = await pool.query(
-      `SELECT group_id, user_id, username, role FROM group_members
-        WHERE group_id = ANY($1::text[])
-        ORDER BY CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, joined_at`,
+      `SELECT gm.group_id, gm.user_id, gm.username, gm.role, u.avatar_url FROM group_members gm
+        LEFT JOIN users u ON u.id = gm.user_id
+        WHERE gm.group_id = ANY($1::text[])
+        ORDER BY CASE gm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, gm.joined_at`,
       [ids]
     );
     const byGroup = new Map();
@@ -646,19 +658,53 @@ app.post('/api/groups/:groupId/members', async (req, res) => {
 });
 
 // DELETE /api/groups/:groupId/members/:memberId - Remove member from group
-app.delete('/api/groups/:groupId/members/:memberId', (req, res) => {
+// (owner/admin only). Removing the group's last member deletes the group
+// entirely, matching POST /api/groups/:groupId/leave's own last-member rule.
+app.delete('/api/groups/:groupId/members/:memberId', async (req, res) => {
   const { groupId, memberId } = req.params;
+  try {
+    const requesterRole = await getGroupRole(groupId, req.user.id);
+    if (requesterRole === null) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+    if (requesterRole !== 'owner' && requesterRole !== 'admin') {
+      return res.status(403).json({ error: 'Only owners and admins can remove members' });
+    }
 
-  // TODO: Validate user is group creator/admin or removing self
-  // TODO: Check if this is the last member
-  // TODO: Update database
-  // TODO: Add system message to chat
-  res.json({
-    id: groupId,
-    members: [],
-    memberCount: 0,
-    message: 'Member removed successfully'
-  });
+    const targetRes = await pool.query(
+      'SELECT username, role FROM group_members WHERE group_id = $1 AND user_id = $2',
+      [groupId, memberId]
+    );
+    if (targetRes.rowCount === 0) {
+      return res.status(404).json({ error: 'Member not found in this group' });
+    }
+    const target = targetRes.rows[0];
+    if (target.role === 'owner') {
+      return res.status(400).json({ error: "Cannot remove the group creator" });
+    }
+
+    await pool.query('DELETE FROM group_members WHERE group_id = $1 AND user_id = $2', [groupId, memberId]);
+
+    const remainingCount = await pool.query('SELECT COUNT(*)::int AS count FROM group_members WHERE group_id = $1', [groupId]);
+    if (remainingCount.rows[0].count === 0) {
+      await pool.query('DELETE FROM groups WHERE id = $1', [groupId]);
+      return res.json({ id: groupId, members: [], memberCount: 0, message: 'Member removed successfully' });
+    }
+
+    await insertMessage('group', groupId, { id: 'system', username: 'System' },
+      { text: `${target.username} was removed from the group` }, 'system');
+
+    const group = await loadGroupWithMembers(groupId);
+    res.json({
+      id: groupId,
+      members: group.members,
+      memberCount: group.memberCount,
+      message: 'Member removed successfully'
+    });
+  } catch (err) {
+    console.error('[groups] remove member failed:', err);
+    res.status(500).json({ error: 'Failed to remove member' });
+  }
 });
 
 // PUT /api/groups/:groupId/members/:memberId/role - Promote/demote a member (owner only)
@@ -678,12 +724,22 @@ app.put('/api/groups/:groupId/members/:memberId/role', async (req, res) => {
     return res.status(403).json({ error: 'Only the group creator can change member roles' });
   }
 
-  const targetRole = await getGroupRole(groupId, memberId);
-  if (targetRole === 'owner') {
+  const targetRes = await pool.query('SELECT username, role FROM group_members WHERE group_id = $1 AND user_id = $2', [groupId, memberId]);
+  if (targetRes.rowCount === 0) {
+    return res.status(404).json({ error: 'Member not found in this group' });
+  }
+  const target = targetRes.rows[0];
+  if (target.role === 'owner') {
     return res.status(400).json({ error: "Cannot change the group creator's role" });
   }
 
   await pool.query('UPDATE group_members SET role = $1 WHERE group_id = $2 AND user_id = $3', [role, groupId, memberId]);
+
+  const announcement = role === 'admin'
+    ? `${target.username} was made an admin`
+    : `${target.username} is no longer an admin`;
+  await insertMessage('group', groupId, { id: 'system', username: 'System' }, { text: announcement }, 'system');
+
   res.json({
     id: groupId,
     memberId,
@@ -738,6 +794,13 @@ app.post('/api/groups/:groupId/leave', async (req, res) => {
     }
 
     await client.query('COMMIT');
+
+    const stillExists = await pool.query('SELECT 1 FROM groups WHERE id = $1', [groupId]);
+    if (stillExists.rowCount > 0) {
+      await insertMessage('group', groupId, { id: 'system', username: 'System' },
+        { text: `${req.user.username || req.user.id} left the group` }, 'system');
+    }
+
     res.json({
       id: groupId,
       isLeftByUser: true,
@@ -1229,6 +1292,9 @@ function shapeMessage(row) {
     text: row.text || '',
     timestamp: new Date(row.created_at).getTime()
   };
+  if (row.kind === 'system') {
+    msg.isSystemMessage = true;
+  }
   if (row.image_url) {
     msg.imageUrl = row.image_url;
     msg.imageId = row.image_id;
@@ -1247,7 +1313,12 @@ const MAX_MESSAGE_TEXT_LENGTH = 4000;
 // (the same id the sender is already rendering optimistically) so a retry --
 // or the sender's own next poll -- is naturally idempotent instead of
 // creating a duplicate bubble.
-async function insertMessage(conversationType, conversationId, sender, body) {
+// `kind` is an internal-only override, never read from `body` -- callers
+// serving the public POST /api/messages/direct|group/:id endpoints must
+// never pass one through from req.body, or any user could forge a fake
+// "System" announcement. Only server-triggered call sites (role change,
+// member removal, leaving) pass kind: 'system'.
+async function insertMessage(conversationType, conversationId, sender, body, kind) {
   const id = typeof (body && body.id) === 'string' && body.id.trim()
     ? body.id.trim().slice(0, 100)
     : `msg_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
@@ -1255,19 +1326,21 @@ async function insertMessage(conversationType, conversationId, sender, body) {
   const imageUrl = typeof (body && body.imageUrl) === 'string' ? body.imageUrl : null;
   const imageId = typeof (body && body.imageId) === 'string' ? body.imageId : null;
   const replyTo = body && body.replyTo && typeof body.replyTo === 'object' ? body.replyTo : null;
+  const messageKind = kind === 'system' ? 'system' : 'text';
 
   await pool.query(
     `INSERT INTO messages
        (id, conversation_type, conversation_id, sender_user_id, sender_username,
-        text, image_url, image_id, reply_to_message_id, reply_to_sender_name, reply_to_preview_text)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        text, image_url, image_id, reply_to_message_id, reply_to_sender_name, reply_to_preview_text, kind)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      ON CONFLICT (id) DO NOTHING`,
     [
       id, conversationType, conversationId, sender.id, sender.username || sender.id,
       text, imageUrl, imageId,
       replyTo ? String(replyTo.messageId || '').slice(0, 100) || null : null,
       replyTo ? String(replyTo.senderName || '').slice(0, 80) : null,
-      replyTo ? String(replyTo.previewText || '').slice(0, 200) : null
+      replyTo ? String(replyTo.previewText || '').slice(0, 200) : null,
+      messageKind
     ]
   );
   const row = await pool.query('SELECT * FROM messages WHERE id = $1', [id]);
@@ -1697,6 +1770,10 @@ async function initDatabase() {
       `CREATE INDEX IF NOT EXISTS messages_conversation_idx
          ON messages (conversation_type, conversation_id, created_at)`
     );
+    // 'system' rows are server-generated announcements (role changes, member
+    // removal, leaving) -- never settable from the public POST /api/messages/*
+    // body, only from internal insertMessage(..., { kind: 'system' }) calls.
+    await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'text'`);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS conversation_user_state (
@@ -2108,6 +2185,11 @@ async function seedStagingUsers() {
   if (!IS_STAGING) return;
 
   const seeds = [
+    // Referenced throughout groups/channels/DM seed data below as owner/member
+    // fixtures, but never had their own `users` row -- avatar_url join in
+    // loadGroupWithMembers/GET /api/groups silently returned null for them.
+    { id: 'staging-demo-user-2', username: 'staging-demo-ana', pubkey: '0x3e5c7d9f1b3a5c7e9f1b3d5a7c9e1f3b5d7a9c1e', offset: '1 hour', avatarUrl: 'https://picsum.photos/seed/staging-demo-ana/200' },
+    { id: 'staging-demo-user-3', username: 'staging-demo-budi', pubkey: '0x7a9c1e3f5b7d9a1c3e5f7b9d1a3c5e7f9b1d3a5c', offset: '90 minutes' },
     { id: 'staging-demo-user-4', username: 'staging-demo-citra', pubkey: '0x1f3a9c2e7b5d44680a9f0c1e2d3b4a5968f7e6d5', offset: '5 minutes' },
     { id: 'staging-demo-user-5', username: 'staging-demo-dedi', pubkey: '0x8b2e4f6a1c9d3e5b7a0f2c4e6d8b9a1f3e5c7d09', offset: '2 hours' },
     // Regression fixture peer for SHOT_PERSIST_REMOVAL -- a real group/channel/DM
@@ -2136,10 +2218,10 @@ async function seedStagingUsers() {
   try {
     for (const seed of seeds) {
       await pool.query(
-        `INSERT INTO users (id, username, usernode_pubkey, last_seen_at)
-         VALUES ($1, $2, $3, now() - $4::interval)
+        `INSERT INTO users (id, username, usernode_pubkey, last_seen_at, avatar_url)
+         VALUES ($1, $2, $3, now() - $4::interval, $5)
          ON CONFLICT (id) DO NOTHING`,
-        [seed.id, seed.username, seed.pubkey, seed.offset]
+        [seed.id, seed.username, seed.pubkey, seed.offset, seed.avatarUrl || null]
       );
     }
     console.log('Staging demo users seeded');
