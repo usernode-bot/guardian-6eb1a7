@@ -131,6 +131,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_DM_DELETE_PEER_ID = 'staging-demo-delete-peer';
   const SHOT_DM_DELETE_TEXT = 'Shot delete check';
   const SHOT_DM_DELETE_MSG_ID = 'shot_delete_fixed_msg';
+  // Regression check for deleted DMs / left groups / unfollowed channels
+  // reappearing in the Messages list after the app is closed and reopened.
+  // Creates a real group+channel+DM under the current tester's own account,
+  // removes them via the same endpoints the UI uses, then simulates a
+  // restart by wiping local state and re-running the real hydration
+  // functions -- so this proves the removal was actually persisted server
+  // side, not just hidden client side until the next reload.
+  const SHOT_PERSIST_REMOVAL = SHOT === 'persist-removal';
+  const SHOT_PERSIST_REMOVAL_PEER_ID = 'staging-demo-user-6';
+  const SHOT_PERSIST_REMOVAL_TEXT = 'Shot persist removal check';
 
   // The signed-in Usernode user, hydrated from /api/state at boot. Server rows
   // for this id are mapped onto the app's long-standing 'user_self' sentinel so
@@ -438,7 +448,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return {
       id: isMe ? 'user_self' : member.id,
       username: isMe ? 'You' : member.username,
-      avatar: generateDefaultAvatar(isMe ? 'You' : member.username),
+      avatar: member.avatarUrl || generateDefaultAvatar(isMe ? 'You' : member.username),
       role: member.role || 'member'
     };
   }
@@ -455,7 +465,7 @@ document.addEventListener('DOMContentLoaded', () => {
       description: serverGroup.description || '',
       avatar: serverGroup.avatar || generateDefaultAvatar(serverGroup.name),
       visibility: serverGroup.visibility === 'public' ? 'public' : 'private',
-      creatorId: serverGroup.creatorId,
+      creatorId: (currentUser && serverGroup.creatorId === currentUser.id) ? 'user_self' : serverGroup.creatorId,
       memberCount: serverGroup.memberCount,
       members: (serverGroup.members || []).map(mapServerMember),
       joinRequests: [],
@@ -476,13 +486,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const lastMessage = shaped.messages[shaped.messages.length - 1];
-    const existingConv = conversations.find(c => c.groupId === serverGroup.id);
+    let existingConv = conversations.find(c => c.groupId === serverGroup.id);
     if (existingConv) {
       existingConv.name = shaped.name;
       existingConv.avatar = shaped.avatar;
-      existingConv.lastMessage = lastMessage ? lastMessage.text : '';
     } else {
-      conversations.unshift({
+      existingConv = {
         id: 'conv_' + serverGroup.id,
         type: 'group',
         groupId: serverGroup.id,
@@ -493,7 +502,19 @@ document.addEventListener('DOMContentLoaded', () => {
         unreadCount: 0,
         archived: false,
         pinned: false
-      });
+      };
+      conversations.unshift(existingConv);
+    }
+
+    // Prefer the server's real last message over the local "Group created."
+    // placeholder once the thread actually has history -- mirrors how direct
+    // conversations sync their preview text in hydrateServerDirectConversations,
+    // and is what keeps the inbox preview showing e.g. "X was removed from the
+    // group" instead of going stale while the Messages list just sits open.
+    if (serverGroup.lastMessage !== undefined && serverGroup.lastMessage !== null
+        && (serverGroup.lastMessageAt || 0) >= (existingConv.timestamp || 0)) {
+      existingConv.lastMessage = truncateText(serverGroup.lastMessage, 100);
+      existingConv.timestamp = serverGroup.lastMessageAt || existingConv.timestamp;
     }
 
     // A group you're now a member of must not linger in the Discover feed.
@@ -550,6 +571,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // they haven't joined (the Discover feed). Non-fatal — the hardcoded demo
   // fixtures still render if the network or the DB is unavailable.
   async function hydrateServerGroups() {
+    let changed = false;
     try {
       const [mineRes, discoverRes] = await Promise.all([
         fetch('/api/groups?scope=mine', { headers: authHeaders() }),
@@ -558,7 +580,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (mineRes.ok) {
         const payload = await mineRes.json();
-        (payload.groups || []).forEach(g => addServerGroupToState(g));
+        // One malformed group must not poison the rest of the list -- a
+        // single bad entry throwing here used to abort the whole forEach,
+        // silently dropping every group after it (including brand-new ones).
+        (payload.groups || []).forEach(g => {
+          try {
+            const before = conversations.find(c => c.groupId === g.id);
+            const prevLastMessage = before ? before.lastMessage : undefined;
+            const prevTimestamp = before ? before.timestamp : undefined;
+            addServerGroupToState(g);
+            const after = conversations.find(c => c.groupId === g.id);
+            if (!before || (after && (after.lastMessage !== prevLastMessage || after.timestamp !== prevTimestamp))) {
+              changed = true;
+            }
+          } catch (error) {
+            console.error('Failed to hydrate group ' + g.id + ':', error);
+          }
+        });
       }
 
       if (discoverRes.ok) {
@@ -586,6 +624,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
       console.warn('Could not load server groups:', error);
     }
+    return changed;
   }
 
   // Insert a server-returned channel (plus its conversation row) into local
@@ -809,6 +848,9 @@ document.addEventListener('DOMContentLoaded', () => {
       timestamp: serverMsg.timestamp,
       isOutgoing: !!(currentUser && serverMsg.senderId === currentUser.id)
     };
+    if (serverMsg.isSystemMessage) {
+      msg.isSystemMessage = true;
+    }
     if (serverMsg.imageUrl) {
       msg.imageUrl = serverMsg.imageUrl;
       msg.imageId = serverMsg.imageId;
@@ -956,18 +998,20 @@ document.addEventListener('DOMContentLoaded', () => {
     stopMessagesListPolling();
     if (sessionExpired) return;
     activeScreenResync = async () => {
-      const [conversationsChanged, requestsChanged] = await Promise.all([
+      const [conversationsChanged, requestsChanged, groupsChanged] = await Promise.all([
         hydrateServerDirectConversations(),
-        hydrateMessageRequests()
+        hydrateMessageRequests(),
+        hydrateServerGroups()
       ]);
-      if (conversationsChanged || requestsChanged) renderMessagesPage();
+      if (conversationsChanged || requestsChanged || groupsChanged) renderMessagesPage();
     };
     messagesListPollTimer = setInterval(async () => {
-      const [conversationsChanged, requestsChanged] = await Promise.all([
+      const [conversationsChanged, requestsChanged, groupsChanged] = await Promise.all([
         hydrateServerDirectConversations(),
-        hydrateMessageRequests()
+        hydrateMessageRequests(),
+        hydrateServerGroups()
       ]);
-      if (conversationsChanged || requestsChanged) renderMessagesPage();
+      if (conversationsChanged || requestsChanged || groupsChanged) renderMessagesPage();
     }, MESSAGES_LIST_POLL_INTERVAL_MS);
   }
 
@@ -4099,7 +4143,7 @@ document.addEventListener('DOMContentLoaded', () => {
               memberCount: payload.group.memberCount,
               visibility: payload.group.visibility,
               creatorId: payload.group.creatorId,
-              members: [],
+              members: (payload.group.members || []).map(mapServerMember),
               joinRequests: [],
               createdAt: payload.group.createdAt,
               source: 'server'
@@ -4142,6 +4186,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const messagesList = messages.map(msg => {
+      if (msg.isSystemMessage) {
+        return `<div class="message-system" data-message-id="${msg.id}">${escapeHtml(msg.text)}</div>`;
+      }
       let messageHTML = `<div class="message-swipe-wrapper ${msg.isOutgoing ? 'wrapper-outgoing' : 'wrapper-incoming'}" data-message-id="${msg.id}">`;
       messageHTML += `<div class="message-reply-icon" aria-hidden="true">↩️</div>`;
       messageHTML += `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming has-avatar'}" data-message-id="${msg.id}">`;
@@ -4467,7 +4514,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const roleLabel = member.role === 'owner' ? 'Owner' : member.role === 'admin' ? 'Admin' : '';
       return `
       <div class="members-sheet-item" data-member-id="${member.id}">
-        <div class="member-avatar">${member.avatar || member.username.charAt(0).toUpperCase()}</div>
+        <div class="member-avatar">${renderCommunityAvatar(member.avatar, member.username)}</div>
         <div class="member-info">
           <div class="member-name">${member.username}</div>
           ${roleLabel ? `<div class="member-role-badge">${roleLabel}</div>` : ''}
@@ -5112,6 +5159,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const originalLabel = createGroupButton.textContent;
       createGroupButton.textContent = 'Creating…';
 
+      let payload;
       try {
         const response = await fetch('/api/groups', {
           method: 'POST',
@@ -5125,7 +5173,7 @@ document.addEventListener('DOMContentLoaded', () => {
           })
         });
 
-        const payload = await response.json().catch(() => ({}));
+        payload = await response.json().catch(() => ({}));
 
         if (!response.ok) {
           membersError.innerHTML = payload.error || 'Failed to create group.';
@@ -5133,15 +5181,26 @@ document.addEventListener('DOMContentLoaded', () => {
           updateButtonState();
           return;
         }
-
-        const shaped = addServerGroupToState(payload.group);
-        window.location.hash = `/group/${shaped.id}`;
       } catch (error) {
         console.error('Failed to create group:', error);
         membersError.innerHTML = 'Failed to create group. Please try again.';
         createGroupButton.textContent = originalLabel;
         updateButtonState();
+        return;
       }
+
+      // The group is already committed server-side at this point -- a problem
+      // shaping/merging it into local state must never surface as "failed to
+      // create" (the group would then be invisible in every list until the
+      // next full reload even though it exists). Navigate to it regardless.
+      let groupId = payload.group && payload.group.id;
+      try {
+        const shaped = addServerGroupToState(payload.group);
+        groupId = shaped.id;
+      } catch (error) {
+        console.error('Group created but failed to merge into local state:', error);
+      }
+      window.location.hash = `/group/${groupId}`;
     }
 
     createGroupButton.addEventListener('click', submitCreateGroup);
@@ -5189,7 +5248,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       return `
         <div class="group-member-item" data-member-id="${member.id}">
-          <div class="member-avatar">${member.avatar || member.username.charAt(0).toUpperCase()}</div>
+          <div class="member-avatar">${renderCommunityAvatar(member.avatar, member.username)}</div>
           <div class="member-info">
             <div class="member-name">${member.username}</div>
             ${roleLabel ? `<div class="member-role-badge">${roleLabel}</div>` : ''}
@@ -5854,7 +5913,7 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
       <div class="dialog-content">
         <div class="member-confirm-card">
-          <div class="member-avatar">${member.avatar || member.username.charAt(0).toUpperCase()}</div>
+          <div class="member-avatar">${renderCommunityAvatar(member.avatar, member.username)}</div>
           <div class="member-confirm-info">
             <div class="member-name">${member.username}</div>
             <div class="member-text">Remove ${member.username}? They can rejoin with an invite link.</div>
@@ -5893,17 +5952,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         group.members = group.members.filter(m => m.id !== memberId);
         group.memberCount = group.members.length;
-
-        // Add system message
-        group.messages.push({
-          id: 'msg_' + Date.now(),
-          senderId: 'system',
-          senderName: 'System',
-          text: `${member.username} was removed`,
-          timestamp: Date.now(),
-          isOutgoing: false,
-          isSystemMessage: true
-        });
 
         // Update header member count
         const headerMemberCount = document.querySelector('.header-member-count');
@@ -5977,17 +6025,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const conv = conversations.find(c => c.type === 'group' && c.groupId === groupId);
         if (conv) conv.hiddenFromInbox = true;
-
-        // Add system message
-        group.messages.push({
-          id: 'msg_' + Date.now(),
-          senderId: 'system',
-          senderName: 'System',
-          text: 'You left the group',
-          timestamp: Date.now(),
-          isOutgoing: false,
-          isSystemMessage: true
-        });
 
         overlay.remove();
         // Setting an unchanged hash doesn't fire 'hashchange' (e.g. leaving
@@ -8799,6 +8836,41 @@ document.addEventListener('DOMContentLoaded', () => {
   // async function resolves.
   (async () => {
     await fetchUserData();
+
+    let shotPersistRemovalGroupId = null;
+    let shotPersistRemovalChannelId = null;
+    if (SHOT_PERSIST_REMOVAL) {
+      // Screenshot-state: create a real group and channel owned by the current
+      // tester, and message a fixture peer, BEFORE the first hydration below --
+      // so this shot's own leave/unfollow/hide actions have something real to
+      // remove, rather than racing hydrateServerGroups/hydrateServerChannels.
+      try {
+        const groupRes = await fetch('/api/groups', {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ name: 'Shot persist removal group', members: [SHOT_PERSIST_REMOVAL_PEER_ID] })
+        });
+        const groupPayload = await groupRes.json();
+        shotPersistRemovalGroupId = groupPayload.group && groupPayload.group.id;
+
+        const channelRes = await fetch('/api/channels', {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ name: 'Shot persist removal channel' })
+        });
+        const channelPayload = await channelRes.json();
+        shotPersistRemovalChannelId = channelPayload.channel && channelPayload.channel.id;
+
+        await fetch(`/api/messages/direct/${SHOT_PERSIST_REMOVAL_PEER_ID}`, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ id: `shot_persist_removal_${Date.now()}`, text: SHOT_PERSIST_REMOVAL_TEXT })
+        });
+      } catch (error) {
+        console.warn('Could not set up shot persist-removal fixtures:', error);
+      }
+    }
+
     await Promise.all([
       fetchSuggestedUsers(),
       hydrateServerGroups(),
@@ -8887,6 +8959,55 @@ document.addEventListener('DOMContentLoaded', () => {
       })()
     ]);
     await hydrateConversationUserState();
+
+    if (SHOT_PERSIST_REMOVAL) {
+      // Leave the group, unfollow the channel, and hide the DM through the
+      // same real endpoints the Leave/Unfollow/Delete Chat UI actions call.
+      try {
+        if (shotPersistRemovalGroupId) {
+          await fetch(`/api/groups/${shotPersistRemovalGroupId}/leave`, { method: 'POST', headers: authHeaders() });
+        }
+        if (shotPersistRemovalChannelId) {
+          await fetch(`/api/channels/${shotPersistRemovalChannelId}/follow`, { method: 'DELETE', headers: authHeaders() });
+        }
+        await fetch(`/api/conversations/conv_${SHOT_PERSIST_REMOVAL_PEER_ID}/state`, {
+          method: 'PUT',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ hiddenFromInbox: true })
+        });
+      } catch (error) {
+        console.warn('Could not remove shot persist-removal fixtures:', error);
+      }
+
+      // Simulate closing and reopening the app: wipe the in-memory lists (they
+      // normally start empty on every page load, see the `let conversations =
+      // []` etc. declarations above) and re-run the exact hydration the real
+      // boot sequence uses. If the removals above didn't actually persist
+      // server side, one or more of these would reappear right here.
+      conversations.length = 0;
+      groups.length = 0;
+      channels.length = 0;
+      discoverGroups.length = 0;
+      discoverChannels.length = 0;
+      await Promise.all([
+        hydrateServerGroups(),
+        hydrateServerChannels(),
+        hydrateServerDirectConversations()
+      ]);
+      await hydrateConversationUserState();
+
+      const stillPresent =
+        (shotPersistRemovalGroupId && conversations.some(c => c.type === 'group' && c.groupId === shotPersistRemovalGroupId) ? 1 : 0) +
+        (shotPersistRemovalChannelId && conversations.some(c => c.type === 'channel' && c.channelId === shotPersistRemovalChannelId) ? 1 : 0) +
+        (conversations.some(c => c.type === 'direct' && c.id === 'conv_' + SHOT_PERSIST_REMOVAL_PEER_ID && !c.hiddenFromInbox) ? 1 : 0);
+
+      const marker = document.createElement('div');
+      marker.setAttribute('data-testid', 'persist-removal-count');
+      marker.setAttribute('data-count', String(stillPresent));
+      marker.style.display = 'none';
+      marker.textContent = 'StillPresent:' + stillPresent;
+      document.body.appendChild(marker);
+    }
 
     // Screenshot-state: clear the first real DM's chat via the real Clear Chat
     // function, so "no messages yet" is reachable from a plain deep link on
