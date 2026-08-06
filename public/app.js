@@ -1109,7 +1109,7 @@ document.addEventListener('DOMContentLoaded', () => {
       description: serverGroup.description || '',
       avatar: serverGroup.avatar || generateDefaultAvatar(serverGroup.name),
       visibility: serverGroup.visibility === 'public' ? 'public' : 'private',
-      creatorId: serverGroup.creatorId,
+      creatorId: (currentUser && serverGroup.creatorId === currentUser.id) ? 'user_self' : serverGroup.creatorId,
       memberCount: serverGroup.memberCount,
       members: (serverGroup.members || []).map(mapServerMember),
       joinRequests: [],
@@ -1212,7 +1212,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (mineRes.ok) {
         const payload = await mineRes.json();
-        (payload.groups || []).forEach(g => addServerGroupToState(g));
+        // One malformed group must not poison the rest of the list -- a
+        // single bad entry throwing here used to abort the whole forEach,
+        // silently dropping every group after it (including brand-new ones).
+        (payload.groups || []).forEach(g => {
+          try {
+            addServerGroupToState(g);
+          } catch (error) {
+            console.error('Failed to hydrate group ' + g.id + ':', error);
+          }
+        });
       }
 
       if (discoverRes.ok) {
@@ -5414,6 +5423,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const originalLabel = createGroupButton.textContent;
       createGroupButton.textContent = 'Creating…';
 
+      let payload;
       try {
         const response = await fetch('/api/groups', {
           method: 'POST',
@@ -5427,7 +5437,7 @@ document.addEventListener('DOMContentLoaded', () => {
           })
         });
 
-        const payload = await response.json().catch(() => ({}));
+        payload = await response.json().catch(() => ({}));
 
         if (!response.ok) {
           membersError.innerHTML = payload.error || 'Failed to create group.';
@@ -5435,15 +5445,26 @@ document.addEventListener('DOMContentLoaded', () => {
           updateButtonState();
           return;
         }
-
-        const shaped = addServerGroupToState(payload.group);
-        window.location.hash = `/group/${shaped.id}`;
       } catch (error) {
         console.error('Failed to create group:', error);
         membersError.innerHTML = 'Failed to create group. Please try again.';
         createGroupButton.textContent = originalLabel;
         updateButtonState();
+        return;
       }
+
+      // The group is already committed server-side at this point -- a problem
+      // shaping/merging it into local state must never surface as "failed to
+      // create" (the group would then be invisible in every list until the
+      // next full reload even though it exists). Navigate to it regardless.
+      let groupId = payload.group && payload.group.id;
+      try {
+        const shaped = addServerGroupToState(payload.group);
+        groupId = shaped.id;
+      } catch (error) {
+        console.error('Group created but failed to merge into local state:', error);
+      }
+      window.location.hash = `/group/${groupId}`;
     }
 
     createGroupButton.addEventListener('click', submitCreateGroup);
