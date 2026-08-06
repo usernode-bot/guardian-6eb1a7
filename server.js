@@ -1227,11 +1227,20 @@ async function insertMessage(conversationType, conversationId, sender, body) {
   return shapeMessage(row.rows[0]);
 }
 
-async function listMessages(conversationType, conversationId) {
+// userId is optional: when given, messages that user has hidden-for-self
+// (see message_hidden_for / POST .../hide below) are excluded -- otherwise a
+// deleted-for-me message reappears on the very next fetch (e.g. a reload),
+// since the underlying row is never actually removed.
+async function listMessages(conversationType, conversationId, userId) {
   const result = await pool.query(
-    `SELECT * FROM messages WHERE conversation_type = $1 AND conversation_id = $2
-      ORDER BY created_at ASC LIMIT 500`,
-    [conversationType, conversationId]
+    `SELECT m.* FROM messages m
+      WHERE m.conversation_type = $1 AND m.conversation_id = $2
+        AND NOT EXISTS (
+          SELECT 1 FROM message_hidden_for mhf
+           WHERE mhf.message_id = m.id AND mhf.user_id = $3
+        )
+      ORDER BY m.created_at ASC LIMIT 500`,
+    [conversationType, conversationId, userId || null]
   );
   return result.rows.map(shapeMessage);
 }
@@ -1254,7 +1263,7 @@ app.get('/api/direct-conversations', async (req, res) => {
               cus.pinned AS pinned, cus.hidden_from_inbox AS hidden_from_inbox,
               COALESCE(unread.count, 0) AS unread_count
          FROM direct_conversations dc
-         JOIN users u ON u.id = (CASE WHEN dc.user_id_a = $1 OR dc.user_id_a = 'user_self' THEN dc.user_id_b ELSE dc.user_id_a END)
+         LEFT JOIN users u ON u.id = (CASE WHEN dc.user_id_a = $1 OR dc.user_id_a = 'user_self' THEN dc.user_id_b ELSE dc.user_id_a END)
          LEFT JOIN LATERAL (
            SELECT text, sender_user_id, created_at FROM messages
             WHERE conversation_type = 'direct' AND conversation_id = dc.id
@@ -1284,12 +1293,19 @@ app.get('/api/direct-conversations', async (req, res) => {
     const seenPeerUsernames = new Set();
     const conversations = [];
     for (const row of result.rows) {
-      const usernameKey = (row.peer_username || '').toLowerCase();
+      const peerId = (row.user_id_a === req.user.id || row.user_id_a === 'user_self') ? row.user_id_b : row.user_id_a;
+      // The peer may not have a `users` row yet (they've never loaded the app
+      // in this environment) -- that must NOT hide an otherwise valid,
+      // already-persisted conversation from the caller's own list, so fall
+      // back to the peer id itself for both the dedup key and display name
+      // rather than dropping the row (previously an INNER JOIN did exactly
+      // that).
+      const usernameKey = row.peer_username ? row.peer_username.toLowerCase() : `id:${peerId}`;
       if (seenPeerUsernames.has(usernameKey)) continue;
       seenPeerUsernames.add(usernameKey);
       conversations.push({
-        peerId: (row.user_id_a === req.user.id || row.user_id_a === 'user_self') ? row.user_id_b : row.user_id_a,
-        peerUsername: row.peer_username,
+        peerId,
+        peerUsername: row.peer_username || peerId,
         peerWalletAddress: row.peer_pubkey || null,
         lastMessage: row.last_text || null,
         lastMessageSenderId: row.last_sender_id || null,
@@ -1316,7 +1332,7 @@ app.get('/api/message-requests', async (req, res) => {
               u.username AS sender_username, u.usernode_pubkey AS sender_pubkey,
               fm.text AS preview_text, fm.created_at AS first_at
          FROM direct_conversations dc
-         JOIN users u ON u.id = dc.requested_by_user_id
+         LEFT JOIN users u ON u.id = dc.requested_by_user_id
          LEFT JOIN LATERAL (
            SELECT text, created_at FROM messages
             WHERE conversation_type = 'direct' AND conversation_id = dc.id
@@ -1332,7 +1348,7 @@ app.get('/api/message-requests', async (req, res) => {
       requests: result.rows.map((row) => ({
         id: row.id,
         senderId: row.requested_by_user_id,
-        senderUsername: row.sender_username,
+        senderUsername: row.sender_username || row.requested_by_user_id,
         senderWalletAddress: row.sender_pubkey || null,
         messagePreview: row.preview_text || null,
         timestamp: new Date(row.first_at || row.created_at).getTime()
@@ -1415,7 +1431,7 @@ app.get('/api/messages/direct/:peerId', async (req, res) => {
       [req.user.id, peerId]
     );
     if (convRes.rowCount === 0) return res.json({ messages: [] });
-    res.json({ messages: await listMessages('direct', convRes.rows[0].id) });
+    res.json({ messages: await listMessages('direct', convRes.rows[0].id, req.user.id) });
   } catch (err) {
     console.error('[messages] direct fetch failed:', err);
     res.status(500).json({ error: 'Failed to load messages' });
@@ -1444,6 +1460,43 @@ app.post('/api/messages/direct/:peerId', async (req, res) => {
   } catch (err) {
     console.error('[messages] direct send failed:', err);
     res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+// POST /api/messages/direct/:peerId/:messageId/hide - "delete for me": hides
+// one message from only the caller's own view of this DM thread. Either
+// participant may hide any message in a thread they're part of (matching the
+// client's long-press menu, which allows this on the peer's messages too) --
+// the other participant's history is untouched. Scoped through the same
+// peerId conversation lookup as the GET route above, so a caller can't hide a
+// message belonging to a thread they're not part of.
+app.post('/api/messages/direct/:peerId/:messageId/hide', async (req, res) => {
+  try {
+    const { peerId, messageId } = req.params;
+    const convRes = await pool.query(
+      `SELECT id FROM direct_conversations
+        WHERE (user_id_a = $1 AND user_id_b = $2)
+           OR (user_id_a = $2 AND user_id_b = $1)
+           OR (user_id_a = 'user_self' AND user_id_b = $2)
+           OR (user_id_b = 'user_self' AND user_id_a = $2)`,
+      [req.user.id, peerId]
+    );
+    if (convRes.rowCount === 0) return res.status(404).json({ error: 'Conversation not found' });
+    const conversationId = convRes.rows[0].id;
+    const msgRes = await pool.query(
+      `SELECT id FROM messages WHERE id = $1 AND conversation_type = 'direct' AND conversation_id = $2`,
+      [messageId, conversationId]
+    );
+    if (msgRes.rowCount === 0) return res.status(404).json({ error: 'Message not found' });
+    await pool.query(
+      `INSERT INTO message_hidden_for (message_id, user_id) VALUES ($1, $2)
+       ON CONFLICT (message_id, user_id) DO NOTHING`,
+      [messageId, req.user.id]
+    );
+    res.json({ id: messageId, hidden: true });
+  } catch (err) {
+    console.error('[messages] direct hide failed:', err);
+    res.status(500).json({ error: 'Failed to hide message' });
   }
 });
 
@@ -1651,6 +1704,19 @@ async function initDatabase() {
          ON messages (conversation_type, conversation_id, created_at)`
     );
 
+    // "Delete for me" on a DM message: the sender or recipient can hide any
+    // message from their own view without affecting the other participant's
+    // history. Previously this only ever mutated an in-memory flag on the
+    // client, so it silently reappeared on every reload.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS message_hidden_for (
+        message_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (message_id, user_id)
+      );
+    `);
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS conversation_user_state (
         conversation_id TEXT NOT NULL,
@@ -1693,6 +1759,8 @@ async function initDatabase() {
     // Private: a hidden_from_inbox/pinned row ties a real user_id to a
     // specific conversation_id, which can reveal who a user is DMing.
     await pool.query(`COMMENT ON TABLE conversation_user_state IS 'staging:private'`);
+    // Private: ties a real user_id to a specific message_id they hid.
+    await pool.query(`COMMENT ON TABLE message_hidden_for IS 'staging:private'`);
     // Private: reveals who is DMing whom, and the DM content itself.
     await pool.query(`COMMENT ON TABLE direct_conversations IS 'staging:private'`);
     await pool.query(`COMMENT ON TABLE messages IS 'staging:private'`);
