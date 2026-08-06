@@ -122,6 +122,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_DM_USERNAME_DUP_PEER_ID_2 = 'staging-demo-user-11';
   const SHOT_DM_USERNAME_DUP_USERNAME = 'staging-demo-dup-name';
   const SHOT_DM_USERNAME_DUP_TEXT = 'Shot username dup check';
+  // Regression check for "delete for me" not persisting: send a message to a
+  // fixed fixture peer, then immediately hide it via the real endpoint (not
+  // just the client-only mutation), so a later plain reload of the same
+  // conversation proves the hide survived server-side, not just this tab's
+  // in-memory state.
+  const SHOT_DM_DELETE = SHOT === 'dm-delete';
+  const SHOT_DM_DELETE_PEER_ID = 'staging-demo-delete-peer';
+  const SHOT_DM_DELETE_TEXT = 'Shot delete check';
+  const SHOT_DM_DELETE_MSG_ID = 'shot_delete_fixed_msg';
   // Regression check for deleted DMs / left groups / unfollowed channels
   // reappearing in the Messages list after the app is closed and reopened.
   // Creates a real group+channel+DM under the current tester's own account,
@@ -2554,6 +2563,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // Screenshot-state: click the real ⋮ button so the deep link exercises the
     // actual event listener wiring, not just the dialog-rendering function.
     if (SHOT_DM_MENU) menuButton?.click();
+
+    // Regression marker for the "delete for me" persistence check: reflects
+    // whether the fixed shot-delete message is (still) rendered in this
+    // thread. Always computed when viewing this fixture peer -- not gated on
+    // SHOT_DM_DELETE -- so the *plain* reload test (no shot param) can assert
+    // on it too, proving the hide survived server-side rather than only
+    // living in this tab's in-memory state.
+    if (peerId === SHOT_DM_DELETE_PEER_ID) {
+      const stillPresent = !!document.querySelector(`[data-message-id="${SHOT_DM_DELETE_MSG_ID}"]`);
+      const marker = document.querySelector('[data-testid="dm-delete-check"]') || document.body.appendChild(document.createElement('div'));
+      marker.setAttribute('data-testid', 'dm-delete-check');
+      marker.setAttribute('data-hidden', stillPresent ? 'false' : 'true');
+      marker.style.display = 'none';
+    }
   }
 
   // Screenshot-state helper: drive the real composer the same way a tap does, so
@@ -3458,7 +3481,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // DM "delete for me" (WhatsApp/Telegram style): hides a message from the
   // current user's own view only. The message is untouched for the other
-  // participant — this is not a shared/real delete.
+  // participant — this is not a shared/real delete. Persisted server-side
+  // (fire-and-forget, matching deliverThreadMessage/markConversationRead)
+  // so it stays hidden after a reload instead of only living on the
+  // in-memory message object for the rest of this tab's session.
   function hideMessageForSelf(conversation, messageId) {
     const message = conversation.messages.find(m => m.id === messageId);
     if (!message) return;
@@ -3466,8 +3492,8 @@ document.addEventListener('DOMContentLoaded', () => {
     message.hiddenFor = message.hiddenFor || {};
     message.hiddenFor.user_self = true;
 
-    const messageEl = document.querySelector(`.message[data-message-id="${messageId}"]`);
-    if (messageEl) messageEl.remove();
+    const wrapperEl = document.querySelector(`.message-swipe-wrapper[data-message-id="${messageId}"]`);
+    if (wrapperEl) wrapperEl.remove();
 
     // Keep the conversation list preview in sync — skip hidden-for-self messages
     const visibleMessages = conversation.messages.filter(m => !(m.hiddenFor && m.hiddenFor.user_self));
@@ -3476,6 +3502,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (lastMessage) conversation.timestamp = lastMessage.timestamp;
 
     showToast('Message deleted', { type: 'success' });
+
+    const peerId = directPeerId(conversation.id);
+    if (peerId) {
+      authFetch(`/api/messages/direct/${encodeURIComponent(peerId)}/${encodeURIComponent(messageId)}/hide`, {
+        method: 'POST',
+        headers: authHeaders()
+      }).catch(error => {
+        console.warn('Could not persist message hide:', error);
+      });
+    }
   }
 
   // Group shared moderation delete: removes a message for every member. Members
@@ -8899,6 +8935,21 @@ document.addEventListener('DOMContentLoaded', () => {
             });
           } catch (error) {
             console.warn('Could not deliver shot dm-username-dup messages:', error);
+          }
+        }
+        if (SHOT_DM_DELETE) {
+          try {
+            await fetch(`/api/messages/direct/${SHOT_DM_DELETE_PEER_ID}`, {
+              method: 'POST',
+              headers: authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ id: SHOT_DM_DELETE_MSG_ID, text: SHOT_DM_DELETE_TEXT })
+            });
+            await fetch(`/api/messages/direct/${SHOT_DM_DELETE_PEER_ID}/${SHOT_DM_DELETE_MSG_ID}/hide`, {
+              method: 'POST',
+              headers: authHeaders()
+            });
+          } catch (error) {
+            console.warn('Could not deliver/hide shot dm-delete message:', error);
           }
         }
         await Promise.all([
