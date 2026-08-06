@@ -122,6 +122,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_DM_USERNAME_DUP_PEER_ID_2 = 'staging-demo-user-11';
   const SHOT_DM_USERNAME_DUP_USERNAME = 'staging-demo-dup-name';
   const SHOT_DM_USERNAME_DUP_TEXT = 'Shot username dup check';
+  // Regression check for deleted DMs / left groups / unfollowed channels
+  // reappearing in the Messages list after the app is closed and reopened.
+  // Creates a real group+channel+DM under the current tester's own account,
+  // removes them via the same endpoints the UI uses, then simulates a
+  // restart by wiping local state and re-running the real hydration
+  // functions -- so this proves the removal was actually persisted server
+  // side, not just hidden client side until the next reload.
+  const SHOT_PERSIST_REMOVAL = SHOT === 'persist-removal';
+  const SHOT_PERSIST_REMOVAL_PEER_ID = 'staging-demo-user-6';
+  const SHOT_PERSIST_REMOVAL_TEXT = 'Shot persist removal check';
 
   // The signed-in Usernode user, hydrated from /api/state at boot. Server rows
   // for this id are mapped onto the app's long-standing 'user_self' sentinel so
@@ -8763,6 +8773,41 @@ document.addEventListener('DOMContentLoaded', () => {
   // async function resolves.
   (async () => {
     await fetchUserData();
+
+    let shotPersistRemovalGroupId = null;
+    let shotPersistRemovalChannelId = null;
+    if (SHOT_PERSIST_REMOVAL) {
+      // Screenshot-state: create a real group and channel owned by the current
+      // tester, and message a fixture peer, BEFORE the first hydration below --
+      // so this shot's own leave/unfollow/hide actions have something real to
+      // remove, rather than racing hydrateServerGroups/hydrateServerChannels.
+      try {
+        const groupRes = await fetch('/api/groups', {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ name: 'Shot persist removal group', members: [SHOT_PERSIST_REMOVAL_PEER_ID] })
+        });
+        const groupPayload = await groupRes.json();
+        shotPersistRemovalGroupId = groupPayload.group && groupPayload.group.id;
+
+        const channelRes = await fetch('/api/channels', {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ name: 'Shot persist removal channel' })
+        });
+        const channelPayload = await channelRes.json();
+        shotPersistRemovalChannelId = channelPayload.channel && channelPayload.channel.id;
+
+        await fetch(`/api/messages/direct/${SHOT_PERSIST_REMOVAL_PEER_ID}`, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ id: `shot_persist_removal_${Date.now()}`, text: SHOT_PERSIST_REMOVAL_TEXT })
+        });
+      } catch (error) {
+        console.warn('Could not set up shot persist-removal fixtures:', error);
+      }
+    }
+
     await Promise.all([
       fetchSuggestedUsers(),
       hydrateServerGroups(),
@@ -8836,6 +8881,55 @@ document.addEventListener('DOMContentLoaded', () => {
       })()
     ]);
     await hydrateConversationUserState();
+
+    if (SHOT_PERSIST_REMOVAL) {
+      // Leave the group, unfollow the channel, and hide the DM through the
+      // same real endpoints the Leave/Unfollow/Delete Chat UI actions call.
+      try {
+        if (shotPersistRemovalGroupId) {
+          await fetch(`/api/groups/${shotPersistRemovalGroupId}/leave`, { method: 'POST', headers: authHeaders() });
+        }
+        if (shotPersistRemovalChannelId) {
+          await fetch(`/api/channels/${shotPersistRemovalChannelId}/follow`, { method: 'DELETE', headers: authHeaders() });
+        }
+        await fetch(`/api/conversations/conv_${SHOT_PERSIST_REMOVAL_PEER_ID}/state`, {
+          method: 'PUT',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ hiddenFromInbox: true })
+        });
+      } catch (error) {
+        console.warn('Could not remove shot persist-removal fixtures:', error);
+      }
+
+      // Simulate closing and reopening the app: wipe the in-memory lists (they
+      // normally start empty on every page load, see the `let conversations =
+      // []` etc. declarations above) and re-run the exact hydration the real
+      // boot sequence uses. If the removals above didn't actually persist
+      // server side, one or more of these would reappear right here.
+      conversations.length = 0;
+      groups.length = 0;
+      channels.length = 0;
+      discoverGroups.length = 0;
+      discoverChannels.length = 0;
+      await Promise.all([
+        hydrateServerGroups(),
+        hydrateServerChannels(),
+        hydrateServerDirectConversations()
+      ]);
+      await hydrateConversationUserState();
+
+      const stillPresent =
+        (shotPersistRemovalGroupId && conversations.some(c => c.type === 'group' && c.groupId === shotPersistRemovalGroupId) ? 1 : 0) +
+        (shotPersistRemovalChannelId && conversations.some(c => c.type === 'channel' && c.channelId === shotPersistRemovalChannelId) ? 1 : 0) +
+        (conversations.some(c => c.type === 'direct' && c.id === 'conv_' + SHOT_PERSIST_REMOVAL_PEER_ID && !c.hiddenFromInbox) ? 1 : 0);
+
+      const marker = document.createElement('div');
+      marker.setAttribute('data-testid', 'persist-removal-count');
+      marker.setAttribute('data-count', String(stillPresent));
+      marker.style.display = 'none';
+      marker.textContent = 'StillPresent:' + stillPresent;
+      document.body.appendChild(marker);
+    }
 
     // Screenshot-state: clear the first real DM's chat via the real Clear Chat
     // function, so "no messages yet" is reachable from a plain deep link on

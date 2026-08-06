@@ -714,6 +714,11 @@
       "name": "Session-expired banner shows the reload prompt text",
       "path": "/?shot=session-expired",
       "expectText": "Your session expired"
+    },
+    {
+      "name": "A left group, unfollowed channel, and deleted DM stay gone after a simulated app restart (regression: group-leave stub, channel isFollowing always true, both let removed conversations reappear)",
+      "path": "/?shot=persist-removal",
+      "expectSelector": "[data-testid=\"persist-removal-count\"][data-count=\"0\"]"
     }
   ]
 }
