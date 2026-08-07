@@ -87,6 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_CHANNEL_SEND_FAIL = SHOT === 'channel-send-fail';
   const SHOT_SESSION_EXPIRED = SHOT === 'session-expired';
   const SHOT_NOTIFICATIONS_SHEET = SHOT === 'notifications-sheet';
+  const SHOT_GROUPS_TAB = SHOT === 'groups-tab';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
   const SHOT_CREATE_GROUP_NAME = 'Staging demo one-invite group';
@@ -1922,10 +1923,12 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="messages-header">
           <h1>Guardian</h1>
           <div class="messages-header-actions">
+            ${activeMessagesTab === 'groups' ? `
             <span class="notification-bell un-touch-target" id="notification-bell-btn" title="Notifications">
               🔔
               <span class="notification-bell-badge ${notificationUnreadCount > 0 ? 'notification-bell-badge-visible' : ''}" id="notification-bell-badge">${notificationUnreadCount > 9 ? '9+' : notificationUnreadCount}</span>
             </span>
+            ` : ''}
             <span class="search-icon un-touch-target">🔍</span>
           </div>
         </div>
@@ -1972,8 +1975,8 @@ document.addEventListener('DOMContentLoaded', () => {
       }, 0);
     });
 
-    // Notification bell handler
-    document.getElementById('notification-bell-btn').addEventListener('click', () => {
+    // Notification bell handler (only rendered on the Groups tab)
+    document.getElementById('notification-bell-btn')?.addEventListener('click', () => {
       openNotificationsSheet();
     });
 
@@ -8804,7 +8807,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Special handling for messages page
     if (pageName === 'messages') {
-      renderMessagesPage(SHOT_REQUESTS_TAB ? 'requests' : null);
+      renderMessagesPage(SHOT_REQUESTS_TAB ? 'requests' : ((SHOT_GROUPS_TAB || SHOT_NOTIFICATIONS_SHEET) ? 'groups' : null));
     } else if (pageName === 'create') {
       renderNewMessagePage();
     } else if (pageName === 'discover') {

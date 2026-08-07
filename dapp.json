@@ -731,13 +731,13 @@
       "expectSelector": "[data-testid=\"persist-removal-count\"][data-count=\"0\"]"
     },
     {
-      "name": "Notification bell renders on Messages screen",
-      "path": "/",
+      "name": "Notification bell renders on the Groups tab of the Messages screen",
+      "path": "/?shot=groups-tab",
       "expectSelector": ".notification-bell"
     },
     {
       "name": "Notification bell badge shows unread count for a pending admin-promotion notification",
-      "path": "/",
+      "path": "/?shot=groups-tab",
       "expectSelector": ".notification-bell-badge-visible"
     },
     {
