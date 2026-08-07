@@ -8699,7 +8699,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (response.ok) {
         const data = await response.json();
         if (data.user) {
-          currentUser = { id: data.user.id, username: data.user.username || 'johndoe' };
+          // Coerce defensively -- server ids are TEXT columns, so comparisons
+          // like `serverGroup.creatorId === currentUser.id` must not silently
+          // fail a string/number mismatch (see addServerGroupToState).
+          currentUser = { id: String(data.user.id), username: data.user.username || 'johndoe' };
           profileState.username = data.user.username || 'johndoe';
           profileState.walletAddress = data.user.usernode_pubkey || null;
         }
