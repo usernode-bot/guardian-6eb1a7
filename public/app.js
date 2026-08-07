@@ -991,6 +991,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (changed) onChanged();
       if (typeof retryFailed === 'function' && retryFailed()) onChanged();
     };
+    activeScreenResync();
     activeThreadPollTimer = setInterval(async () => {
       const changed = await hydrateFn();
       if (changed) onChanged();
@@ -1023,6 +1024,7 @@ document.addEventListener('DOMContentLoaded', () => {
       ]);
       if (conversationsChanged || requestsChanged || groupsChanged) renderMessagesPage();
     };
+    activeScreenResync();
     messagesListPollTimer = setInterval(async () => {
       const [conversationsChanged, requestsChanged, groupsChanged] = await Promise.all([
         hydrateServerDirectConversations(),
@@ -2635,8 +2637,19 @@ document.addEventListener('DOMContentLoaded', () => {
       return messageHTML;
     }).join('');
 
+    // A poll-triggered re-render (immediate resync, interval tick, or the
+    // onChanged fired when a new message lands) rebuilds this whole screen
+    // from scratch, including the composer -- without this, whatever the user
+    // was mid-typing when someone else's message arrived got silently wiped,
+    // and a Send click landing right after read an empty textarea and no-oped.
+    const existingComposerInput = pageContainer.querySelector('.conversation-page')?.dataset.conversationId === conversationId
+      ? pageContainer.querySelector('.composer-input')
+      : null;
+    const preservedDraft = existingComposerInput ? existingComposerInput.value : '';
+    const hadFocus = existingComposerInput === document.activeElement;
+
     pageContainer.innerHTML = `
-      <div class="conversation-page">
+      <div class="conversation-page" data-conversation-id="${escapeAttr(conversationId)}">
         <div class="conversation-page-header">
           <button class="back-button" aria-label="Back to messages">←</button>
           <div class="conversation-header-info">
@@ -2661,6 +2674,18 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       </div>
     `;
+
+    if (preservedDraft) {
+      const newComposerInput = pageContainer.querySelector('.composer-input');
+      if (newComposerInput) {
+        newComposerInput.value = preservedDraft;
+        newComposerInput.style.height = Math.min(newComposerInput.scrollHeight, 120) + 'px';
+        if (hadFocus) {
+          newComposerInput.focus();
+          newComposerInput.selectionStart = newComposerInput.selectionEnd = preservedDraft.length;
+        }
+      }
+    }
 
     // Add back button handler
     document.querySelector('.back-button').addEventListener('click', () => {
@@ -2796,6 +2821,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Hide every message in a DM for the current user only ("delete for me",
   // applied to the whole thread) — mirrors the per-message hiddenFor pattern.
+  // Also persists server-side (like hideMessageForSelf does per-message),
+  // otherwise the next poll/reload re-hydrates the "cleared" messages from
+  // the server and they reappear.
   function clearDMChat(conversationId) {
     const conv = conversations.find(c => c.id === conversationId);
     if (!conv) return;
@@ -2808,6 +2836,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // Keep the conversation list preview in sync — every message is now
     // hidden for this user, so the list should read as empty.
     conv.lastMessage = 'No messages yet';
+
+    const peerId = directPeerId(conv.id);
+    if (peerId) {
+      authFetch(`/api/messages/direct/${encodeURIComponent(peerId)}/clear`, {
+        method: 'POST',
+        headers: authHeaders()
+      }).catch(error => {
+        console.warn('Could not persist chat clear:', error);
+      });
+    }
   }
 
   // Show the DM conversation's ⋮ menu with pin, mute, and clear-chat options
@@ -4457,8 +4495,17 @@ document.addEventListener('DOMContentLoaded', () => {
       actionAreaHTML = `<button class="group-preview-action-button" id="group-join-action-btn">Join Group</button>`;
     }
 
+    // See renderConversationPage's identical guard: a poll-triggered
+    // re-render must not wipe an in-progress composer draft out from under
+    // the user typing it.
+    const existingGroupComposerInput = pageContainer.querySelector('.conversation-page')?.dataset.conversationId === groupId
+      ? pageContainer.querySelector('.composer-input')
+      : null;
+    const preservedGroupDraft = existingGroupComposerInput ? existingGroupComposerInput.value : '';
+    const hadGroupFocus = existingGroupComposerInput === document.activeElement;
+
     pageContainer.innerHTML = `
-      <div class="conversation-page">
+      <div class="conversation-page" data-conversation-id="${escapeAttr(groupId)}">
         <div class="conversation-page-header">
           <button class="back-button" aria-label="Back to messages">←</button>
           <div class="conversation-header-info group-header-info" id="group-header-info-${groupId}">
@@ -4481,6 +4528,18 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       </div>
     `;
+
+    if (preservedGroupDraft) {
+      const newGroupComposerInput = pageContainer.querySelector('.composer-input');
+      if (newGroupComposerInput) {
+        newGroupComposerInput.value = preservedGroupDraft;
+        newGroupComposerInput.style.height = Math.min(newGroupComposerInput.scrollHeight, 120) + 'px';
+        if (hadGroupFocus) {
+          newGroupComposerInput.focus();
+          newGroupComposerInput.selectionStart = newGroupComposerInput.selectionEnd = preservedGroupDraft.length;
+        }
+      }
+    }
 
     // Add back button handler. Returns to Discover when this chat was opened
     // from a Discover card (or an invite link), the Create menu when opened
