@@ -1257,7 +1257,7 @@ app.put('/api/conversations/:id/state', async (req, res) => {
     const result = await pool.query(
       `INSERT INTO conversation_user_state
          (conversation_id, user_id, pinned, manually_marked_unread, hidden_from_inbox, last_read_at)
-       VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false), COALESCE($5, false), now())
+       VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false), COALESCE($5, false), CASE WHEN $6 THEN now() ELSE NULL END)
        ON CONFLICT (conversation_id, user_id) DO UPDATE SET
          pinned = COALESCE($3, conversation_user_state.pinned),
          manually_marked_unread = COALESCE($4, conversation_user_state.manually_marked_unread),
@@ -1453,13 +1453,15 @@ async function insertNotification(userId, { type, groupId, groupName, actorId, a
 // since the underlying row is never actually removed.
 async function listMessages(conversationType, conversationId, userId) {
   const result = await pool.query(
-    `SELECT m.* FROM messages m
-      WHERE m.conversation_type = $1 AND m.conversation_id = $2
-        AND NOT EXISTS (
-          SELECT 1 FROM message_hidden_for mhf
-           WHERE mhf.message_id = m.id AND mhf.user_id = $3
-        )
-      ORDER BY m.created_at ASC LIMIT 500`,
+    `SELECT * FROM (
+        SELECT m.* FROM messages m
+         WHERE m.conversation_type = $1 AND m.conversation_id = $2
+           AND NOT EXISTS (
+             SELECT 1 FROM message_hidden_for mhf
+              WHERE mhf.message_id = m.id AND mhf.user_id = $3
+           )
+         ORDER BY m.created_at DESC LIMIT 500
+     ) recent ORDER BY created_at ASC`,
     [conversationType, conversationId, userId || null]
   );
   return result.rows.map(shapeMessage);
@@ -1496,8 +1498,7 @@ app.get('/api/direct-conversations', async (req, res) => {
            SELECT count(*)::int AS count FROM messages
             WHERE conversation_type = 'direct' AND conversation_id = dc.id
               AND sender_user_id != $1
-              AND cus.last_read_at IS NOT NULL
-              AND created_at > cus.last_read_at
+              AND (cus.last_read_at IS NULL OR created_at > cus.last_read_at)
          ) unread ON true
         WHERE (dc.user_id_a = $1 OR dc.user_id_b = $1 OR dc.user_id_a = 'user_self' OR dc.user_id_b = 'user_self')
           AND (dc.status = 'accepted' OR dc.requested_by_user_id = $1)
@@ -2415,7 +2416,12 @@ async function seedStagingUsers() {
     // constraint, so a returning contact can look like a brand new peer.
     // See SHOT_DM_USERNAME_DUP.
     { id: 'staging-demo-user-10', username: 'staging-demo-dup-name', pubkey: null, offset: '20 days' },
-    { id: 'staging-demo-user-11', username: 'staging-demo-dup-name', pubkey: null, offset: '1 minute' }
+    { id: 'staging-demo-user-11', username: 'staging-demo-dup-name', pubkey: null, offset: '1 minute' },
+    // Dedicated target peer for SHOT_REPLY_LEAK -- kept separate from every
+    // other DM fixture so sending a shot message into this thread can't
+    // change conversation_user_state on a conversation another test asserts
+    // an "untouched" or "500+ message" precondition against.
+    { id: 'staging-demo-user-12', username: 'staging-demo-ivan', pubkey: '0x5d7f9b1e3c5a7d9f1b3e5c7a9d1f3b5e7c9a1d3f', offset: '6 hours' }
   ];
 
   try {
@@ -2485,6 +2491,81 @@ async function seedStagingDirectConversations() {
                now() - '21 hours'::interval)
        ON CONFLICT (id) DO NOTHING`
     );
+
+    // Untouched conversation with NO conversation_user_state row at all --
+    // regression fixture for the unread-badge bug, where a conversation that
+    // had never been opened (so last_read_at was never set) was silently
+    // treated as fully read instead of fully unread.
+    await pool.query(
+      `INSERT INTO direct_conversations (id, user_id_a, user_id_b, status, requested_by_user_id, created_at)
+       VALUES ('dm_staging_untouched_1', 'staging-demo-user-8', 'user_self', 'accepted', 'staging-demo-user-8', now() - '2 hours'::interval)
+       ON CONFLICT (user_id_a, user_id_b) DO NOTHING`
+    );
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+       VALUES ('msg_staging_untouched_1', 'direct', 'dm_staging_untouched_1', 'staging-demo-user-8', 'staging-demo-gita',
+               'Hey, are you around?', now() - '2 hours'::interval)
+       ON CONFLICT (id) DO NOTHING`
+    );
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+       VALUES ('msg_staging_untouched_2', 'direct', 'dm_staging_untouched_1', 'staging-demo-user-8', 'staging-demo-gita',
+               'Following up on this -- let me know when you get a chance.', now() - '1 hour'::interval)
+       ON CONFLICT (id) DO NOTHING`
+    );
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+       VALUES ('msg_staging_untouched_3', 'direct', 'dm_staging_untouched_1', 'staging-demo-user-8', 'staging-demo-gita',
+               'No rush, just wanted to bump this to the top.', now() - '30 minutes'::interval)
+       ON CONFLICT (id) DO NOTHING`
+    );
+
+    // 500+ message conversation -- regression fixture for listMessages()
+    // paginating to the OLDEST 500 messages instead of the newest 500, which
+    // made a long-running thread open scrolled to ancient history instead of
+    // the actual latest messages.
+    await pool.query(
+      `INSERT INTO direct_conversations (id, user_id_a, user_id_b, status, requested_by_user_id, created_at)
+       VALUES ('dm_staging_long_1', 'staging-demo-user-9', 'user_self', 'accepted', 'staging-demo-user-9', now() - '10 days'::interval)
+       ON CONFLICT (user_id_a, user_id_b) DO NOTHING`
+    );
+    const longThreadCount = await pool.query(
+      `SELECT count(*)::int AS count FROM messages WHERE conversation_type = 'direct' AND conversation_id = 'dm_staging_long_1'`
+    );
+    if (longThreadCount.rows[0].count === 0) {
+      await pool.query(
+        `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+         SELECT 'msg_staging_long_' || n,
+                'direct', 'dm_staging_long_1', 'staging-demo-user-9', 'staging-demo-hasan',
+                'Staging demo long-thread message #' || n,
+                now() - ((510 - n) || ' minutes')::interval
+           FROM generate_series(1, 510) AS n
+         ON CONFLICT (id) DO NOTHING`
+      );
+      await pool.query(
+        `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+         VALUES ('msg_staging_long_newest', 'direct', 'dm_staging_long_1', 'staging-demo-user-9', 'staging-demo-hasan',
+                 'This is the newest message in the long thread.', now())
+         ON CONFLICT (id) DO NOTHING`
+      );
+    }
+
+    // Dedicated send target for SHOT_REPLY_LEAK (cross-conversation reply
+    // leak regression check) -- deliberately its own fixture, not reused
+    // from the untouched/long-thread conversations above, so sending into
+    // it can't disturb those tests' preconditions.
+    await pool.query(
+      `INSERT INTO direct_conversations (id, user_id_a, user_id_b, status, requested_by_user_id, created_at)
+       VALUES ('dm_staging_reply_leak_1', 'staging-demo-user-12', 'user_self', 'accepted', 'staging-demo-user-12', now() - '3 hours'::interval)
+       ON CONFLICT (user_id_a, user_id_b) DO NOTHING`
+    );
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+       VALUES ('msg_staging_reply_leak_1', 'direct', 'dm_staging_reply_leak_1', 'staging-demo-user-12', 'staging-demo-ivan',
+               'This thread is unrelated to whatever you were replying to elsewhere.', now() - '3 hours'::interval)
+       ON CONFLICT (id) DO NOTHING`
+    );
+
     console.log('Staging demo direct conversations seeded');
   } catch (err) {
     console.error('Staging direct conversation seed error:', err);

@@ -143,6 +143,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_PERSIST_REMOVAL = SHOT === 'persist-removal';
   const SHOT_PERSIST_REMOVAL_PEER_ID = 'staging-demo-user-6';
   const SHOT_PERSIST_REMOVAL_TEXT = 'Shot persist removal check';
+  // Regression check for the reply-target leak bug: simulates having tapped
+  // "reply" on a message in a DIFFERENT conversation (SOURCE) right before
+  // this deep link opens a completely unrelated one (TARGET, the one this
+  // path actually deep-links into), then sends a plain message there. A
+  // fixed implementation must not attach SOURCE's reply target to it.
+  const SHOT_REPLY_LEAK = SHOT === 'reply-leak';
+  const SHOT_REPLY_LEAK_SOURCE_CONVERSATION_ID = 'conv_staging-demo-user-5';
+  const SHOT_REPLY_LEAK_TARGET_PEER_ID = 'staging-demo-user-12';
 
   // The signed-in Usernode user, hydrated from /api/state at boot. Server rows
   // for this id are mapped onto the app's long-standing 'user_self' sentinel so
@@ -1188,6 +1196,17 @@ document.addEventListener('DOMContentLoaded', () => {
       })
     }).then(res => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }).then(payload => {
+      // The client stamped this bubble with its own clock when it was pushed
+      // optimistically -- swap in the server's timestamp (and id, defensively)
+      // now that we know them, so the bubble sorts correctly against messages
+      // that arrive from the other participant with a server-issued clock.
+      const serverMessage = payload && payload.message;
+      if (!serverMessage) return;
+      if (typeof serverMessage.timestamp === 'number') message.timestamp = serverMessage.timestamp;
+      if (serverMessage.id) message.id = serverMessage.id;
+      if (typeof onFailure === 'function') onFailure();
     }).catch(error => {
       console.warn(`Could not deliver ${type} message:`, error);
       message.failed = true;
@@ -2314,12 +2333,21 @@ document.addEventListener('DOMContentLoaded', () => {
   // The attach-image control sits on the LEFT of the input field.
   function composerMarkup(options = {}) {
     const disabled = options.disabled ? 'disabled' : '';
+    // The reply bar's visible state must come from THIS conversation's reply
+    // target, not just whatever the last-focused thread left behind -- this
+    // markup is regenerated from scratch on every render (including
+    // poll-triggered re-renders), so a stale hidden/shown default here is
+    // what let a reply target leak into (or vanish from) the wrong thread.
+    const activeReply = options.conversationId ? getReplyState(options.conversationId) : null;
+    const replyBarStyle = activeReply ? 'display: flex;' : 'display: none;';
+    const replySenderName = activeReply ? escapeHtml(activeReply.targetSenderName || '') : '';
+    const replyPreviewText = activeReply ? escapeHtml(activeReply.targetPreviewText || '') : '';
     return `
-      <div class="reply-preview-bar" style="display: none;">
+      <div class="reply-preview-bar" style="${replyBarStyle}">
         <div class="reply-preview-content">
           <div class="reply-quote">
-            <div class="reply-sender">Replying to: <span class="reply-sender-name"></span></div>
-            <div class="reply-text"></div>
+            <div class="reply-sender">Replying to: <span class="reply-sender-name">${replySenderName}</span></div>
+            <div class="reply-text">${replyPreviewText}</div>
           </div>
           <button class="reply-close-button" aria-label="Cancel reply">✕</button>
         </div>
@@ -2629,7 +2657,7 @@ document.addEventListener('DOMContentLoaded', () => {
           ${scrollToLatestFabHTML()}
         </div>
         <div class="composer-container">
-          ${composerMarkup()}
+          ${composerMarkup({ conversationId: conversation.id })}
         </div>
       </div>
     `;
@@ -2706,6 +2734,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Must stay last: the send re-renders this page underneath us.
     if (SHOT_SEND_STAY && !fromSend) sendShotMessage(conversationRoot);
     if (SHOT_SEND_FAIL && !fromSend) sendShotMessage(conversationRoot);
+    if (SHOT_REPLY_LEAK && peerId === SHOT_REPLY_LEAK_TARGET_PEER_ID && !fromSend) sendShotMessage(conversationRoot);
 
     // Screenshot-state: click the real ⋮ button so the deep link exercises the
     // actual event listener wiring, not just the dialog-rendering function.
@@ -2722,6 +2751,18 @@ document.addEventListener('DOMContentLoaded', () => {
       const marker = document.querySelector('[data-testid="dm-delete-check"]') || document.body.appendChild(document.createElement('div'));
       marker.setAttribute('data-testid', 'dm-delete-check');
       marker.setAttribute('data-hidden', stillPresent ? 'false' : 'true');
+      marker.style.display = 'none';
+    }
+
+    // Regression marker for the cross-conversation reply leak: after the
+    // shot-triggered send above completes, the just-sent message must NOT
+    // carry the replyTo that was planted on the unrelated SOURCE conversation.
+    if (SHOT_REPLY_LEAK && peerId === SHOT_REPLY_LEAK_TARGET_PEER_ID && fromSend) {
+      const sent = conversation.messages[conversation.messages.length - 1];
+      const leaked = !!(sent && sent.replyTo);
+      const marker = document.querySelector('[data-testid="reply-leak-check"]') || document.body.appendChild(document.createElement('div'));
+      marker.setAttribute('data-testid', 'reply-leak-check');
+      marker.setAttribute('data-leaked', leaked ? 'true' : 'false');
       marker.style.display = 'none';
     }
   }
@@ -3252,7 +3293,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? 'You'
                 : (threadType === 'group' ? targetMessage.senderName : conversation.username);
               const previewText = truncateText(messagePreviewText(targetMessage), 50);
-              setReplyState(messageId, senderName, previewText);
+              setReplyState(conversation.id, messageId, senderName, previewText);
             }
           } else if (action === 'react') {
             if (targetMessage) {
@@ -3547,7 +3588,7 @@ document.addEventListener('DOMContentLoaded', () => {
               ? 'You'
               : (threadType === 'group' ? msg.senderName : thread.username);
             const previewText = truncateText(messagePreviewText(msg), 50);
-            setReplyState(msg.id, senderName, previewText);
+            setReplyState(thread.id, msg.id, senderName, previewText);
             if (navigator.vibrate) navigator.vibrate(10);
             const composerInput = pageContainer.querySelector('.composer-input');
             if (composerInput) composerInput.focus();
@@ -3701,19 +3742,27 @@ document.addEventListener('DOMContentLoaded', () => {
     showToast('Message deleted', { type: 'success' });
   }
 
-  // Reply state management
-  let replyState = {
-    targetMessageId: null,
-    targetSenderName: null,
-    targetPreviewText: null
-  };
+  // Reply state management -- keyed per conversation/group/channel id so a
+  // reply target set while viewing thread A can never leak into whatever
+  // gets typed after navigating to thread B (they used to share one
+  // module-level object, so switching threads without cancelling the reply
+  // silently attached the wrong quote to the next message sent anywhere).
+  const replyStateByConversation = new Map();
 
-  function setReplyState(messageId, senderName, previewText) {
-    replyState.targetMessageId = messageId;
-    replyState.targetSenderName = senderName;
-    replyState.targetPreviewText = previewText;
+  function getReplyState(conversationId) {
+    return conversationId ? (replyStateByConversation.get(conversationId) || null) : null;
+  }
 
-    // Show reply preview bar
+  function setReplyState(conversationId, messageId, senderName, previewText) {
+    if (!conversationId) return;
+    replyStateByConversation.set(conversationId, {
+      targetMessageId: messageId,
+      targetSenderName: senderName,
+      targetPreviewText: previewText
+    });
+
+    // Show reply preview bar (only meaningful while conversationId's thread
+    // is the one currently mounted, which is the only time this is called).
     const replyBar = document.querySelector('.reply-preview-bar');
     const replySenderName = document.querySelector('.reply-sender-name');
     const replyText = document.querySelector('.reply-text');
@@ -3725,10 +3774,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function clearReplyState() {
-    replyState.targetMessageId = null;
-    replyState.targetSenderName = null;
-    replyState.targetPreviewText = null;
+  function clearReplyState(conversationId) {
+    if (conversationId) replyStateByConversation.delete(conversationId);
 
     const replyBar = document.querySelector('.reply-preview-bar');
     if (replyBar) {
@@ -4176,7 +4223,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (replyCloseButton) {
       replyCloseButton.addEventListener('click', () => {
-        clearReplyState();
+        clearReplyState(conversation.id);
       });
     }
 
@@ -4201,11 +4248,12 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       // Attach reply metadata if replying
-      if (replyState.targetMessageId) {
+      const activeReply = getReplyState(conversation.id);
+      if (activeReply && activeReply.targetMessageId) {
         newMessage.replyTo = {
-          messageId: replyState.targetMessageId,
-          senderName: replyState.targetSenderName,
-          previewText: replyState.targetPreviewText
+          messageId: activeReply.targetMessageId,
+          senderName: activeReply.targetSenderName,
+          previewText: activeReply.targetPreviewText
         };
       }
 
@@ -4213,7 +4261,7 @@ document.addEventListener('DOMContentLoaded', () => {
       conversation.messages.push(newMessage);
       composerInput.value = '';
       composerInput.style.height = '48px';
-      clearReplyState();
+      clearReplyState(conversation.id);
       imageAttachment.clearPendingImage();
 
       // Update conversation last message and timestamp for All tab sorting. A
@@ -4400,7 +4448,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let actionAreaHTML;
     if (isMember) {
-      actionAreaHTML = composerMarkup();
+      actionAreaHTML = composerMarkup({ conversationId: group.id });
     } else if (hasPendingRequest) {
       actionAreaHTML = `<button class="group-preview-action-button" id="group-join-action-btn" disabled>Request Pending</button>`;
     } else if (isPrivate) {
@@ -8241,7 +8289,7 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
         <div class="composer-container" style="${composerDisplay}">
           ${viewOnlyBadge}
-          ${composerMarkup({ disabled: !channel.currentUserCanSend })}
+          ${composerMarkup({ disabled: !channel.currentUserCanSend, conversationId: channel.id })}
         </div>
       </div>
     `;
@@ -8840,6 +8888,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // out from under whatever screen they navigated to.
     stopThreadPolling();
     stopMessagesListPolling();
+    // Defense-in-depth: a reply target left set on the thread we're leaving
+    // should not still be sitting there if the user comes back to it later
+    // expecting a clean composer. The per-conversation keying above already
+    // stops it from leaking into whatever thread we're navigating TO.
+    if (currentOpenConversationId) clearReplyState(currentOpenConversationId);
     currentOpenConversationId = null;
 
     const hash = window.location.hash.slice(1) || 'messages';
@@ -9203,6 +9256,12 @@ document.addEventListener('DOMContentLoaded', () => {
       handleSessionExpired();
     }
     startNotificationPolling();
+    // Screenshot-state: plant a reply target on SOURCE before handleNavigation
+    // below opens TARGET, simulating a user who tapped "reply" in one thread
+    // and then switched to another without cancelling it.
+    if (SHOT_REPLY_LEAK) {
+      setReplyState(SHOT_REPLY_LEAK_SOURCE_CONVERSATION_ID, 'shot_reply_leak_src_msg', 'staging-demo-dedi', 'Message from a different conversation');
+    }
     handleNavigation();
   })();
 });
