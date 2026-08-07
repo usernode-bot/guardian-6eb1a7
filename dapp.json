@@ -731,6 +731,36 @@
       "expectSelector": "[data-testid=\"persist-removal-count\"][data-count=\"0\"]"
     },
     {
+      "name": "Notification bell renders on the Groups tab of the Messages screen",
+      "path": "/?shot=groups-tab",
+      "expectSelector": ".notification-bell"
+    },
+    {
+      "name": "Notification bell badge shows unread count for a pending admin-promotion notification",
+      "path": "/?shot=groups-tab",
+      "expectSelector": ".notification-bell-badge-visible"
+    },
+    {
+      "name": "Bottom-nav Messages tab shows a red dot when notifications are unread",
+      "path": "/",
+      "expectSelector": ".nav-dot-visible"
+    },
+    {
+      "name": "Notifications sheet opens and lists the admin-promotion notification",
+      "path": "/?shot=notifications-sheet",
+      "expectSelector": ".notifications-sheet-dialog"
+    },
+    {
+      "name": "Notifications sheet shows the admin-promotion notification text",
+      "path": "/?shot=notifications-sheet",
+      "expectText": "made you an admin of Staging Demo Owned Group"
+    },
+    {
+      "name": "Notifications sheet marks the notification unread state in markup",
+      "path": "/?shot=notifications-sheet",
+      "expectSelector": ".notification-item"
+    },
+    {
       "name": "An untouched conversation with no read-state row shows unread (regression: unread subquery/state INSERT treated never-opened as already read)",
       "path": "/",
       "expectSelector": "[data-conversation-id=\"conv_staging-demo-user-8\"] .unread-badge"
