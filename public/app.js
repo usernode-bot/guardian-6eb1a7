@@ -981,6 +981,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (changed) onChanged();
       if (typeof retryFailed === 'function' && retryFailed()) onChanged();
     };
+    activeScreenResync();
     activeThreadPollTimer = setInterval(async () => {
       const changed = await hydrateFn();
       if (changed) onChanged();
@@ -1013,6 +1014,7 @@ document.addEventListener('DOMContentLoaded', () => {
       ]);
       if (conversationsChanged || requestsChanged || groupsChanged) renderMessagesPage();
     };
+    activeScreenResync();
     messagesListPollTimer = setInterval(async () => {
       const [conversationsChanged, requestsChanged, groupsChanged] = await Promise.all([
         hydrateServerDirectConversations(),
