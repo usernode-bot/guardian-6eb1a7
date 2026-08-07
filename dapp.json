@@ -729,6 +729,21 @@
       "name": "A left group, unfollowed channel, and deleted DM stay gone after a simulated app restart (regression: group-leave stub, channel isFollowing always true, both let removed conversations reappear)",
       "path": "/?shot=persist-removal",
       "expectSelector": "[data-testid=\"persist-removal-count\"][data-count=\"0\"]"
+    },
+    {
+      "name": "An untouched conversation with no read-state row shows unread (regression: unread subquery/state INSERT treated never-opened as already read)",
+      "path": "/",
+      "expectSelector": "[data-conversation-id=\"conv_staging-demo-user-8\"] .unread-badge"
+    },
+    {
+      "name": "A 500+ message thread opens showing the newest message, not the oldest (regression: listMessages ordered ASC before LIMIT 500)",
+      "path": "/#/conversation/conv_staging-demo-user-9",
+      "expectText": "This is the newest message in the long thread."
+    },
+    {
+      "name": "A reply target set in one DM does not leak onto a message sent in a different DM (regression: module-level replyState shared across all threads)",
+      "path": "/?shot=reply-leak#/conversation/conv_staging-demo-user-12",
+      "expectSelector": "[data-testid=\"reply-leak-check\"][data-leaked=\"false\"]"
     }
   ]
 }
