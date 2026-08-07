@@ -86,6 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_SEND_FAIL = SHOT === 'send-fail';
   const SHOT_CHANNEL_SEND_FAIL = SHOT === 'channel-send-fail';
   const SHOT_SESSION_EXPIRED = SHOT === 'session-expired';
+  const SHOT_NOTIFICATIONS_SHEET = SHOT === 'notifications-sheet';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
   const SHOT_CREATE_GROUP_NAME = 'Staging demo one-invite group';
@@ -515,6 +516,14 @@ document.addEventListener('DOMContentLoaded', () => {
         && (serverGroup.lastMessageAt || 0) >= (existingConv.timestamp || 0)) {
       existingConv.lastMessage = truncateText(serverGroup.lastMessage, 100);
       existingConv.timestamp = serverGroup.lastMessageAt || existingConv.timestamp;
+    }
+
+    // Server is the source of truth for unread count (see GET /api/groups),
+    // mirroring hydrateServerDirectConversations below -- this used to be
+    // hardcoded to 0 on every hydrate, which is why a group's unread badge
+    // never appeared no matter how many unread messages it had.
+    if (serverGroup.unreadCount !== undefined) {
+      existingConv.unreadCount = serverGroup.unreadCount;
     }
 
     // A group you're now a member of must not linger in the Discover feed.
@@ -1013,6 +1022,126 @@ document.addEventListener('DOMContentLoaded', () => {
       ]);
       if (conversationsChanged || requestsChanged || groupsChanged) renderMessagesPage();
     }, MESSAGES_LIST_POLL_INTERVAL_MS);
+  }
+
+  // Notification unread count -- polled globally (independent of whichever
+  // screen is active) so the bottom-nav red dot lights up even while the
+  // user is on Discover/Create/Profile, not just while Messages is open.
+  const NOTIFICATION_POLL_INTERVAL_MS = 20000;
+  let notificationUnreadCount = 0;
+  let notifications = [];
+
+  // Toggle a class rather than inline style.display -- so a headless test
+  // asserting on `.nav-dot-visible`/`.notification-bell-badge-visible`
+  // actually confirms the unread state loaded, instead of trivially matching
+  // an element that's always present in the DOM regardless of count.
+  function renderNotificationIndicators() {
+    const navDot = document.getElementById('messages-nav-dot');
+    if (navDot) navDot.classList.toggle('nav-dot-visible', notificationUnreadCount > 0);
+    const bellBadge = document.getElementById('notification-bell-badge');
+    if (bellBadge) {
+      bellBadge.textContent = notificationUnreadCount > 9 ? '9+' : String(notificationUnreadCount);
+      bellBadge.classList.toggle('notification-bell-badge-visible', notificationUnreadCount > 0);
+    }
+  }
+
+  async function hydrateNotificationUnreadCount() {
+    try {
+      const response = await authFetch('/api/notifications/unread-count', { headers: authHeaders() });
+      if (!response.ok) return;
+      const payload = await response.json();
+      if (payload.count !== notificationUnreadCount) {
+        notificationUnreadCount = payload.count || 0;
+        renderNotificationIndicators();
+      }
+    } catch (error) {
+      console.warn('Could not load notification unread count:', error);
+    }
+  }
+
+  function startNotificationPolling() {
+    hydrateNotificationUnreadCount();
+    setInterval(hydrateNotificationUnreadCount, NOTIFICATION_POLL_INTERVAL_MS);
+  }
+
+  function notificationText(notification) {
+    if (notification.type === 'group_admin_promotion') {
+      return `${notification.actorUsername || 'Someone'} made you an admin of ${notification.groupName || 'a group'}`;
+    }
+    return 'New notification';
+  }
+
+  function markAllNotificationsRead() {
+    notificationUnreadCount = 0;
+    notifications.forEach(n => { n.read = true; });
+    renderNotificationIndicators();
+    fetch('/api/notifications/read-all', { method: 'POST', headers: authHeaders() })
+      .catch(error => console.warn('Could not mark notifications read:', error));
+  }
+
+  // Bell tap: fetch the caller's notifications and show them in a sheet,
+  // reusing the same dialog-overlay/dialog pattern as showMembersSheet.
+  async function openNotificationsSheet() {
+    try {
+      const response = await authFetch('/api/notifications', { headers: authHeaders() });
+      if (response.ok) {
+        const payload = await response.json();
+        notifications = payload.notifications || [];
+      }
+    } catch (error) {
+      console.warn('Could not load notifications:', error);
+    }
+    showNotificationsSheet();
+  }
+
+  function showNotificationsSheet() {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog notifications-sheet-dialog';
+
+    const itemsHtml = notifications.length
+      ? notifications.map(n => `
+        <div class="notification-item ${n.read ? '' : 'notification-unread'}" data-notification-id="${n.id}" data-group-id="${n.groupId || ''}">
+          <div class="notification-icon">🛡️</div>
+          <div class="notification-content">
+            <div class="notification-text">${escapeHtml(notificationText(n))}</div>
+            <div class="notification-timestamp">${formatTimestamp(n.createdAt)}</div>
+          </div>
+        </div>
+      `).join('')
+      : `<div class="empty-state"><div class="empty-icon">🔔</div><div class="empty-message">No notifications yet</div></div>`;
+
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Notifications</h2>
+        <button class="close-dialog-button">✕</button>
+      </div>
+      <div class="dialog-content notifications-list-container" data-testid="notifications-list">
+        ${itemsHtml}
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    dialog.querySelector('.close-dialog-button').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+
+    // Tapping an entry navigates into the group thread and marks everything
+    // read -- there's no per-notification read state surfaced in the UI, so
+    // "read" is an all-or-nothing action tied to actually following one up.
+    dialog.querySelectorAll('.notification-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const groupId = item.dataset.groupId;
+        markAllNotificationsRead();
+        overlay.remove();
+        if (groupId) window.location.hash = `/group/${groupId}`;
+      });
+    });
   }
 
   // Foreground/reconnect resync: a tab coming back into view, or the network
@@ -1793,6 +1922,10 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="messages-header">
           <h1>Guardian</h1>
           <div class="messages-header-actions">
+            <span class="notification-bell un-touch-target" id="notification-bell-btn" title="Notifications">
+              🔔
+              <span class="notification-bell-badge ${notificationUnreadCount > 0 ? 'notification-bell-badge-visible' : ''}" id="notification-bell-badge">${notificationUnreadCount > 9 ? '9+' : notificationUnreadCount}</span>
+            </span>
             <span class="search-icon un-touch-target">🔍</span>
           </div>
         </div>
@@ -1839,6 +1972,11 @@ document.addEventListener('DOMContentLoaded', () => {
       }, 0);
     });
 
+    // Notification bell handler
+    document.getElementById('notification-bell-btn').addEventListener('click', () => {
+      openNotificationsSheet();
+    });
+
     // Search input handler
     const searchInput = document.getElementById('messages-search-input');
     if (searchInput) {
@@ -1871,6 +2009,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Poll while this screen stays open so a new incoming DM or request shows
     // up without the user having to leave and come back.
     startMessagesListPolling();
+
+    // Screenshot-state: walk the same tap the user makes (open the bell) so
+    // dapp.json can assert on the notifications sheet deterministically.
+    if (SHOT_NOTIFICATIONS_SHEET) {
+      document.getElementById('notification-bell-btn')?.click();
+    }
   }
 
   // Accept request and create conversation
@@ -9055,6 +9199,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (SHOT_SESSION_EXPIRED) {
       handleSessionExpired();
     }
+    startNotificationPolling();
     handleNavigation();
   })();
 });
