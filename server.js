@@ -25,6 +25,12 @@ function decodeUser(req) {
         audience: 'usernode:app:' + process.env.USERNODE_APP_ID
       });
       if (payload.pur === 'iframe') {
+        // The platform doesn't guarantee the `id` claim's JSON type -- normalize
+        // to a string so it always matches the TEXT id columns it's compared
+        // against/stored into downstream (e.g. groups.creator_user_id).
+        if (payload.id !== undefined && payload.id !== null) {
+          payload.id = String(payload.id);
+        }
         return payload;
       }
     } catch (err) {
