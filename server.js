@@ -1621,6 +1621,38 @@ app.post('/api/messages/direct/:peerId/:messageId/hide', async (req, res) => {
   }
 });
 
+// POST /api/messages/direct/:peerId/clear - "clear chat" for the caller only:
+// hides every message currently in this DM thread, same mechanism as the
+// single-message /hide route above (bulk-inserts into message_hidden_for
+// instead of one row). Only messages that exist at clear-time are hidden --
+// anything the peer sends afterwards is a fresh row with no matching
+// message_hidden_for entry, so it still shows up normally.
+app.post('/api/messages/direct/:peerId/clear', async (req, res) => {
+  try {
+    const { peerId } = req.params;
+    const convRes = await pool.query(
+      `SELECT id FROM direct_conversations
+        WHERE (user_id_a = $1 AND user_id_b = $2)
+           OR (user_id_a = $2 AND user_id_b = $1)
+           OR (user_id_a = 'user_self' AND user_id_b = $2)
+           OR (user_id_b = 'user_self' AND user_id_a = $2)`,
+      [req.user.id, peerId]
+    );
+    if (convRes.rowCount === 0) return res.status(404).json({ error: 'Conversation not found' });
+    const conversationId = convRes.rows[0].id;
+    await pool.query(
+      `INSERT INTO message_hidden_for (message_id, user_id)
+       SELECT id, $2 FROM messages WHERE conversation_type = 'direct' AND conversation_id = $1
+       ON CONFLICT (message_id, user_id) DO NOTHING`,
+      [conversationId, req.user.id]
+    );
+    res.json({ id: conversationId, cleared: true });
+  } catch (err) {
+    console.error('[messages] direct clear failed:', err);
+    res.status(500).json({ error: 'Failed to clear chat' });
+  }
+});
+
 // GET /api/messages/group/:groupId - only members can read a group's history.
 app.get('/api/messages/group/:groupId', async (req, res) => {
   try {

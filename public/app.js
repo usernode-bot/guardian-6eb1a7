@@ -2649,6 +2649,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Hide every message in a DM for the current user only ("delete for me",
   // applied to the whole thread) — mirrors the per-message hiddenFor pattern.
+  // Also persists server-side (like hideMessageForSelf does per-message),
+  // otherwise the next poll/reload re-hydrates the "cleared" messages from
+  // the server and they reappear.
   function clearDMChat(conversationId) {
     const conv = conversations.find(c => c.id === conversationId);
     if (!conv) return;
@@ -2661,6 +2664,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // Keep the conversation list preview in sync — every message is now
     // hidden for this user, so the list should read as empty.
     conv.lastMessage = 'No messages yet';
+
+    const peerId = directPeerId(conv.id);
+    if (peerId) {
+      authFetch(`/api/messages/direct/${encodeURIComponent(peerId)}/clear`, {
+        method: 'POST',
+        headers: authHeaders()
+      }).catch(error => {
+        console.warn('Could not persist chat clear:', error);
+      });
+    }
   }
 
   // Show the DM conversation's ⋮ menu with pin, mute, and clear-chat options
