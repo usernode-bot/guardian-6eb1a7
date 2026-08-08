@@ -9,6 +9,10 @@ const PLATFORM_BASE_URL = process.env.PLATFORM_BASE_URL || 'https://social-vibec
 const APP_SLUG = process.env.APP_SLUG || 'guardian';
 const USERNODE_JWT_PUBLIC_KEY = process.env.USERNODE_JWT_PUBLIC_KEY;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
+// Rotates on every process start (i.e. every deploy). Lets already-open
+// clients detect that a newer bundle has shipped and prompt a reload —
+// see the /api/state serverVersion field below.
+const SERVER_BOOT_ID = Date.now().toString(36) + '-' + crypto.randomBytes(4).toString('hex');
 
 // Database connection
 const pool = new Pool({
@@ -59,7 +63,16 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static('public'));
+// /app.js and /styles.css always revalidate (no-cache) so an open tab can't
+// keep running a stale, pre-deploy bundle from the browser's HTTP cache.
+// ETag/Last-Modified are untouched, so an unchanged file still gets a 304.
+app.use(express.static('public', {
+  setHeaders: (res, path) => {
+    if (path.endsWith('/app.js') || path.endsWith('/styles.css')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  },
+}));
 
 // Auth middleware - follows Usernode platform conventions
 const PUBLIC_API_PATHS = new Set(['/health', '/api/state']);
@@ -111,7 +124,7 @@ app.get('/api/state', async (req, res) => {
     }
     await seedStagingOwnedEntities(req.user);
   }
-  res.json({ status: 'ok', user: req.user || null });
+  res.json({ status: 'ok', user: req.user || null, serverVersion: SERVER_BOOT_ID });
 });
 
 // ---------------------------------------------------------------------------
