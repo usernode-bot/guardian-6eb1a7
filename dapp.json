@@ -561,6 +561,21 @@
       "expectSelector": ".messages-header h1"
     },
     {
+      "name": "Long-pressing a conversation row enters multi-select mode and shows the selection toolbar (regression: old long-press menu replaced with WhatsApp/Telegram-style select)",
+      "path": "/?shot=messages-select",
+      "expectSelector": ".messages-selection-toolbar"
+    },
+    {
+      "name": "Multi-select toolbar shows a bulk delete action, not a mark-unread menu",
+      "path": "/?shot=messages-select",
+      "expectSelector": "[data-testid=\"selection-delete-btn\"]"
+    },
+    {
+      "name": "The long-pressed row is marked selected in multi-select mode",
+      "path": "/?shot=messages-select",
+      "expectSelector": ".conversation-item.selected .conversation-select-indicator.checked"
+    },
+    {
       "name": "Group creation is still reachable from the Create menu",
       "path": "/#/create",
       "expectSelector": ".create-group-card"
