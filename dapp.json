@@ -769,6 +769,31 @@
       "name": "A reply target set in one DM does not leak onto a message sent in a different DM (regression: module-level replyState shared across all threads)",
       "path": "/?shot=reply-leak#/conversation/conv_staging-demo-user-12",
       "expectSelector": "[data-testid=\"reply-leak-check\"][data-leaked=\"false\"]"
+    },
+    {
+      "name": "Messages list preview reflects a sent DM, not just received ones (regression: sent and received DMs not showing up in the Messages list)",
+      "path": "/",
+      "expectText": "Shot mixed check: sent message"
+    },
+    {
+      "name": "A DM thread with messages in both directions renders the received message (regression: sent and received DMs not showing up)",
+      "path": "/#/conversation/conv_staging-demo-user-13",
+      "expectText": "Shot mixed check: received message"
+    },
+    {
+      "name": "A DM thread with messages in both directions renders the sent message (regression: sent and received DMs not showing up)",
+      "path": "/#/conversation/conv_staging-demo-user-13",
+      "expectText": "Shot mixed check: sent message"
+    },
+    {
+      "name": "Received DM bubble in a mixed-direction thread renders with incoming styling",
+      "path": "/#/conversation/conv_staging-demo-user-13",
+      "expectSelector": ".message.incoming"
+    },
+    {
+      "name": "Sent DM bubble in a mixed-direction thread renders with outgoing styling",
+      "path": "/#/conversation/conv_staging-demo-user-13",
+      "expectSelector": ".message.outgoing"
     }
   ]
 }

@@ -2464,6 +2464,21 @@ async function seedStagingOwnedEntities(currentUser) {
        ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, read = false, created_at = now()`,
       [me.id, groupId, helper.id, helper.username]
     );
+
+    // Fixed-id "sent by me" message, re-pointed to whoever is currently
+    // testing (boot-time seeding in seedStagingDirectConversations can't do
+    // this -- it has no real user id to attribute the message to). Paired
+    // with the boot-seeded received message in the same thread, this gives
+    // dm_staging_mixed_1 one message in each direction, and being the newer
+    // of the two, its text is what the Messages list preview must show --
+    // regression coverage for the "sent and received DMs don't show up in
+    // the list" bug report.
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+       VALUES ('msg_staging_mixed_sent', 'direct', 'dm_staging_mixed_1', $1, $2, 'Shot mixed check: sent message', now() - '35 minutes'::interval)
+       ON CONFLICT (id) DO UPDATE SET sender_user_id = EXCLUDED.sender_user_id, sender_username = EXCLUDED.sender_username, created_at = now() - '35 minutes'::interval`,
+      [me.id, me.username]
+    );
   } catch (err) {
     console.error('Staging owned entities seed error:', err);
   }
@@ -2510,7 +2525,11 @@ async function seedStagingUsers() {
     // other DM fixture so sending a shot message into this thread can't
     // change conversation_user_state on a conversation another test asserts
     // an "untouched" or "500+ message" precondition against.
-    { id: 'staging-demo-user-12', username: 'staging-demo-ivan', pubkey: '0x5d7f9b1e3c5a7d9f1b3e5c7a9d1f3b5e7c9a1d3f', offset: '6 hours' }
+    { id: 'staging-demo-user-12', username: 'staging-demo-ivan', pubkey: '0x5d7f9b1e3c5a7d9f1b3e5c7a9d1f3b5e7c9a1d3f', offset: '6 hours' },
+    // Peer for the mixed-direction DM fixture (both a received AND a sent
+    // message in the same thread) -- regression coverage for the Messages
+    // list bug report where sent+received DMs failed to show up in the list.
+    { id: 'staging-demo-user-13', username: 'staging-demo-joko', pubkey: '0x0b2d4f6810c2e4a6890c2e4f6a8b0d2f4e6a8c0e', offset: '45 minutes' }
   ];
 
   try {
@@ -2652,6 +2671,23 @@ async function seedStagingDirectConversations() {
       `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
        VALUES ('msg_staging_reply_leak_1', 'direct', 'dm_staging_reply_leak_1', 'staging-demo-user-12', 'staging-demo-ivan',
                'This thread is unrelated to whatever you were replying to elsewhere.', now() - '3 hours'::interval)
+       ON CONFLICT (id) DO NOTHING`
+    );
+
+    // Mixed-direction thread -- a received message followed by a sent
+    // ('user_self') message as the newest one. Regression fixture for the
+    // Messages-list bug report ("sent and received DMs don't show up in the
+    // list"): the list preview must reflect the SENT message here, not just
+    // ever show received ones, and the thread must render both directions.
+    await pool.query(
+      `INSERT INTO direct_conversations (id, user_id_a, user_id_b, status, requested_by_user_id, created_at)
+       VALUES ('dm_staging_mixed_1', 'staging-demo-user-13', 'user_self', 'accepted', 'staging-demo-user-13', now() - '45 minutes'::interval)
+       ON CONFLICT (user_id_a, user_id_b) DO NOTHING`
+    );
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+       VALUES ('msg_staging_mixed_received', 'direct', 'dm_staging_mixed_1', 'staging-demo-user-13', 'staging-demo-joko',
+               'Shot mixed check: received message', now() - '40 minutes'::interval)
        ON CONFLICT (id) DO NOTHING`
     );
 
