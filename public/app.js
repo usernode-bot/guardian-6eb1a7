@@ -991,7 +991,13 @@ document.addEventListener('DOMContentLoaded', () => {
       if (changed) onChanged();
       if (typeof retryFailed === 'function' && retryFailed()) onChanged();
     };
-    activeScreenResync();
+    // Immediate on-entry refresh only re-hydrates -- it must NOT also invoke
+    // retryFailed, or a still-failing send re-renders this screen (to show the
+    // updated failure state), which calls startThreadPolling again, whose
+    // immediate refresh would retry again, forever, hammering the server as
+    // fast as the retries fail. retryFailed only runs from resyncActiveScreen
+    // (foreground/reconnect), matching the comment above.
+    hydrateFn().then(changed => { if (changed) onChanged(); });
     activeThreadPollTimer = setInterval(async () => {
       const changed = await hydrateFn();
       if (changed) onChanged();
