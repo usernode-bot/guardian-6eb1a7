@@ -64,7 +64,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_SCROLL_FAB_BOTTOM = SHOT === 'scroll-fab-bottom';
   const SHOT_SEND_STAY = SHOT === 'send-stay';
   const SHOT_CHANNEL_SEND_STAY = SHOT === 'channel-send-stay';
-  const SHOT_MESSAGE_DELETED = SHOT === 'message-deleted';
   const SHOT_DM_MENU = SHOT === 'dm-menu';
   const SHOT_DM_CLEARED = SHOT === 'dm-cleared';
   const SHOT_POST_REACTIONS = SHOT === 'post-reactions';
@@ -888,18 +887,40 @@ document.addEventListener('DOMContentLoaded', () => {
   // setupComposer) and echoed back unchanged, so the optimistic bubble never
   // doubles up once the poll below sees it land. Returns whether anything new
   // was merged, so callers know whether a re-render is worth doing.
+  //
+  // Also drops any local message the server no longer returns -- that's how a
+  // message deleted by any participant disappears from every other open
+  // client on its next poll tick, with no notification. A message is only
+  // ever dropped this way once it's been `.confirmed` present in a previous
+  // server response; an optimistic send still in flight (or one that failed)
+  // is never `.confirmed`, so it can't be wiped out by a poll that simply
+  // raced ahead of its own delivery POST.
   async function hydrateThreadMessages(type, id, thread) {
     if (!id) return false;
     try {
       const response = await authFetch(`/api/messages/${type}/${encodeURIComponent(id)}`, { headers: authHeaders() });
       if (!response.ok) return false;
       const payload = await response.json();
+      const serverMessages = payload.messages || [];
+      const serverIds = new Set(serverMessages.map(m => m.id));
       let changed = false;
-      (payload.messages || []).forEach(serverMsg => {
-        if (thread.messages.some(m => m.id === serverMsg.id)) return;
-        thread.messages.push(shapeIncomingMessage(serverMsg));
+      serverMessages.forEach(serverMsg => {
+        const existing = thread.messages.find(m => m.id === serverMsg.id);
+        if (existing) {
+          existing.confirmed = true;
+          return;
+        }
+        const msg = shapeIncomingMessage(serverMsg);
+        msg.confirmed = true;
+        thread.messages.push(msg);
         changed = true;
       });
+      const stillPresent = thread.messages.filter(m => m.confirmed !== true || serverIds.has(m.id));
+      if (stillPresent.length !== thread.messages.length) {
+        thread.messages.length = 0;
+        thread.messages.push(...stillPresent);
+        changed = true;
+      }
       if (changed) thread.messages.sort((a, b) => a.timestamp - b.timestamp);
       return changed;
     } catch (error) {
@@ -908,16 +929,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Same idea as hydrateThreadMessages, but into a channel's `.posts` (newest
-  // first, since publishPost unshifts) rather than a chat thread's `.messages`.
+  // Same idea as hydrateThreadMessages (including the same "drop what the
+  // server no longer returns" reconciliation and .confirmed safety guard),
+  // but into a channel's `.posts` (newest first, since publishPost unshifts)
+  // rather than a chat thread's `.messages`.
   async function hydrateChannelPosts(channelId, channel) {
     try {
       const response = await authFetch(`/api/messages/channel/${encodeURIComponent(channelId)}`, { headers: authHeaders() });
       if (!response.ok) return false;
       const payload = await response.json();
+      const serverMessages = payload.messages || [];
+      const serverIds = new Set(serverMessages.map(m => m.id));
       let changed = false;
-      (payload.messages || []).forEach(serverMsg => {
-        if (channel.posts.some(p => p.id === serverMsg.id)) return;
+      serverMessages.forEach(serverMsg => {
+        const existing = channel.posts.find(p => p.id === serverMsg.id);
+        if (existing) {
+          existing.confirmed = true;
+          return;
+        }
         const post = {
           id: serverMsg.id,
           channelId: channelId,
@@ -925,7 +954,8 @@ document.addEventListener('DOMContentLoaded', () => {
           text: serverMsg.text || '',
           timestamp: serverMsg.timestamp,
           reactions: {},
-          isPinned: false
+          isPinned: false,
+          confirmed: true
         };
         if (serverMsg.imageUrl) {
           post.imageUrl = serverMsg.imageUrl;
@@ -934,6 +964,12 @@ document.addEventListener('DOMContentLoaded', () => {
         channel.posts.push(post);
         changed = true;
       });
+      const stillPresent = channel.posts.filter(p => p.confirmed !== true || serverIds.has(p.id));
+      if (stillPresent.length !== channel.posts.length) {
+        channel.posts.length = 0;
+        channel.posts.push(...stillPresent);
+        changed = true;
+      }
       if (changed) channel.posts.sort((a, b) => b.timestamp - a.timestamp);
       return changed;
     } catch (error) {
@@ -2821,9 +2857,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Hide every message in a DM for the current user only ("delete for me",
   // applied to the whole thread) — mirrors the per-message hiddenFor pattern.
-  // Also persists server-side (like hideMessageForSelf does per-message),
-  // otherwise the next poll/reload re-hydrates the "cleared" messages from
-  // the server and they reappear.
+  // Also persists server-side, otherwise the next poll/reload re-hydrates the
+  // "cleared" messages from the server and they reappear.
   function clearDMChat(conversationId) {
     const conv = conversations.find(c => c.id === conversationId);
     if (!conv) return;
@@ -3225,9 +3260,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function showMenu(messageId, bubbleElement) {
-      // Deleted placeholders (group only) can't be acted on at all
       const menuTargetMessage = conversation.messages.find(m => m.id === messageId);
-      if (menuTargetMessage && menuTargetMessage.isDeleted) return;
 
       if (menuState.isMenuOpen) dismissMenu();
 
@@ -3352,8 +3385,8 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (threadType === 'dm') {
               showConfirmDialog(
                 'Delete Message',
-                'Delete this message? It will be removed from your chat history only — the other person will still see it.',
-                () => hideMessageForSelf(conversation, messageId)
+                'Delete this message? This cannot be undone.',
+                () => deleteDirectMessageForEveryone(conversation, messageId)
               );
             } else if (threadType === 'group') {
               const isOwnMessage = targetMessage.isOutgoing === true;
@@ -3362,7 +3395,7 @@ document.addEventListener('DOMContentLoaded', () => {
                   ? 'Delete this message? This cannot be undone.'
                   : "Delete this member's message? This cannot be undone.";
                 showConfirmDialog('Delete Message', confirmMessage, () => {
-                  deleteMessageForEveryone(conversation, messageId, { byAdmin: !isOwnMessage });
+                  deleteMessageForEveryone(conversation, messageId);
                 });
               } else {
                 showToast('You can only delete your own messages', { type: 'error' });
@@ -3523,7 +3556,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       function isSwipeable() {
         const msg = getMessage();
-        return !!msg && !msg.isDeleted && !msg.isSystemMessage;
+        return !!msg && !msg.isSystemMessage;
       }
 
       // Incoming messages only swipe right (+1), outgoing only swipe left (-1)
@@ -3680,7 +3713,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Delete a message from a channel thread (own messages only) — hard delete
+  // Delete a message from a channel thread (own messages only) — hard delete,
+  // persisted server-side so the post is gone for every follower's client,
+  // not just removed from this tab. No toast/placeholder: it just disappears.
   function deleteMessageFromThread(thread, messageId) {
     const messageIndex = thread.messages.findIndex(m => m.id === messageId);
     if (messageIndex === -1) return;
@@ -3702,82 +3737,69 @@ document.addEventListener('DOMContentLoaded', () => {
       if (lastMessage) previewConversation.timestamp = lastMessage.timestamp;
     }
 
-    showToast('Message deleted', { type: 'success' });
+    authFetch(`/api/messages/channel/${encodeURIComponent(thread.id)}/${encodeURIComponent(messageId)}/delete`, {
+      method: 'POST',
+      headers: authHeaders()
+    }).catch(error => {
+      console.warn('Could not persist message delete:', error);
+    });
   }
 
-  // DM "delete for me" (WhatsApp/Telegram style): hides a message from the
-  // current user's own view only. The message is untouched for the other
-  // participant — this is not a shared/real delete. Persisted server-side
-  // (fire-and-forget, matching deliverThreadMessage/markConversationRead)
-  // so it stays hidden after a reload instead of only living on the
-  // in-memory message object for the rest of this tab's session.
-  function hideMessageForSelf(conversation, messageId) {
-    const message = conversation.messages.find(m => m.id === messageId);
-    if (!message) return;
+  // DM "delete for everyone": permanently removes the message so neither
+  // participant is ever served it again. Persisted server-side (fire-and-forget,
+  // matching deliverThreadMessage/markConversationRead) so it stays gone after
+  // a reload. No toast/placeholder: it just disappears from the thread.
+  function deleteDirectMessageForEveryone(conversation, messageId) {
+    const messageIndex = conversation.messages.findIndex(m => m.id === messageId);
+    if (messageIndex === -1) return;
 
-    message.hiddenFor = message.hiddenFor || {};
-    message.hiddenFor.user_self = true;
+    conversation.messages.splice(messageIndex, 1);
 
     const wrapperEl = document.querySelector(`.message-swipe-wrapper[data-message-id="${messageId}"]`);
     if (wrapperEl) wrapperEl.remove();
 
-    // Keep the conversation list preview in sync — skip hidden-for-self messages
-    const visibleMessages = conversation.messages.filter(m => !(m.hiddenFor && m.hiddenFor.user_self));
-    const lastMessage = visibleMessages[visibleMessages.length - 1];
+    // Keep the conversation list preview in sync
+    const lastMessage = conversation.messages[conversation.messages.length - 1];
     conversation.lastMessage = lastMessage ? truncateText(messagePreviewText(lastMessage), 100) : 'No messages yet';
     if (lastMessage) conversation.timestamp = lastMessage.timestamp;
 
-    showToast('Message deleted', { type: 'success' });
-
     const peerId = directPeerId(conversation.id);
     if (peerId) {
-      authFetch(`/api/messages/direct/${encodeURIComponent(peerId)}/${encodeURIComponent(messageId)}/hide`, {
+      authFetch(`/api/messages/direct/${encodeURIComponent(peerId)}/${encodeURIComponent(messageId)}/delete`, {
         method: 'POST',
         headers: authHeaders()
       }).catch(error => {
-        console.warn('Could not persist message hide:', error);
+        console.warn('Could not persist message delete:', error);
       });
     }
   }
 
-  // Group shared moderation delete: removes a message for every member. Members
-  // may only do this to their own messages; admins/the creator may do it to
-  // anyone's. The message becomes a placeholder, not repliable/copyable/deletable.
-  function deleteMessageForEveryone(group, messageId, options) {
-    const byAdmin = !!(options && options.byAdmin);
-    const message = group.messages.find(m => m.id === messageId);
-    if (!message) return;
+  // Group shared moderation delete: permanently removes a message for every
+  // member. Members may only do this to their own messages; admins/the
+  // creator may do it to anyone's. No toast/placeholder: it just disappears.
+  function deleteMessageForEveryone(group, messageId) {
+    const messageIndex = group.messages.findIndex(m => m.id === messageId);
+    if (messageIndex === -1) return;
 
-    message.isDeleted = true;
-    message.deletedByAdmin = byAdmin;
-    const placeholderText = byAdmin ? 'This message was deleted by an admin' : 'Message deleted';
+    group.messages.splice(messageIndex, 1);
 
     const messageEl = document.querySelector(`.message[data-message-id="${messageId}"]`);
-    if (messageEl) {
-      const bubbleEl = messageEl.querySelector('.message-bubble');
-      if (bubbleEl) {
-        bubbleEl.classList.add('deleted');
-        // An image bubble drops its padding reset with the photo it held.
-        bubbleEl.classList.remove('has-image');
-        bubbleEl.textContent = placeholderText;
-      }
-    }
+    if (messageEl) messageEl.remove();
 
     // Keep the conversation list preview (last message) in sync
     const row = conversations.find(c => c.groupId === group.id);
     if (row) {
       const lastMessage = group.messages[group.messages.length - 1];
-      if (lastMessage) {
-        row.lastMessage = lastMessage.isDeleted
-          ? (lastMessage.deletedByAdmin ? 'This message was deleted by an admin' : 'Message deleted')
-          : truncateText(messagePreviewText(lastMessage), 100);
-        row.timestamp = lastMessage.timestamp;
-      } else {
-        row.lastMessage = 'No messages yet';
-      }
+      row.lastMessage = lastMessage ? truncateText(messagePreviewText(lastMessage), 100) : 'No messages yet';
+      if (lastMessage) row.timestamp = lastMessage.timestamp;
     }
 
-    showToast('Message deleted', { type: 'success' });
+    authFetch(`/api/messages/group/${encodeURIComponent(group.id)}/${encodeURIComponent(messageId)}/delete`, {
+      method: 'POST',
+      headers: authHeaders()
+    }).catch(error => {
+      console.warn('Could not persist message delete:', error);
+    });
   }
 
   // Reply state management -- keyed per conversation/group/channel id so a
@@ -4409,15 +4431,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }));
     const messages = group.messages;
 
-    // Screenshot-state: mark the last real message deleted so the tombstone
-    // placeholder is reachable from a plain deep link, on whichever real/
-    // staging-seeded group thread this is -- no fixture-specific id needed.
-    if (SHOT_MESSAGE_DELETED && messages.length) {
-      const target = messages[messages.length - 1];
-      target.isDeleted = true;
-      target.deletedByAdmin = false;
-    }
-
     const messagesList = messages.map(msg => {
       if (msg.isSystemMessage) {
         return `<div class="message-system" data-message-id="${msg.id}">${escapeHtml(msg.text)}</div>`;
@@ -4426,14 +4439,8 @@ document.addEventListener('DOMContentLoaded', () => {
       messageHTML += `<div class="message-reply-icon" aria-hidden="true">↩️</div>`;
       messageHTML += `<div class="message ${msg.isOutgoing ? 'outgoing' : 'incoming has-avatar'}" data-message-id="${msg.id}">`;
 
-      // A deleted message shows only the tombstone - never its photo - so the
-      // image body and the .has-image padding reset are both skipped.
-      const bubbleBody = msg.isDeleted
-        ? (msg.deletedByAdmin ? 'This message was deleted by an admin' : 'Message deleted')
-        : messageBodyHTML(msg);
-      const bubbleClass = msg.isDeleted
-        ? 'message-bubble deleted'
-        : `message-bubble${messageBubbleClass(msg)}`;
+      const bubbleBody = messageBodyHTML(msg);
+      const bubbleClass = `message-bubble${messageBubbleClass(msg)}`;
 
       const quoteHTML = msg.replyTo ? `
         <div class="message-quote" data-quoted-message-id="${escapeAttr(msg.replyTo.messageId)}">
@@ -4445,13 +4452,11 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       ` : '';
 
-      // A deleted message keeps no attribution — there's nothing left to attribute.
-      const forwardHTML = (msg.forwardedFrom && !msg.isDeleted) ? forwardAttributionHTML(msg.forwardedFrom) : '';
+      const forwardHTML = msg.forwardedFrom ? forwardAttributionHTML(msg.forwardedFrom) : '';
 
-      // Deleted messages carry no reactions either — nothing left to react to.
-      // (Container always renders, like .post-reaction-chips, so a later
-      // refreshMessageReactions() call always has an element to patch.)
-      const reactionChipsRow = msg.isDeleted ? '' : `<div class="message-reaction-chips" data-message-id="${msg.id}">${messageReactionChipsHTML(msg)}</div>`;
+      // Container always renders, like .post-reaction-chips, so a later
+      // refreshMessageReactions() call always has an element to patch.
+      const reactionChipsRow = `<div class="message-reaction-chips" data-message-id="${msg.id}">${messageReactionChipsHTML(msg)}</div>`;
 
       if (msg.isOutgoing) {
         messageHTML += `
@@ -9206,12 +9211,12 @@ document.addEventListener('DOMContentLoaded', () => {
               headers: authHeaders({ 'Content-Type': 'application/json' }),
               body: JSON.stringify({ id: SHOT_DM_DELETE_MSG_ID, text: SHOT_DM_DELETE_TEXT })
             });
-            await fetch(`/api/messages/direct/${SHOT_DM_DELETE_PEER_ID}/${SHOT_DM_DELETE_MSG_ID}/hide`, {
+            await fetch(`/api/messages/direct/${SHOT_DM_DELETE_PEER_ID}/${SHOT_DM_DELETE_MSG_ID}/delete`, {
               method: 'POST',
               headers: authHeaders()
             });
           } catch (error) {
-            console.warn('Could not deliver/hide shot dm-delete message:', error);
+            console.warn('Could not deliver/delete shot dm-delete message:', error);
           }
         }
         await Promise.all([
