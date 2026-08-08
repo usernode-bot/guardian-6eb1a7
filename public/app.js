@@ -85,6 +85,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_SEND_FAIL = SHOT === 'send-fail';
   const SHOT_CHANNEL_SEND_FAIL = SHOT === 'channel-send-fail';
   const SHOT_SESSION_EXPIRED = SHOT === 'session-expired';
+  const SHOT_STALE_VERSION = SHOT === 'stale-version';
   const SHOT_NOTIFICATIONS_SHEET = SHOT === 'notifications-sheet';
   const SHOT_GROUPS_TAB = SHOT === 'groups-tab';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
@@ -199,6 +200,46 @@ document.addEventListener('DOMContentLoaded', () => {
     stopThreadPolling();
     stopMessagesListPolling();
     showSessionExpiredBanner();
+  }
+
+  // Captured from the first /api/state response in fetchUserData(). A tab
+  // that's been open since before a deploy keeps running the old app.js in
+  // memory -- checkServerVersion() below is how it finds out a newer one
+  // shipped and prompts a reload instead of silently misbehaving forever.
+  let bootServerVersion = null;
+  let updateAvailable = false;
+
+  function showUpdateAvailableBanner() {
+    if (document.querySelector('.update-available-banner')) return;
+    const banner = document.createElement('div');
+    banner.className = 'update-available-banner';
+    banner.textContent = 'A new version of Guardian is available — tap to refresh';
+    banner.addEventListener('click', () => window.location.reload());
+    document.body.appendChild(banner);
+  }
+
+  // Re-checked opportunistically on the same foreground/reconnect hooks that
+  // already drive resyncActiveScreen() -- no new polling loop. Yields to the
+  // session-expired banner (that one means the tab can't do anything useful
+  // at all) and never fires before bootServerVersion has a baseline.
+  async function checkServerVersion() {
+    if (sessionExpired || updateAvailable || bootServerVersion === null) return;
+    if (SHOT_STALE_VERSION) {
+      updateAvailable = true;
+      showUpdateAvailableBanner();
+      return;
+    }
+    try {
+      const response = await fetch('/api/state', { headers: authHeaders() });
+      if (!response.ok) return;
+      const data = await response.json();
+      if (data.serverVersion && data.serverVersion !== bootServerVersion) {
+        updateAvailable = true;
+        showUpdateAvailableBanner();
+      }
+    } catch (err) {
+      // Network hiccup -- the next foreground/reconnect resync retries.
+    }
   }
 
   // Drop-in replacement for fetch() used by every hydrate/deliver call site --
@@ -8717,6 +8758,9 @@ document.addEventListener('DOMContentLoaded', () => {
           profileState.username = data.user.username || 'johndoe';
           profileState.walletAddress = data.user.usernode_pubkey || null;
         }
+        if (bootServerVersion === null && data.serverVersion) {
+          bootServerVersion = data.serverVersion;
+        }
       }
     } catch (err) {
       console.error('Failed to fetch user data:', err);
@@ -9092,9 +9136,15 @@ document.addEventListener('DOMContentLoaded', () => {
   // Re-sync whatever's on screen when the tab regains focus or the network
   // comes back -- see resyncActiveScreen above.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') resyncActiveScreen();
+    if (document.visibilityState === 'visible') {
+      resyncActiveScreen();
+      checkServerVersion();
+    }
   });
-  window.addEventListener('online', resyncActiveScreen);
+  window.addEventListener('online', () => {
+    resyncActiveScreen();
+    checkServerVersion();
+  });
 
   // Initial render. Identity is hydrated first so the first paint already
   // knows who "You" is (groups/channels tag ownership off currentUser).
@@ -9109,6 +9159,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // async function resolves.
   (async () => {
     await fetchUserData();
+
+    // Screenshot-state: the real trigger is a version mismatch discovered on
+    // a later foreground/reconnect check (see checkServerVersion), which the
+    // dapp.json test harness can't simulate by firing a synthetic event --
+    // it can only navigate. Force the check once, right after boot, so the
+    // banner is deterministically present for a plain page load.
+    if (SHOT_STALE_VERSION) checkServerVersion();
 
     let shotPersistRemovalGroupId = null;
     let shotPersistRemovalChannelId = null;

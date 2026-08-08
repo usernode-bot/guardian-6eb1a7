@@ -721,6 +721,16 @@
       "expectText": "Your session expired"
     },
     {
+      "name": "Update-available banner renders when a stale client detects a newer server version",
+      "path": "/?shot=stale-version",
+      "expectSelector": ".update-available-banner"
+    },
+    {
+      "name": "Update-available banner shows the refresh prompt text",
+      "path": "/?shot=stale-version",
+      "expectText": "A new version of Guardian is available"
+    },
+    {
       "name": "A left group, unfollowed channel, and deleted DM stay gone after a simulated app restart (regression: group-leave stub, channel isFollowing always true, both let removed conversations reappear)",
       "path": "/?shot=persist-removal",
       "expectSelector": "[data-testid=\"persist-removal-count\"][data-count=\"0\"]"
