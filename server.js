@@ -1690,14 +1690,16 @@ app.post('/api/messages/direct/:peerId', async (req, res) => {
   }
 });
 
-// POST /api/messages/direct/:peerId/:messageId/hide - "delete for me": hides
-// one message from only the caller's own view of this DM thread. Either
-// participant may hide any message in a thread they're part of (matching the
-// client's long-press menu, which allows this on the peer's messages too) --
-// the other participant's history is untouched. Scoped through the same
-// peerId conversation lookup as the GET route above, so a caller can't hide a
-// message belonging to a thread they're not part of.
-app.post('/api/messages/direct/:peerId/:messageId/hide', async (req, res) => {
+// POST /api/messages/direct/:peerId/:messageId/delete - "delete for
+// everyone": permanently removes the message row, so neither participant's
+// client will ever be served it again (as opposed to /clear below, which only
+// hides messages from the caller's own view). Either participant may delete
+// any message in a thread they're part of, matching the client's long-press
+// menu. Scoped through the same peerId conversation lookup as the GET route
+// above, so a caller can't delete a message belonging to a thread they're not
+// part of. Also clears any leftover message_hidden_for rows for the deleted
+// id, though those are harmless once the message row itself is gone.
+app.post('/api/messages/direct/:peerId/:messageId/delete', async (req, res) => {
   try {
     const { peerId, messageId } = req.params;
     const convRes = await pool.query(
@@ -1710,20 +1712,16 @@ app.post('/api/messages/direct/:peerId/:messageId/hide', async (req, res) => {
     );
     if (convRes.rowCount === 0) return res.status(404).json({ error: 'Conversation not found' });
     const conversationId = convRes.rows[0].id;
-    const msgRes = await pool.query(
-      `SELECT id FROM messages WHERE id = $1 AND conversation_type = 'direct' AND conversation_id = $2`,
+    const delRes = await pool.query(
+      `DELETE FROM messages WHERE id = $1 AND conversation_type = 'direct' AND conversation_id = $2`,
       [messageId, conversationId]
     );
-    if (msgRes.rowCount === 0) return res.status(404).json({ error: 'Message not found' });
-    await pool.query(
-      `INSERT INTO message_hidden_for (message_id, user_id) VALUES ($1, $2)
-       ON CONFLICT (message_id, user_id) DO NOTHING`,
-      [messageId, req.user.id]
-    );
-    res.json({ id: messageId, hidden: true });
+    if (delRes.rowCount === 0) return res.status(404).json({ error: 'Message not found' });
+    await pool.query(`DELETE FROM message_hidden_for WHERE message_id = $1`, [messageId]);
+    res.json({ id: messageId, deleted: true });
   } catch (err) {
-    console.error('[messages] direct hide failed:', err);
-    res.status(500).json({ error: 'Failed to hide message' });
+    console.error('[messages] direct delete failed:', err);
+    res.status(500).json({ error: 'Failed to delete message' });
   }
 });
 
@@ -1786,6 +1784,33 @@ app.post('/api/messages/group/:groupId', async (req, res) => {
   }
 });
 
+// POST /api/messages/group/:groupId/:messageId/delete - "delete for
+// everyone": permanently removes the message row so no member's client is
+// ever served it again. Own messages may be deleted by their sender; owners
+// and admins may additionally delete anyone's message (moderation).
+app.post('/api/messages/group/:groupId/:messageId/delete', async (req, res) => {
+  try {
+    const { groupId, messageId } = req.params;
+    const role = await getGroupRole(groupId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Group not found' });
+    const msgRes = await pool.query(
+      `SELECT sender_user_id FROM messages WHERE id = $1 AND conversation_type = 'group' AND conversation_id = $2`,
+      [messageId, groupId]
+    );
+    if (msgRes.rowCount === 0) return res.status(404).json({ error: 'Message not found' });
+    const isOwnMessage = msgRes.rows[0].sender_user_id === req.user.id;
+    const isAdmin = role === 'owner' || role === 'admin';
+    if (!isOwnMessage && !isAdmin) {
+      return res.status(403).json({ error: 'You can only delete your own messages' });
+    }
+    await pool.query(`DELETE FROM messages WHERE id = $1`, [messageId]);
+    res.json({ id: messageId, deleted: true });
+  } catch (err) {
+    console.error('[messages] group delete failed:', err);
+    res.status(500).json({ error: 'Failed to delete message' });
+  }
+});
+
 // GET /api/messages/channel/:channelId - channel posts are broadcast content;
 // any authenticated user can read them (matches renderChannelView showing the
 // feed to owners, followers and Discover previews alike).
@@ -1812,6 +1837,32 @@ app.post('/api/messages/channel/:channelId', async (req, res) => {
   } catch (err) {
     console.error('[messages] channel send failed:', err);
     res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+// POST /api/messages/channel/:channelId/:messageId/delete - "delete for
+// everyone": permanently removes the message row so no follower's client is
+// ever served it again. Only the sender may delete it -- in practice only the
+// channel owner ever posts (see POST above), so this is effectively
+// owner-only too.
+app.post('/api/messages/channel/:channelId/:messageId/delete', async (req, res) => {
+  try {
+    const { channelId, messageId } = req.params;
+    const role = await getChannelRole(channelId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Channel not found' });
+    const msgRes = await pool.query(
+      `SELECT sender_user_id FROM messages WHERE id = $1 AND conversation_type = 'channel' AND conversation_id = $2`,
+      [messageId, channelId]
+    );
+    if (msgRes.rowCount === 0) return res.status(404).json({ error: 'Message not found' });
+    if (msgRes.rows[0].sender_user_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only delete your own messages' });
+    }
+    await pool.query(`DELETE FROM messages WHERE id = $1`, [messageId]);
+    res.json({ id: messageId, deleted: true });
+  } catch (err) {
+    console.error('[messages] channel delete failed:', err);
+    res.status(500).json({ error: 'Failed to delete message' });
   }
 });
 
