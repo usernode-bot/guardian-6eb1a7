@@ -9,6 +9,10 @@ const PLATFORM_BASE_URL = process.env.PLATFORM_BASE_URL || 'https://social-vibec
 const APP_SLUG = process.env.APP_SLUG || 'guardian';
 const USERNODE_JWT_PUBLIC_KEY = process.env.USERNODE_JWT_PUBLIC_KEY;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
+// Rotates on every process start (i.e. every deploy). Lets already-open
+// clients detect that a newer bundle has shipped and prompt a reload —
+// see the /api/state serverVersion field below.
+const SERVER_BOOT_ID = Date.now().toString(36) + '-' + crypto.randomBytes(4).toString('hex');
 
 // Database connection
 const pool = new Pool({
@@ -59,7 +63,16 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static('public'));
+// /app.js and /styles.css always revalidate (no-cache) so an open tab can't
+// keep running a stale, pre-deploy bundle from the browser's HTTP cache.
+// ETag/Last-Modified are untouched, so an unchanged file still gets a 304.
+app.use(express.static('public', {
+  setHeaders: (res, path) => {
+    if (path.endsWith('/app.js') || path.endsWith('/styles.css')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  },
+}));
 
 // Auth middleware - follows Usernode platform conventions
 const PUBLIC_API_PATHS = new Set(['/health', '/api/state']);
@@ -111,7 +124,7 @@ app.get('/api/state', async (req, res) => {
     }
     await seedStagingOwnedEntities(req.user);
   }
-  res.json({ status: 'ok', user: req.user || null });
+  res.json({ status: 'ok', user: req.user || null, serverVersion: SERVER_BOOT_ID });
 });
 
 // ---------------------------------------------------------------------------
@@ -659,6 +672,8 @@ app.post('/api/groups/:groupId/members', async (req, res) => {
          ON CONFLICT (group_id, user_id) DO NOTHING`,
         [groupId, invitee.id, invitee.username, req.user.id]
       );
+      await insertMessage('group', groupId, { id: 'system', username: 'System' },
+        { text: `${invitee.username} was added to the group` }, 'system');
     }
 
     const group = await loadGroupWithMembers(groupId);
@@ -757,86 +772,12 @@ app.put('/api/groups/:groupId/members/:memberId/role', async (req, res) => {
     : `${target.username} is no longer an admin`;
   await insertMessage('group', groupId, { id: 'system', username: 'System' }, { text: announcement }, 'system');
 
-  // Only promotions notify -- a demote is a quiet in-thread announcement only,
-  // per spec (losing admin isn't something the target needs alerted to).
-  if (role === 'admin') {
-    const groupRes = await pool.query('SELECT name FROM groups WHERE id = $1', [groupId]);
-    await insertNotification(memberId, {
-      type: 'group_admin_promotion',
-      groupId,
-      groupName: groupRes.rows[0] ? groupRes.rows[0].name : null,
-      actorId: req.user.id,
-      actorUsername: req.user.username || req.user.id
-    });
-  }
-
   res.json({
     id: groupId,
     memberId,
     role,
     message: 'Member role updated successfully'
   });
-});
-
-// ---------------------------------------------------------------------------
-// Notifications API Endpoints
-// ---------------------------------------------------------------------------
-
-// GET /api/notifications/unread-count - lightweight poll target for the
-// bottom-nav red dot; deliberately separate from the full list below so the
-// ~20s global poll doesn't pull full notification bodies every tick.
-app.get('/api/notifications/unread-count', async (req, res) => {
-  try {
-    const result = await pool.query(
-      `SELECT COUNT(*)::int AS count FROM notifications WHERE user_id = $1 AND read = false`,
-      [req.user.id]
-    );
-    res.json({ count: result.rows[0].count });
-  } catch (err) {
-    console.error('[notifications] unread-count failed:', err);
-    res.status(500).json({ error: 'Failed to load unread count' });
-  }
-});
-
-// GET /api/notifications - the caller's own notifications, most recent first.
-app.get('/api/notifications', async (req, res) => {
-  try {
-    const result = await pool.query(
-      `SELECT id, type, group_id, group_name, actor_user_id, actor_username, read, created_at
-         FROM notifications
-        WHERE user_id = $1
-        ORDER BY created_at DESC
-        LIMIT 50`,
-      [req.user.id]
-    );
-    res.json({
-      notifications: result.rows.map((row) => ({
-        id: row.id,
-        type: row.type,
-        groupId: row.group_id,
-        groupName: row.group_name,
-        actorId: row.actor_user_id,
-        actorUsername: row.actor_username,
-        read: row.read,
-        createdAt: new Date(row.created_at).getTime()
-      }))
-    });
-  } catch (err) {
-    console.error('[notifications] list failed:', err);
-    res.status(500).json({ error: 'Failed to load notifications' });
-  }
-});
-
-// POST /api/notifications/read-all - mark every one of the caller's
-// notifications read (opening the panel, or tapping into an entry from it).
-app.post('/api/notifications/read-all', async (req, res) => {
-  try {
-    await pool.query(`UPDATE notifications SET read = true WHERE user_id = $1 AND read = false`, [req.user.id]);
-    res.json({ message: 'Notifications marked as read' });
-  } catch (err) {
-    console.error('[notifications] mark-all-read failed:', err);
-    res.status(500).json({ error: 'Failed to mark notifications as read' });
-  }
 });
 
 // POST /api/groups/:groupId/leave - Leave the group. If the leaving member
@@ -1436,21 +1377,6 @@ async function insertMessage(conversationType, conversationId, sender, body, kin
   );
   const row = await pool.query('SELECT * FROM messages WHERE id = $1', [id]);
   return shapeMessage(row.rows[0]);
-}
-
-// Insert a per-user notification (currently: group admin promotions only).
-// Fire-and-forget from call sites' perspective isn't appropriate here since
-// the caller needs the row to exist before responding -- unlike showToast,
-// which is client-only and actor-facing, this is server-persisted and
-// target-facing, so it must be awaited like insertMessage above.
-async function insertNotification(userId, { type, groupId, groupName, actorId, actorUsername }) {
-  const id = `notif_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-  await pool.query(
-    `INSERT INTO notifications (id, user_id, type, group_id, group_name, actor_user_id, actor_username)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     ON CONFLICT (id) DO NOTHING`,
-    [id, userId, type, groupId || null, groupName || null, actorId || null, actorUsername || null]
-  );
 }
 
 // userId is optional: when given, messages that user has hidden-for-self
@@ -2064,27 +1990,9 @@ async function initDatabase() {
       `CREATE INDEX IF NOT EXISTS group_members_user_idx ON group_members (user_id)`
     );
 
-    // Per-user notifications (currently: group admin promotions only). Kept
-    // separate from `messages` -- a notification is about an event the
-    // recipient should be alerted to, not a chat line, and it needs its own
-    // read/unread state independent of conversation_user_state.
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS notifications (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        type TEXT NOT NULL,
-        group_id TEXT,
-        group_name TEXT,
-        actor_user_id TEXT,
-        actor_username TEXT,
-        read BOOLEAN NOT NULL DEFAULT false,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      );
-    `);
-    await pool.query(
-      `CREATE INDEX IF NOT EXISTS notifications_user_idx
-         ON notifications (user_id, created_at DESC)`
-    );
+    // The admin-promotion bell/notifications feature was removed in favor of
+    // an in-thread system message, so the table is no longer needed.
+    await pool.query(`DROP TABLE IF EXISTS notifications`);
 
     // Private: a private group's name/description is member-only content, and
     // group_members maps a username to every community they belong to — more
@@ -2108,8 +2016,6 @@ async function initDatabase() {
     await pool.query(`COMMENT ON TABLE channel_followers IS 'staging:private'`);
     // Private: ties a real user_id to which private group they've asked to join.
     await pool.query(`COMMENT ON TABLE join_requests IS 'staging:private'`);
-    // Private: ties a real user_id to the group-role events they were alerted to.
-    await pool.query(`COMMENT ON TABLE notifications IS 'staging:private'`);
 
     console.log('Database initialized');
   } catch (err) {
@@ -2454,16 +2360,13 @@ async function seedStagingOwnedEntities(currentUser) {
       [`conv_${groupId}`, me.id]
     );
 
-    // Fixed-id notification row, re-pointed to whoever is currently testing
-    // and reset to unread on every call -- same precedent as the pin/unread
-    // conversation_user_state rows above, so the bell/nav-dot always have
-    // something to show in staging without a real promotion having happened.
-    await pool.query(
-      `INSERT INTO notifications (id, user_id, type, group_id, group_name, actor_user_id, actor_username, read, created_at)
-       VALUES ('notif_staging_owned_1', $1, 'group_admin_promotion', $2, 'Staging Demo Owned Group', $3, $4, false, now())
-       ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, read = false, created_at = now()`,
-      [me.id, groupId, helper.id, helper.username]
-    );
+    // Fixed-id "member added" system message -- gives staging's owned group
+    // an in-thread announcement to check for, mirroring what a real
+    // POST /api/groups/:groupId/members call produces (fixed id + ON
+    // CONFLICT DO NOTHING means this is safe to call unconditionally, even
+    // for groups seeded before this fixture existed).
+    await insertMessage('group', groupId, { id: 'system', username: 'System' },
+      { id: `msg_${groupId}_3`, text: `${helper.username} was added to the group` }, 'system');
 
     // Fixed-id "sent by me" message, re-pointed to whoever is currently
     // testing (boot-time seeding in seedStagingDirectConversations can't do

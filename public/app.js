@@ -86,6 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_SEND_FAIL = SHOT === 'send-fail';
   const SHOT_CHANNEL_SEND_FAIL = SHOT === 'channel-send-fail';
   const SHOT_SESSION_EXPIRED = SHOT === 'session-expired';
+  const SHOT_STALE_VERSION = SHOT === 'stale-version';
   const SHOT_NOTIFICATIONS_SHEET = SHOT === 'notifications-sheet';
   const SHOT_GROUPS_TAB = SHOT === 'groups-tab';
   const SHOT_MESSAGES_SELECT = SHOT === 'messages-select';
@@ -201,6 +202,46 @@ document.addEventListener('DOMContentLoaded', () => {
     stopThreadPolling();
     stopMessagesListPolling();
     showSessionExpiredBanner();
+  }
+
+  // Captured from the first /api/state response in fetchUserData(). A tab
+  // that's been open since before a deploy keeps running the old app.js in
+  // memory -- checkServerVersion() below is how it finds out a newer one
+  // shipped and prompts a reload instead of silently misbehaving forever.
+  let bootServerVersion = null;
+  let updateAvailable = false;
+
+  function showUpdateAvailableBanner() {
+    if (document.querySelector('.update-available-banner')) return;
+    const banner = document.createElement('div');
+    banner.className = 'update-available-banner';
+    banner.textContent = 'A new version of Guardian is available — tap to refresh';
+    banner.addEventListener('click', () => window.location.reload());
+    document.body.appendChild(banner);
+  }
+
+  // Re-checked opportunistically on the same foreground/reconnect hooks that
+  // already drive resyncActiveScreen() -- no new polling loop. Yields to the
+  // session-expired banner (that one means the tab can't do anything useful
+  // at all) and never fires before bootServerVersion has a baseline.
+  async function checkServerVersion() {
+    if (sessionExpired || updateAvailable || bootServerVersion === null) return;
+    if (SHOT_STALE_VERSION) {
+      updateAvailable = true;
+      showUpdateAvailableBanner();
+      return;
+    }
+    try {
+      const response = await fetch('/api/state', { headers: authHeaders() });
+      if (!response.ok) return;
+      const data = await response.json();
+      if (data.serverVersion && data.serverVersion !== bootServerVersion) {
+        updateAvailable = true;
+        showUpdateAvailableBanner();
+      }
+    } catch (err) {
+      // Network hiccup -- the next foreground/reconnect resync retries.
+    }
   }
 
   // Drop-in replacement for fetch() used by every hydrate/deliver call site --
@@ -1089,126 +1130,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }, MESSAGES_LIST_POLL_INTERVAL_MS);
   }
 
-  // Notification unread count -- polled globally (independent of whichever
-  // screen is active) so the bottom-nav red dot lights up even while the
-  // user is on Discover/Create/Profile, not just while Messages is open.
-  const NOTIFICATION_POLL_INTERVAL_MS = 20000;
-  let notificationUnreadCount = 0;
-  let notifications = [];
-
-  // Toggle a class rather than inline style.display -- so a headless test
-  // asserting on `.nav-dot-visible`/`.notification-bell-badge-visible`
-  // actually confirms the unread state loaded, instead of trivially matching
-  // an element that's always present in the DOM regardless of count.
-  function renderNotificationIndicators() {
-    const navDot = document.getElementById('messages-nav-dot');
-    if (navDot) navDot.classList.toggle('nav-dot-visible', notificationUnreadCount > 0);
-    const bellBadge = document.getElementById('notification-bell-badge');
-    if (bellBadge) {
-      bellBadge.textContent = notificationUnreadCount > 9 ? '9+' : String(notificationUnreadCount);
-      bellBadge.classList.toggle('notification-bell-badge-visible', notificationUnreadCount > 0);
-    }
-  }
-
-  async function hydrateNotificationUnreadCount() {
-    try {
-      const response = await authFetch('/api/notifications/unread-count', { headers: authHeaders() });
-      if (!response.ok) return;
-      const payload = await response.json();
-      if (payload.count !== notificationUnreadCount) {
-        notificationUnreadCount = payload.count || 0;
-        renderNotificationIndicators();
-      }
-    } catch (error) {
-      console.warn('Could not load notification unread count:', error);
-    }
-  }
-
-  function startNotificationPolling() {
-    hydrateNotificationUnreadCount();
-    setInterval(hydrateNotificationUnreadCount, NOTIFICATION_POLL_INTERVAL_MS);
-  }
-
-  function notificationText(notification) {
-    if (notification.type === 'group_admin_promotion') {
-      return `${notification.actorUsername || 'Someone'} made you an admin of ${notification.groupName || 'a group'}`;
-    }
-    return 'New notification';
-  }
-
-  function markAllNotificationsRead() {
-    notificationUnreadCount = 0;
-    notifications.forEach(n => { n.read = true; });
-    renderNotificationIndicators();
-    fetch('/api/notifications/read-all', { method: 'POST', headers: authHeaders() })
-      .catch(error => console.warn('Could not mark notifications read:', error));
-  }
-
-  // Bell tap: fetch the caller's notifications and show them in a sheet,
-  // reusing the same dialog-overlay/dialog pattern as showMembersSheet.
-  async function openNotificationsSheet() {
-    try {
-      const response = await authFetch('/api/notifications', { headers: authHeaders() });
-      if (response.ok) {
-        const payload = await response.json();
-        notifications = payload.notifications || [];
-      }
-    } catch (error) {
-      console.warn('Could not load notifications:', error);
-    }
-    showNotificationsSheet();
-  }
-
-  function showNotificationsSheet() {
-    const overlay = document.createElement('div');
-    overlay.className = 'dialog-overlay';
-
-    const dialog = document.createElement('div');
-    dialog.className = 'dialog notifications-sheet-dialog';
-
-    const itemsHtml = notifications.length
-      ? notifications.map(n => `
-        <div class="notification-item ${n.read ? '' : 'notification-unread'}" data-notification-id="${n.id}" data-group-id="${n.groupId || ''}">
-          <div class="notification-icon">🛡️</div>
-          <div class="notification-content">
-            <div class="notification-text">${escapeHtml(notificationText(n))}</div>
-            <div class="notification-timestamp">${formatTimestamp(n.createdAt)}</div>
-          </div>
-        </div>
-      `).join('')
-      : `<div class="empty-state"><div class="empty-icon">🔔</div><div class="empty-message">No notifications yet</div></div>`;
-
-    dialog.innerHTML = `
-      <div class="dialog-header">
-        <h2>Notifications</h2>
-        <button class="close-dialog-button">✕</button>
-      </div>
-      <div class="dialog-content notifications-list-container" data-testid="notifications-list">
-        ${itemsHtml}
-      </div>
-    `;
-
-    overlay.appendChild(dialog);
-    pageContainer.appendChild(overlay);
-
-    dialog.querySelector('.close-dialog-button').addEventListener('click', () => overlay.remove());
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) overlay.remove();
-    });
-
-    // Tapping an entry navigates into the group thread and marks everything
-    // read -- there's no per-notification read state surfaced in the UI, so
-    // "read" is an all-or-nothing action tied to actually following one up.
-    dialog.querySelectorAll('.notification-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const groupId = item.dataset.groupId;
-        markAllNotificationsRead();
-        overlay.remove();
-        if (groupId) window.location.hash = `/group/${groupId}`;
-      });
-    });
-  }
-
   // Foreground/reconnect resync: a tab coming back into view, or the network
   // coming back online, is exactly when the 4-7s poll interval is most likely
   // to have just missed something (or to have been suspended entirely, which
@@ -2025,12 +1946,6 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="messages-header">
           <h1>Guardian</h1>
           <div class="messages-header-actions">
-            ${activeMessagesTab === 'groups' ? `
-            <span class="notification-bell un-touch-target" id="notification-bell-btn" title="Notifications">
-              🔔
-              <span class="notification-bell-badge ${notificationUnreadCount > 0 ? 'notification-bell-badge-visible' : ''}" id="notification-bell-badge">${notificationUnreadCount > 9 ? '9+' : notificationUnreadCount}</span>
-            </span>
-            ` : ''}
             <span class="search-icon un-touch-target">🔍</span>
           </div>
         </div>
@@ -8646,6 +8561,9 @@ document.addEventListener('DOMContentLoaded', () => {
           profileState.username = data.user.username || 'johndoe';
           profileState.walletAddress = data.user.usernode_pubkey || null;
         }
+        if (bootServerVersion === null && data.serverVersion) {
+          bootServerVersion = data.serverVersion;
+        }
       }
     } catch (err) {
       console.error('Failed to fetch user data:', err);
@@ -9027,9 +8945,15 @@ document.addEventListener('DOMContentLoaded', () => {
   // Re-sync whatever's on screen when the tab regains focus or the network
   // comes back -- see resyncActiveScreen above.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') resyncActiveScreen();
+    if (document.visibilityState === 'visible') {
+      resyncActiveScreen();
+      checkServerVersion();
+    }
   });
-  window.addEventListener('online', resyncActiveScreen);
+  window.addEventListener('online', () => {
+    resyncActiveScreen();
+    checkServerVersion();
+  });
 
   // Initial render. Identity is hydrated first so the first paint already
   // knows who "You" is (groups/channels tag ownership off currentUser).
@@ -9044,6 +8968,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // async function resolves.
   (async () => {
     await fetchUserData();
+
+    // Screenshot-state: the real trigger is a version mismatch discovered on
+    // a later foreground/reconnect check (see checkServerVersion), which the
+    // dapp.json test harness can't simulate by firing a synthetic event --
+    // it can only navigate. Force the check once, right after boot, so the
+    // banner is deterministically present for a plain page load.
+    if (SHOT_STALE_VERSION) checkServerVersion();
 
     let shotPersistRemovalGroupId = null;
     let shotPersistRemovalChannelId = null;
@@ -9263,7 +9194,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (SHOT_SESSION_EXPIRED) {
       handleSessionExpired();
     }
-    startNotificationPolling();
     // Screenshot-state: plant a reply target on SOURCE before handleNavigation
     // below opens TARGET, simulating a user who tapped "reply" in one thread
     // and then switched to another without cancelling it.
