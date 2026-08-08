@@ -55,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=dm-username-dup           messages two different peer ids sharing one username → Messages list must show that username only once
   //   ?shot=channel-send-fail         publishes one post that deterministically fails (owned channel only) → "Failed to send" + retry must render
   //   ?shot=session-expired           simulates a 401 on load                                  → session-expired banner must render, polling halted
+  //   ?shot=messages-select           enters multi-select on the first Messages row on load     → selection toolbar + selected row must render
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -87,6 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_SESSION_EXPIRED = SHOT === 'session-expired';
   const SHOT_NOTIFICATIONS_SHEET = SHOT === 'notifications-sheet';
   const SHOT_GROUPS_TAB = SHOT === 'groups-tab';
+  const SHOT_MESSAGES_SELECT = SHOT === 'messages-select';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
   const SHOT_CREATE_GROUP_NAME = 'Staging demo one-invite group';
@@ -397,6 +399,16 @@ document.addEventListener('DOMContentLoaded', () => {
   let searchQuery = '';
   let showMessagesSearch = false;
   let searchTimeout = null;
+
+  // WhatsApp/Telegram-style multi-select on the Messages list: a long-press
+  // enters selection mode and selects that row; further taps toggle other
+  // rows instead of navigating.
+  let messagesSelectionMode = false;
+  let selectedConversationIds = new Set();
+  // Set for a short window right after a long-press fires selection so the
+  // trailing click event (mouseup/touchend synthesizing "click") doesn't
+  // immediately toggle the same row back off.
+  let suppressNextConversationClick = false;
 
   // Tracks the hash we navigated FROM, so a group/channel chat page opened
   // from the Create menu's managed lists can send its back button there
@@ -1452,6 +1464,45 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Markup for a single conversation row, shared by the full page render and
+  // the search-debounced partial re-render. Includes the selection indicator
+  // used by the WhatsApp/Telegram-style multi-select mode.
+  function conversationItemHTML(item) {
+    let displayName, routeHash;
+    if (item.type === 'group') {
+      displayName = item.name;
+      routeHash = `/group/${item.groupId}`;
+    } else if (item.type === 'channel') {
+      displayName = item.name;
+      routeHash = `/channel/${item.channelId}`;
+    } else {
+      displayName = item.username;
+      routeHash = `/conversation/${item.id}`;
+    }
+    const badgeColor = item.type === 'channel' ? '#FF6B6B' : '#007AFF';
+    const isSelected = selectedConversationIds.has(item.id);
+
+    return `
+      <div class="conversation-item ${item.pinned ? 'pinned' : ''} ${messagesSelectionMode ? 'selection-mode' : ''} ${isSelected ? 'selected' : ''}" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
+        ${messagesSelectionMode ? `<div class="conversation-select-indicator ${isSelected ? 'checked' : ''}">${isSelected ? '✓' : ''}</div>` : ''}
+        <div class="conversation-avatar">${escapeHtml(item.avatar)}</div>
+        <div class="conversation-content">
+          <div class="conversation-header">
+            <span class="conversation-username-row">
+              ${item.pinned ? '<span class="conversation-pin-icon">📌</span>' : ''}
+              <span class="conversation-username">${escapeHtml(displayName)}</span>
+            </span>
+            <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
+          </div>
+          <p class="conversation-message">${escapeHtml(item.lastMessage)}</p>
+        </div>
+        ${item.unreadCount > 0
+          ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>`
+          : (item.manuallyMarkedUnread ? `<div class="unread-badge unread-dot" style="background-color: ${badgeColor};"></div>` : '')}
+      </div>
+    `;
+  }
+
   // Update only the conversations list (used during search to avoid full page re-render)
   function updateConversationsList() {
     const filteredConversations = filterConversations(activeMessagesTab, searchQuery);
@@ -1474,39 +1525,8 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
           </div>
         `;
-      } else {
-        let displayName, routeHash;
-        if (item.type === 'group') {
-          displayName = item.name;
-          routeHash = `/group/${item.groupId}`;
-        } else if (item.type === 'channel') {
-          displayName = item.name;
-          routeHash = `/channel/${item.channelId}`;
-        } else {
-          displayName = item.username;
-          routeHash = `/conversation/${item.id}`;
-        }
-        const badgeColor = item.type === 'channel' ? '#FF6B6B' : '#007AFF';
-
-        return `
-          <div class="conversation-item ${item.pinned ? 'pinned' : ''}" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
-            <div class="conversation-avatar">${escapeHtml(item.avatar)}</div>
-            <div class="conversation-content">
-              <div class="conversation-header">
-                <span class="conversation-username-row">
-                  ${item.pinned ? '<span class="conversation-pin-icon">📌</span>' : ''}
-                  <span class="conversation-username">${escapeHtml(displayName)}</span>
-                </span>
-                <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
-              </div>
-              <p class="conversation-message">${escapeHtml(item.lastMessage)}</p>
-            </div>
-            ${item.unreadCount > 0
-              ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>`
-              : (item.manuallyMarkedUnread ? `<div class="unread-badge unread-dot" style="background-color: ${badgeColor};"></div>` : '')}
-          </div>
-        `;
       }
+      return conversationItemHTML(item);
     }).join('');
 
     const emptyMessage = {
@@ -1521,6 +1541,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (listEl) {
       listEl.innerHTML = conversationsList || `<div class="empty-state"><div class="empty-icon">💬</div><div class="empty-message">${emptyMessage}</div></div>`;
       attachConversationListeners();
+      setupConversationSelection();
     }
   }
 
@@ -1529,8 +1550,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // Conversation click handlers
     document.querySelectorAll('.conversation-item').forEach(item => {
       item.addEventListener('click', () => {
-        const routeHash = item.dataset.routeHash;
+        if (suppressNextConversationClick) {
+          suppressNextConversationClick = false;
+          return;
+        }
+
         const convId = item.dataset.conversationId;
+
+        if (messagesSelectionMode) {
+          toggleConversationSelection(convId);
+          return;
+        }
+
+        const routeHash = item.dataset.routeHash;
         const conv = conversations.find(c => c.id === convId);
         if (conv) {
           conv.unreadCount = 0;
@@ -1557,6 +1589,37 @@ document.addEventListener('DOMContentLoaded', () => {
         declineRequest(requestId);
       });
     });
+  }
+
+  // Enter multi-select mode with a single conversation pre-selected (fired by
+  // a long-press on a conversation row).
+  function startConversationSelection(convId) {
+    messagesSelectionMode = true;
+    selectedConversationIds = new Set([convId]);
+    renderMessagesPage();
+  }
+
+  // Toggle a row's selection; dropping the last selected row exits selection
+  // mode entirely, same as WhatsApp/Telegram.
+  function toggleConversationSelection(convId) {
+    if (selectedConversationIds.has(convId)) {
+      selectedConversationIds.delete(convId);
+    } else {
+      selectedConversationIds.add(convId);
+    }
+
+    if (selectedConversationIds.size === 0) {
+      exitMessagesSelectionMode();
+      return;
+    }
+
+    renderMessagesPage();
+  }
+
+  function exitMessagesSelectionMode() {
+    messagesSelectionMode = false;
+    selectedConversationIds = new Set();
+    renderMessagesPage();
   }
 
   // Update conversation last message and timestamp
@@ -1925,39 +1988,8 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
           </div>
         `;
-      } else {
-        let displayName, routeHash;
-        if (item.type === 'group') {
-          displayName = item.name;
-          routeHash = `/group/${item.groupId}`;
-        } else if (item.type === 'channel') {
-          displayName = item.name;
-          routeHash = `/channel/${item.channelId}`;
-        } else {
-          displayName = item.username;
-          routeHash = `/conversation/${item.id}`;
-        }
-        const badgeColor = item.type === 'channel' ? '#FF6B6B' : '#007AFF';
-
-        return `
-          <div class="conversation-item ${item.pinned ? 'pinned' : ''}" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
-            <div class="conversation-avatar">${escapeHtml(item.avatar)}</div>
-            <div class="conversation-content">
-              <div class="conversation-header">
-                <span class="conversation-username-row">
-                  ${item.pinned ? '<span class="conversation-pin-icon">📌</span>' : ''}
-                  <span class="conversation-username">${escapeHtml(displayName)}</span>
-                </span>
-                <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
-              </div>
-              <p class="conversation-message">${escapeHtml(item.lastMessage)}</p>
-            </div>
-            ${item.unreadCount > 0
-              ? `<div class="unread-badge" style="background-color: ${badgeColor};">${item.unreadCount > 9 ? '9+' : item.unreadCount}</div>`
-              : (item.manuallyMarkedUnread ? `<div class="unread-badge unread-dot" style="background-color: ${badgeColor};"></div>` : '')}
-          </div>
-        `;
       }
+      return conversationItemHTML(item);
     }).join('');
 
     const emptyMessage = {
@@ -1981,8 +2013,15 @@ document.addEventListener('DOMContentLoaded', () => {
          </div>`
       : `<div class="empty-state"><div class="empty-icon">💬</div><div class="empty-message">${emptyMessage}</div></div>`;
 
-    pageContainer.innerHTML = `
-      <div class="messages-page">
+    // While selecting, the normal header/search/tabs are replaced by a
+    // WhatsApp/Telegram-style selection toolbar (cancel, count, bulk delete).
+    const headerHTML = messagesSelectionMode ? `
+        <div class="messages-selection-toolbar">
+          <button class="selection-cancel-btn un-touch-target" aria-label="Cancel selection" data-testid="selection-cancel-btn">✕</button>
+          <span class="selection-count">${selectedConversationIds.size} selected</span>
+          <button class="selection-delete-btn un-touch-target" aria-label="Delete selected conversations" data-testid="selection-delete-btn">🗑</button>
+        </div>
+      ` : `
         <div class="messages-header">
           <h1>Guardian</h1>
           <div class="messages-header-actions">
@@ -2006,81 +2045,97 @@ document.addEventListener('DOMContentLoaded', () => {
           <button class="message-tab ${activeMessagesTab === 'channels' ? 'active' : ''}" data-tab="channels">Channels</button>
           <button class="message-tab ${activeMessagesTab === 'requests' ? 'active' : ''}" data-tab="requests">Requests ${requestsBadge}</button>
         </div>
+      `;
+
+    pageContainer.innerHTML = `
+      <div class="messages-page">
+        ${headerHTML}
         <div class="conversations-list" id="conversations-list">
           ${conversationsList || emptyStateHTML}
         </div>
       </div>
     `;
 
-    // Tab click handlers
-    document.querySelectorAll('.message-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        searchQuery = '';
-        showMessagesSearch = false;
-        renderMessagesPage(tab.dataset.tab);
-      });
-    });
-
-    // "+ New Group" entry point (Groups-tab empty state; the header action was
-    // removed — group creation still lives in the Create menu at /#/create)
-    document.querySelectorAll('[data-testid="new-group-empty"]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        window.location.hash = '/create-group';
-      });
-    });
-
-    // Search icon handler
-    document.querySelector('.search-icon').addEventListener('click', () => {
-      showMessagesSearch = true;
-      renderMessagesPage();
-      setTimeout(() => {
-        document.getElementById('messages-search-input').focus();
-      }, 0);
-    });
-
-    // Notification bell handler (only rendered on the Groups tab)
-    document.getElementById('notification-bell-btn')?.addEventListener('click', () => {
-      openNotificationsSheet();
-    });
-
-    // Search input handler
-    const searchInput = document.getElementById('messages-search-input');
-    if (searchInput) {
-      searchInput.addEventListener('input', (e) => {
-        searchQuery = e.target.value;
-
-        // Clear previous timeout
-        if (searchTimeout) clearTimeout(searchTimeout);
-
-        // Debounce: update only the conversations list after 300ms of no typing
-        searchTimeout = setTimeout(() => {
-          updateConversationsList();
-        }, 300);
+    if (messagesSelectionMode) {
+      document.querySelector('.selection-cancel-btn')?.addEventListener('click', () => {
+        exitMessagesSelectionMode();
       });
 
-      // Search close button
-      document.querySelector('.search-close').addEventListener('click', () => {
-        searchQuery = '';
-        showMessagesSearch = false;
+      document.querySelector('.selection-delete-btn')?.addEventListener('click', () => {
+        bulkDeleteSelectedConversations();
+      });
+    } else {
+      // Tab click handlers
+      document.querySelectorAll('.message-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          searchQuery = '';
+          showMessagesSearch = false;
+          renderMessagesPage(tab.dataset.tab);
+        });
+      });
+
+      // "+ New Group" entry point (Groups-tab empty state; the header action was
+      // removed — group creation still lives in the Create menu at /#/create)
+      document.querySelectorAll('[data-testid="new-group-empty"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          window.location.hash = '/create-group';
+        });
+      });
+
+      // Search icon handler
+      document.querySelector('.search-icon')?.addEventListener('click', () => {
+        showMessagesSearch = true;
         renderMessagesPage();
+        setTimeout(() => {
+          document.getElementById('messages-search-input').focus();
+        }, 0);
       });
+
+      // Notification bell handler (only rendered on the Groups tab)
+      document.getElementById('notification-bell-btn')?.addEventListener('click', () => {
+        openNotificationsSheet();
+      });
+
+      // Search input handler
+      const searchInput = document.getElementById('messages-search-input');
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+          searchQuery = e.target.value;
+
+          // Clear previous timeout
+          if (searchTimeout) clearTimeout(searchTimeout);
+
+          // Debounce: update only the conversations list after 300ms of no typing
+          searchTimeout = setTimeout(() => {
+            updateConversationsList();
+          }, 300);
+        });
+
+        // Search close button
+        document.querySelector('.search-close').addEventListener('click', () => {
+          searchQuery = '';
+          showMessagesSearch = false;
+          renderMessagesPage();
+        });
+      }
+
+      // Screenshot-state: walk the same tap the user makes (open the bell) so
+      // dapp.json can assert on the notifications sheet deterministically.
+      if (SHOT_NOTIFICATIONS_SHEET) {
+        document.getElementById('notification-bell-btn')?.click();
+      }
     }
 
     // Attach event listeners to conversation list items
     attachConversationListeners();
 
-    // Setup long-press context menu for conversations
-    setupConversationLongPress();
+    // Long-press a conversation row to enter multi-select mode (replaces the
+    // old per-row context menu); once in selection mode, taps toggle rows.
+    setupConversationSelection();
 
     // Poll while this screen stays open so a new incoming DM or request shows
     // up without the user having to leave and come back.
     startMessagesListPolling();
-
-    // Screenshot-state: walk the same tap the user makes (open the bell) so
-    // dapp.json can assert on the notifications sheet deterministically.
-    if (SHOT_NOTIFICATIONS_SHEET) {
-      document.getElementById('notification-bell-btn')?.click();
-    }
   }
 
   // Accept request and create conversation
@@ -2137,238 +2192,134 @@ document.addEventListener('DOMContentLoaded', () => {
     renderMessagesPage();
   }
 
-  // Type-aware "Delete" for the conversation-list long-press menu: a DM is
-  // hidden from this user's inbox only (the other side keeps their copy), a
-  // group delete is really "Leave Group", a channel delete is "Unfollow".
-  function handleConversationDelete(conv) {
-    if (conv.type === 'group') {
-      const group = groups.find(g => g.id === conv.groupId);
-      if (group) showLeaveGroupDialog(conv.groupId, group.name);
-      return;
-    }
+  // Leaves a group: shared by the Leave Group dialog and bulk delete from the
+  // Messages list selection toolbar. Returns whether it succeeded.
+  async function performLeaveGroup(groupId) {
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return false;
 
+    try {
+      if (group.source === 'server') {
+        const response = await fetch(`/api/groups/${groupId}/leave`, {
+          method: 'POST',
+          headers: {
+            'x-usernode-token': localStorage.getItem('usernode-token')
+          }
+        });
+        if (!response.ok) throw new Error('Failed to leave group');
+      }
+
+      group.members = group.members.filter(m => m.id !== 'user_self');
+      group.memberCount = group.members.length;
+      group.isLeftByUser = true;
+
+      const conv = conversations.find(c => c.type === 'group' && c.groupId === groupId);
+      if (conv) conv.hiddenFromInbox = true;
+
+      return true;
+    } catch (error) {
+      console.error(error);
+      return false;
+    }
+  }
+
+  // Hides a DM from this user's inbox only (the other side keeps their
+  // copy). Shared by the single-chat delete flow and bulk delete.
+  async function performDeleteDirectConversation(conv) {
+    conv.hiddenFromInbox = true;
+    try {
+      await fetch(`/api/conversations/${conv.id}/state`, {
+        method: 'PUT',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ hiddenFromInbox: true })
+      });
+      return true;
+    } catch (err) {
+      console.error('Failed to delete conversation:', err);
+      return false;
+    }
+  }
+
+  // Type-aware "delete" for a single conversation row: a DM is hidden from
+  // this user's inbox only, a group delete is really "Leave Group", a
+  // channel delete is "Unfollow".
+  async function performConversationDelete(conv) {
+    if (conv.type === 'group') return performLeaveGroup(conv.groupId);
     if (conv.type === 'channel') {
       unfollowChannel(conv.channelId);
-      renderMessagesPage();
-      showToast('Unfollowed channel', { type: 'success' });
-      return;
+      return true;
     }
+    return performDeleteDirectConversation(conv);
+  }
+
+  // Bulk-delete every conversation currently selected in the Messages list's
+  // multi-select mode (WhatsApp/Telegram-style), after one confirmation.
+  function bulkDeleteSelectedConversations() {
+    const targets = Array.from(selectedConversationIds)
+      .map(id => conversations.find(c => c.id === id))
+      .filter(Boolean);
+    if (targets.length === 0) return;
 
     showConfirmDialog(
-      'Delete Chat',
-      `Delete your chat with ${escapeHtml(conv.username)}? This only removes it from your inbox — ${escapeHtml(conv.username)} will still see the conversation.`,
+      'Delete Conversations',
+      `Delete ${targets.length} selected conversation${targets.length > 1 ? 's' : ''}? Direct messages are only removed from your inbox, group chats will be left, and channels will be unfollowed.`,
       async () => {
-        conv.hiddenFromInbox = true;
-        try {
-          await fetch(`/api/conversations/${conv.id}/state`, {
-            method: 'PUT',
-            headers: authHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify({ hiddenFromInbox: true })
-          });
-        } catch (err) {
-          console.error('Failed to delete conversation:', err);
-        }
-        renderMessagesPage();
-        showToast('Chat deleted', { type: 'success' });
+        await Promise.all(targets.map(conv => performConversationDelete(conv)));
+        exitMessagesSelectionMode();
+        showToast('Conversations deleted', { type: 'success' });
       }
     );
   }
 
-  // Setup long-press context menu for conversation items
-  function setupConversationLongPress() {
-    const conversationItems = document.querySelectorAll('.conversation-item');
+  // Long-press a conversation row to enter WhatsApp/Telegram-style
+  // multi-select mode; while active, tapping any row toggles its selection
+  // (handled in attachConversationListeners) instead of opening it.
+  function setupConversationSelection() {
     const LONG_PRESS_DURATION = 350;
+    let longPressTimer = null;
+    let lastEventWasTouch = false;
 
-    function buildMenuItems(conv) {
-      const isUnread = conv.unreadCount > 0 || !!conv.manuallyMarkedUnread;
-      const deleteLabel = conv.type === 'group' ? 'Leave Group'
-        : conv.type === 'channel' ? 'Unfollow'
-        : 'Delete Chat';
-
-      return [
-        { icon: '📌', label: conv.pinned ? 'Unpin' : 'Pin', action: 'pin' },
-        { icon: '👁', label: isUnread ? 'Mark as Read' : 'Mark as Unread', action: 'toggle-read' },
-        { icon: '🗑', label: deleteLabel, action: 'delete', destructive: true }
-      ];
-    }
-
-    let menuState = {
-      selectedConvId: null,
-      isMenuOpen: false,
-      longPressTimer: null,
-      lastEventWasTouch: false
-    };
-
-    function dismissMenu() {
-      if (!menuState.isMenuOpen) return;
-
-      const overlay = document.querySelector('.conversation-menu-overlay');
-      const contextMenu = document.querySelector('.conversation-context-menu');
-
-      if (overlay) overlay.classList.add('closing');
-      if (contextMenu) contextMenu.classList.add('closing');
-
-      setTimeout(() => {
-        overlay?.remove();
-        contextMenu?.remove();
-        menuState.selectedConvId = null;
-        menuState.isMenuOpen = false;
-      }, 150);
-    }
-
-    function showMenu(convId, element) {
-      if (menuState.isMenuOpen) dismissMenu();
-
-      const conv = conversations.find(c => c.id === convId);
-      if (!conv) return;
-
-      menuState.selectedConvId = convId;
-      menuState.isMenuOpen = true;
-
-      const messagesPage = document.querySelector('.messages-page');
-      if (!messagesPage) return;
-
-      // Create overlay
-      const overlay = document.createElement('div');
-      overlay.className = 'conversation-menu-overlay';
-      overlay.addEventListener('click', dismissMenu);
-      messagesPage.appendChild(overlay);
-
-      // Create context menu
-      const contextMenu = document.createElement('div');
-      contextMenu.className = 'conversation-context-menu';
-      const menuButtons = buildMenuItems(conv).map(item => `
-          <button class="menu-item${item.destructive ? ' destructive' : ''}" aria-label="${item.label}" data-action="${item.action}">
-            <span class="menu-icon">${item.icon}</span>
-            <span class="menu-label">${item.label}</span>
-          </button>
-        `).join('');
-      contextMenu.innerHTML = menuButtons;
-      messagesPage.appendChild(contextMenu);
-
-      // Position menu
-      const elementRect = element.getBoundingClientRect();
-      const contextMenuRect = contextMenu.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      const viewportWidth = window.innerWidth;
-
-      const spaceAbove = elementRect.top;
-      const spaceBelow = viewportHeight - elementRect.bottom;
-      const menuHeight = contextMenuRect.height;
-
-      let menuTop;
-      if (spaceAbove > menuHeight + 10) {
-        menuTop = elementRect.top - menuHeight - 10;
-      } else {
-        menuTop = elementRect.bottom + 10;
+    function clearLongPressTimer() {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
       }
-
-      if (menuTop < 10) menuTop = 10;
-      else if (menuTop + menuHeight > viewportHeight - 10) menuTop = viewportHeight - menuHeight - 10;
-
-      const elementCenterX = elementRect.left + elementRect.width / 2;
-      let menuLeft = elementCenterX - contextMenuRect.width / 2;
-
-      if (menuLeft < 10) menuLeft = 10;
-      else if (menuLeft + contextMenuRect.width > viewportWidth - 10) menuLeft = viewportWidth - contextMenuRect.width - 10;
-
-      contextMenu.style.position = 'fixed';
-      contextMenu.style.top = Math.max(10, menuTop) + 'px';
-      contextMenu.style.left = Math.max(10, menuLeft) + 'px';
-
-      // Add event listeners to menu items
-      contextMenu.querySelectorAll('.menu-item').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          const action = btn.dataset.action;
-          btn.classList.add('tapped');
-
-          if (action === 'delete') {
-            dismissMenu();
-            handleConversationDelete(conv);
-            return;
-          }
-
-          try {
-            if (action === 'pin') {
-              const newPinnedState = !conv.pinned;
-              const res = await fetch(`/api/conversations/${convId}/state`, {
-                method: 'PUT',
-                headers: authHeaders({ 'Content-Type': 'application/json' }),
-                body: JSON.stringify({ pinned: newPinnedState })
-              });
-              if (res.ok) {
-                conv.pinned = newPinnedState;
-              }
-            } else if (action === 'toggle-read') {
-              const newUnreadState = !(conv.unreadCount > 0 || conv.manuallyMarkedUnread);
-              conv.manuallyMarkedUnread = newUnreadState;
-              if (!newUnreadState) conv.unreadCount = 0;
-              await fetch(`/api/conversations/${convId}/state`, {
-                method: 'PUT',
-                headers: authHeaders({ 'Content-Type': 'application/json' }),
-                body: JSON.stringify({ manuallyMarkedUnread: newUnreadState })
-              });
-            }
-          } catch (err) {
-            console.error(`Failed to ${action} conversation:`, err);
-          }
-
-          setTimeout(() => dismissMenu(), 150);
-          renderMessagesPage();
-        });
-      });
     }
 
-    conversationItems.forEach(item => {
+    function handleLongPress(convId) {
+      // Swallow the click that follows this long-press (mouseup/touchend)
+      // so it doesn't immediately toggle the row's selection back off.
+      suppressNextConversationClick = true;
+      setTimeout(() => { suppressNextConversationClick = false; }, 400);
+
+      if (!messagesSelectionMode) {
+        startConversationSelection(convId);
+      } else {
+        toggleConversationSelection(convId);
+      }
+    }
+
+    document.querySelectorAll('.conversation-item').forEach(item => {
       const convId = item.dataset.conversationId;
 
       // Mouse events
-      item.addEventListener('mousedown', (e) => {
-        if (menuState.lastEventWasTouch) return;
-        menuState.longPressTimer = setTimeout(() => {
-          showMenu(convId, item);
-        }, LONG_PRESS_DURATION);
+      item.addEventListener('mousedown', () => {
+        if (lastEventWasTouch) return;
+        longPressTimer = setTimeout(() => handleLongPress(convId), LONG_PRESS_DURATION);
       });
-
-      item.addEventListener('mouseup', () => {
-        if (menuState.longPressTimer) {
-          clearTimeout(menuState.longPressTimer);
-          menuState.longPressTimer = null;
-        }
-      });
-
-      item.addEventListener('mouseleave', () => {
-        if (menuState.longPressTimer) {
-          clearTimeout(menuState.longPressTimer);
-          menuState.longPressTimer = null;
-        }
-      });
+      item.addEventListener('mouseup', clearLongPressTimer);
+      item.addEventListener('mouseleave', clearLongPressTimer);
 
       // Touch events
-      item.addEventListener('touchstart', (e) => {
-        menuState.lastEventWasTouch = true;
-        menuState.longPressTimer = setTimeout(() => {
-          showMenu(convId, item);
-        }, LONG_PRESS_DURATION);
+      item.addEventListener('touchstart', () => {
+        lastEventWasTouch = true;
+        longPressTimer = setTimeout(() => handleLongPress(convId), LONG_PRESS_DURATION);
       });
-
       item.addEventListener('touchend', () => {
-        if (menuState.longPressTimer) {
-          clearTimeout(menuState.longPressTimer);
-          menuState.longPressTimer = null;
-        }
-        setTimeout(() => {
-          menuState.lastEventWasTouch = false;
-        }, 100);
+        clearLongPressTimer();
+        setTimeout(() => { lastEventWasTouch = false; }, 100);
       });
-
-      item.addEventListener('touchmove', () => {
-        if (menuState.longPressTimer) {
-          clearTimeout(menuState.longPressTimer);
-          menuState.longPressTimer = null;
-        }
-      });
+      item.addEventListener('touchmove', clearLongPressTimer);
     });
   }
 
@@ -6268,39 +6219,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById('confirm-leave').addEventListener('click', async () => {
-      try {
-        const group = groups.find(g => g.id === groupId);
-
-        if (group.source === 'server') {
-          const response = await fetch(`/api/groups/${groupId}/leave`, {
-            method: 'POST',
-            headers: {
-              'x-usernode-token': localStorage.getItem('usernode-token')
-            }
-          });
-
-          if (!response.ok) {
-            throw new Error('Failed to leave group');
-          }
-        }
-
-        group.members = group.members.filter(m => m.id !== 'user_self');
-        group.memberCount = group.members.length;
-        group.isLeftByUser = true;
-
-        const conv = conversations.find(c => c.type === 'group' && c.groupId === groupId);
-        if (conv) conv.hiddenFromInbox = true;
-
+      const success = await performLeaveGroup(groupId);
+      if (success) {
         overlay.remove();
         // Setting an unchanged hash doesn't fire 'hashchange' (e.g. leaving
-        // via the messages-list long-press menu, already on this route), so
-        // render directly rather than relying on the navigation listener.
+        // while already on the Messages list), so render directly rather
+        // than relying on the navigation listener.
         const alreadyOnMessages = window.location.hash === '#/messages' || window.location.hash === '';
         window.location.hash = '/messages';
         if (alreadyOnMessages) renderMessagesPage();
         showToast('You left the group', { type: 'success' });
-      } catch (error) {
-        console.error(error);
+      } else {
         showToast('Failed to leave group', { type: 'error' });
       }
     });
@@ -8929,6 +8858,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Special handling for messages page
     if (pageName === 'messages') {
       renderMessagesPage(SHOT_REQUESTS_TAB ? 'requests' : ((SHOT_GROUPS_TAB || SHOT_NOTIFICATIONS_SHEET) ? 'groups' : null));
+      // Screenshot-state: walk the same long-press the user makes (select the
+      // first row) so dapp.json can assert on the selection toolbar deterministically.
+      if (SHOT_MESSAGES_SELECT) {
+        const firstConv = filterConversations('all', '')[0];
+        if (firstConv) startConversationSelection(firstConv.id);
+      }
     } else if (pageName === 'create') {
       renderNewMessagePage();
     } else if (pageName === 'discover') {

@@ -808,35 +808,64 @@ html, body {
   border-radius: inherit;
 }
 
-/* Conversation long-press menu */
-.conversation-menu-overlay {
-  position: fixed;
-  inset: 0;
-  background-color: rgba(0, 0, 0, 0.4);
-  z-index: 100;
-  animation: fadeIn 250ms ease-out;
-}
-
-.conversation-menu-overlay.closing {
-  animation: fadeOut 150ms ease-in forwards;
-}
-
-.conversation-context-menu {
-  position: fixed;
+/* Messages list multi-select mode (WhatsApp/Telegram-style): a long-press on
+   a conversation row enters selection mode, replacing the normal header with
+   a toolbar (cancel / count / bulk delete). */
+.messages-selection-toolbar {
   display: flex;
-  flex-direction: column;
-  background-color: rgba(255, 255, 255, 0.95);
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
-  z-index: 101;
-  animation: menuScaleIn 250ms ease-out;
-  backdrop-filter: blur(4px);
-  min-width: 160px;
-  overflow: hidden;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  background-color: #fff;
+  border-bottom: 1px solid #e0e0e0;
+  flex-shrink: 0;
 }
 
-.conversation-context-menu.closing {
-  animation: menuScaleOut 150ms ease-in forwards;
+.selection-cancel-btn,
+.selection-delete-btn {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+}
+
+.selection-count {
+  flex: 1;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #222;
+}
+
+.selection-delete-btn {
+  color: #ff3b30;
+}
+
+.conversation-item.selection-mode {
+  padding-left: 12px;
+}
+
+.conversation-select-indicator {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #c7c7cc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: #fff;
+}
+
+.conversation-select-indicator.checked {
+  background-color: #007aff;
+  border-color: #007aff;
+}
+
+.conversation-item.selected {
+  background-color: #eaf3ff;
 }
 
 /* Reply Preview Bar */
