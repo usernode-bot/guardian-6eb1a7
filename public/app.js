@@ -569,6 +569,11 @@ document.addEventListener('DOMContentLoaded', () => {
         avatar: shaped.avatar,
         lastMessage: lastMessage ? lastMessage.text : '',
         timestamp: lastMessage ? lastMessage.timestamp : timestamp,
+        // See the matching field in hydrateServerDirectConversations: only
+        // ever set from server-provided lastMessageAt values, never from a
+        // locally-stamped Date.now(), so the gate below can't get stuck
+        // comparing across two different clocks.
+        serverLastMessageAt: 0,
         unreadCount: 0,
         archived: false,
         pinned: false
@@ -581,10 +586,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // conversations sync their preview text in hydrateServerDirectConversations,
     // and is what keeps the inbox preview showing e.g. "X was removed from the
     // group" instead of going stale while the Messages list just sits open.
+    // Gated on serverLastMessageAt (server clock only), not timestamp (which
+    // also gets bumped optimistically by the local clock on send) -- mixing
+    // those two clocks is what let a local optimistic send permanently freeze
+    // this preview once the local clock ran ahead of the server's.
     if (serverGroup.lastMessage !== undefined && serverGroup.lastMessage !== null
-        && (serverGroup.lastMessageAt || 0) >= (existingConv.timestamp || 0)) {
+        && (serverGroup.lastMessageAt || 0) >= (existingConv.serverLastMessageAt || 0)) {
       existingConv.lastMessage = truncateText(serverGroup.lastMessage, 100);
       existingConv.timestamp = serverGroup.lastMessageAt || existingConv.timestamp;
+      existingConv.serverLastMessageAt = serverGroup.lastMessageAt || existingConv.serverLastMessageAt;
     }
 
     // Server is the source of truth for unread count (see GET /api/groups),
@@ -834,6 +844,17 @@ document.addEventListener('DOMContentLoaded', () => {
             // the past) lose that comparison and the preview/timestamp would
             // never populate.
             timestamp: 0,
+            // Tracks the latest lastMessageAt this client has actually seen
+            // FROM THE SERVER, kept separate from `timestamp` (below) which
+            // also gets bumped optimistically with the local clock the instant
+            // a message is sent (see updateConversationLastMessage). Gating
+            // this poll on `timestamp` used to compare a local Date.now()
+            // against the server's created_at -- once the local clock ran
+            // ahead (even by a little), every future server response looked
+            // "older" and the row froze forever, showing a stale preview here
+            // while the chat view (which reads messages live) kept working.
+            // Comparing only server-vs-server values keeps this monotonic.
+            serverLastMessageAt: 0,
             unreadCount: 0,
             onlineStatus: false,
             archived: false,
@@ -845,10 +866,11 @@ document.addEventListener('DOMContentLoaded', () => {
           conversations.unshift(conv);
           changed = true;
         }
-        if (dc.lastMessage !== null && (dc.lastMessageAt || 0) >= (conv.timestamp || 0)) {
+        if (dc.lastMessage !== null && (dc.lastMessageAt || 0) >= (conv.serverLastMessageAt || 0)) {
           if (conv.lastMessage !== truncateText(dc.lastMessage, 100) || conv.timestamp !== (dc.lastMessageAt || conv.timestamp)) changed = true;
           conv.lastMessage = truncateText(dc.lastMessage, 100);
           conv.timestamp = dc.lastMessageAt || conv.timestamp;
+          conv.serverLastMessageAt = dc.lastMessageAt || conv.serverLastMessageAt;
         }
         // 'pending_sent' means the caller started this thread and the other
         // side hasn't accepted yet -- renderConversationPage shows a banner.
