@@ -281,6 +281,11 @@
       "expectSelector": "[data-testid=\"dm-username-dup-count\"][data-count=\"1\"]"
     },
     {
+      "name": "Reused DM conversation's history stays readable under its now-stale peer id after the ids reconcile (regression: DM conversations disappearing when the stored participant id drifts)",
+      "path": "/?shot=dm-username-dup",
+      "expectSelector": "[data-testid=\"dm-username-dup-stale-history-count\"][data-count=\"2\"]"
+    },
+    {
       "name": "Create Group page loads",
       "path": "/#/create-group",
       "expectText": "Create Group"

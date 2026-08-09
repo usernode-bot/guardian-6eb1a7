@@ -123,7 +123,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_DM_USERNAME_DUP_PEER_ID_1 = 'staging-demo-user-10';
   const SHOT_DM_USERNAME_DUP_PEER_ID_2 = 'staging-demo-user-11';
   const SHOT_DM_USERNAME_DUP_USERNAME = 'staging-demo-dup-name';
-  const SHOT_DM_USERNAME_DUP_TEXT = 'Shot username dup check';
+  // Distinct per message so a later fetch can tell which one(s) came back --
+  // used to prove the reused row's *history* is intact under BOTH ids, not
+  // just that the inbox stops double-listing the contact.
+  const SHOT_DM_USERNAME_DUP_TEXT_1 = 'Shot username dup check one';
+  const SHOT_DM_USERNAME_DUP_TEXT_2 = 'Shot username dup check two';
   // Regression check for "delete for me" not persisting: send a message to a
   // fixed fixture peer, then immediately hide it via the real endpoint (not
   // just the client-only mutation), so a later plain reload of the same
@@ -9119,12 +9123,12 @@ document.addEventListener('DOMContentLoaded', () => {
             await fetch(`/api/messages/direct/${SHOT_DM_USERNAME_DUP_PEER_ID_1}`, {
               method: 'POST',
               headers: authHeaders({ 'Content-Type': 'application/json' }),
-              body: JSON.stringify({ id: `shot_userdup_1_${Date.now()}`, text: SHOT_DM_USERNAME_DUP_TEXT })
+              body: JSON.stringify({ id: `shot_userdup_1_${Date.now()}`, text: SHOT_DM_USERNAME_DUP_TEXT_1 })
             });
             await fetch(`/api/messages/direct/${SHOT_DM_USERNAME_DUP_PEER_ID_2}`, {
               method: 'POST',
               headers: authHeaders({ 'Content-Type': 'application/json' }),
-              body: JSON.stringify({ id: `shot_userdup_2_${Date.now()}`, text: SHOT_DM_USERNAME_DUP_TEXT })
+              body: JSON.stringify({ id: `shot_userdup_2_${Date.now()}`, text: SHOT_DM_USERNAME_DUP_TEXT_2 })
             });
           } catch (error) {
             console.warn('Could not deliver shot dm-username-dup messages:', error);
@@ -9241,6 +9245,34 @@ document.addEventListener('DOMContentLoaded', () => {
       marker.style.display = 'none';
       marker.textContent = 'UsernameDupRefs:' + refCount;
       document.body.appendChild(marker);
+
+      // Regression check for GET /api/messages/direct/:peerId only matching
+      // an exact stored id: messaging PEER_ID_2 above reuses PEER_ID_1's row
+      // and reconciles its stored user_id_a/user_id_b to the caller+PEER_ID_2
+      // pair (see getOrCreateDirectConversation), so PEER_ID_1 is now a
+      // *stale* id for that same conversation. Fetching history by that
+      // stale id directly (bypassing the inbox, which by now only ever
+      // references PEER_ID_2) must still return both messages via the
+      // peer-username fallback, not an empty thread.
+      let staleHistoryCount = 0;
+      try {
+        const staleRes = await fetch(`/api/messages/direct/${SHOT_DM_USERNAME_DUP_PEER_ID_1}`, {
+          headers: authHeaders()
+        });
+        const staleData = await staleRes.json();
+        const staleTexts = (staleData.messages || []).map(m => m.text);
+        staleHistoryCount =
+          (staleTexts.includes(SHOT_DM_USERNAME_DUP_TEXT_1) ? 1 : 0) +
+          (staleTexts.includes(SHOT_DM_USERNAME_DUP_TEXT_2) ? 1 : 0);
+      } catch (error) {
+        console.warn('Could not fetch shot dm-username-dup stale history:', error);
+      }
+      const staleMarker = document.createElement('div');
+      staleMarker.setAttribute('data-testid', 'dm-username-dup-stale-history-count');
+      staleMarker.setAttribute('data-count', String(staleHistoryCount));
+      staleMarker.style.display = 'none';
+      staleMarker.textContent = 'StaleHistoryMessages:' + staleHistoryCount;
+      document.body.appendChild(staleMarker);
     }
     // Screenshot-state: force the session-expired banner on boot via the real
     // authFetch 401-handling path, rather than just rendering the banner markup
