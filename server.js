@@ -334,6 +334,8 @@ function shapeGroup(row, memberRows) {
     name: row.name,
     description: row.description || '',
     avatar: row.avatar || defaultAvatar(row.name),
+    avatarUrl: row.avatar_url || null,
+    avatarImageId: row.avatar_image_id || null,
     visibility: row.visibility,
     creatorId: row.creator_user_id,
     creatorUsername: row.creator_username,
@@ -475,7 +477,7 @@ app.get('/api/groups/:groupId', async (req, res) => {
 // POST /api/groups - Create a new group with the creator as owner and at least
 // one invited member.
 app.post('/api/groups', async (req, res) => {
-  const { name, description, avatar, visibility } = req.body || {};
+  const { name, description, avatar, avatarUrl, avatarImageId, visibility } = req.body || {};
 
   const trimmedName = typeof name === 'string' ? name.trim() : '';
   if (!trimmedName) {
@@ -503,17 +505,21 @@ app.post('/api/groups', async (req, res) => {
 
   const groupId = generateGroupId();
   const avatarValue = typeof avatar === 'string' && avatar ? avatar : defaultAvatar(trimmedName);
+  const avatarUrlValue = typeof avatarUrl === 'string' && avatarUrl ? avatarUrl : null;
+  const avatarImageIdValue = typeof avatarImageId === 'string' && avatarImageId ? avatarImageId : null;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query(
-      `INSERT INTO groups (id, name, description, avatar, visibility, creator_user_id, creator_username)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      `INSERT INTO groups (id, name, description, avatar, avatar_url, avatar_image_id, visibility, creator_user_id, creator_username)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         groupId,
         trimmedName,
         trimmedDescription,
         avatarValue,
+        avatarUrlValue,
+        avatarImageIdValue,
         groupVisibility,
         req.user.id,
         req.user.username || req.user.id
@@ -622,13 +628,19 @@ app.put('/api/groups/:groupId/description', async (req, res) => {
   res.json({ id: groupId, description: description || '' });
 });
 
-// PUT /api/groups/:groupId/avatar - Update group avatar
+// PUT /api/groups/:groupId/avatar - Update group avatar. The photo itself is
+// uploaded client-side via window.usernode.uploadFile; this route only ever
+// persists the returned URL/id (never image bytes) -- same contract as
+// PUT /api/profile.
 app.put('/api/groups/:groupId/avatar', async (req, res) => {
-  const { avatar } = req.body;
+  const { avatarUrl, avatarImageId } = req.body || {};
   const { groupId } = req.params;
 
-  if (!avatar) {
-    return res.status(400).json({ error: 'Avatar is required' });
+  if (avatarUrl != null && typeof avatarUrl !== 'string') {
+    return res.status(400).json({ error: 'avatarUrl must be a string or null' });
+  }
+  if (typeof avatarUrl === 'string' && !avatarUrl.startsWith('https://')) {
+    return res.status(400).json({ error: 'avatarUrl must be an https:// URL' });
   }
 
   const role = await getGroupRole(groupId, req.user.id);
@@ -639,9 +651,13 @@ app.put('/api/groups/:groupId/avatar', async (req, res) => {
     return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
   }
 
-  // TODO: Store avatar (base64 for now, cloud storage in future)
-  await pool.query('UPDATE groups SET avatar = $1, updated_at = now() WHERE id = $2', [avatar, groupId]);
-  res.json({ id: groupId, avatar });
+  const avatarUrlVal = typeof avatarUrl === 'string' ? avatarUrl : null;
+  const avatarImageIdVal = typeof avatarImageId === 'string' ? avatarImageId : null;
+  await pool.query(
+    'UPDATE groups SET avatar_url = $1, avatar_image_id = $2, updated_at = now() WHERE id = $3',
+    [avatarUrlVal, avatarImageIdVal, groupId]
+  );
+  res.json({ id: groupId, avatarUrl: avatarUrlVal, avatarImageId: avatarImageIdVal });
 });
 
 // POST /api/groups/:groupId/members - Add members to group (owner/admin only)
@@ -966,6 +982,8 @@ function shapeChannel(row, followerCount, isFollowing) {
     name: row.name,
     description: row.description || '',
     avatar: row.avatar || defaultAvatar(row.name),
+    avatarUrl: row.avatar_url || null,
+    avatarImageId: row.avatar_image_id || null,
     creatorId: row.creator_user_id,
     creatorUsername: row.creator_username,
     createdAt: new Date(row.created_at).getTime(),
@@ -1053,7 +1071,7 @@ app.get('/api/channels/:channelId', async (req, res) => {
 
 // POST /api/channels - Create a new channel with the creator auto-followed.
 app.post('/api/channels', async (req, res) => {
-  const { name, description, avatar } = req.body || {};
+  const { name, description, avatar, avatarUrl, avatarImageId } = req.body || {};
 
   const trimmedName = typeof name === 'string' ? name.trim() : '';
   if (!trimmedName) {
@@ -1070,13 +1088,15 @@ app.post('/api/channels', async (req, res) => {
 
   const channelId = generateChannelId();
   const avatarValue = typeof avatar === 'string' && avatar ? avatar : defaultAvatar(trimmedName);
+  const avatarUrlValue = typeof avatarUrl === 'string' && avatarUrl ? avatarUrl : null;
+  const avatarImageIdValue = typeof avatarImageId === 'string' && avatarImageId ? avatarImageId : null;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query(
-      `INSERT INTO channels (id, name, description, avatar, creator_user_id, creator_username)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [channelId, trimmedName, trimmedDescription, avatarValue, req.user.id, req.user.username || req.user.id]
+      `INSERT INTO channels (id, name, description, avatar, avatar_url, avatar_image_id, creator_user_id, creator_username)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [channelId, trimmedName, trimmedDescription, avatarValue, avatarUrlValue, avatarImageIdValue, req.user.id, req.user.username || req.user.id]
     );
     await client.query(
       `INSERT INTO channel_followers (channel_id, user_id)
@@ -1151,6 +1171,37 @@ app.delete('/api/channels/:channelId', async (req, res) => {
     console.error('[channels] delete failed:', err);
     res.status(500).json({ error: 'Failed to delete channel' });
   }
+});
+
+// PUT /api/channels/:channelId/avatar - Update channel avatar. Same
+// URL/id-only persistence contract as PUT /api/groups/:groupId/avatar; the
+// photo itself is uploaded client-side via window.usernode.uploadFile.
+app.put('/api/channels/:channelId/avatar', async (req, res) => {
+  const { avatarUrl, avatarImageId } = req.body || {};
+  const { channelId } = req.params;
+
+  if (avatarUrl != null && typeof avatarUrl !== 'string') {
+    return res.status(400).json({ error: 'avatarUrl must be a string or null' });
+  }
+  if (typeof avatarUrl === 'string' && !avatarUrl.startsWith('https://')) {
+    return res.status(400).json({ error: 'avatarUrl must be an https:// URL' });
+  }
+
+  const role = await getChannelRole(channelId, req.user.id);
+  if (role === null) {
+    return res.status(404).json({ error: 'Channel not found' });
+  }
+  if (role !== 'owner') {
+    return res.status(403).json({ error: 'Only the channel creator can edit channel info' });
+  }
+
+  const avatarUrlVal = typeof avatarUrl === 'string' ? avatarUrl : null;
+  const avatarImageIdVal = typeof avatarImageId === 'string' ? avatarImageId : null;
+  await pool.query(
+    'UPDATE channels SET avatar_url = $1, avatar_image_id = $2, updated_at = now() WHERE id = $3',
+    [avatarUrlVal, avatarImageIdVal, channelId]
+  );
+  res.json({ id: channelId, avatarUrl: avatarUrlVal, avatarImageId: avatarImageIdVal });
 });
 
 // Conversation Management API Endpoints
@@ -1883,6 +1934,11 @@ async function initDatabase() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
     `);
+    // avatar (above) stays the short initials-fallback string; a real uploaded
+    // photo lives here as a platform-storage URL/id, mirroring users.avatar_url
+    // / users.avatar_image_id -- never image bytes in this column.
+    await pool.query(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS avatar_url TEXT`);
+    await pool.query(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS avatar_image_id TEXT`);
 
     // Public: a directory of who has opened the app, upserted from every
     // /api/state call. Usernames and wallet addresses aren't sensitive, so
@@ -1956,6 +2012,9 @@ async function initDatabase() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
     `);
+    // Same avatar_url/avatar_image_id split as groups above.
+    await pool.query(`ALTER TABLE channels ADD COLUMN IF NOT EXISTS avatar_url TEXT`);
+    await pool.query(`ALTER TABLE channels ADD COLUMN IF NOT EXISTS avatar_image_id TEXT`);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS channel_followers (
@@ -2386,9 +2445,9 @@ async function seedStagingOwnedEntities(currentUser) {
 
   try {
     await pool.query(
-      `INSERT INTO groups (id, name, description, avatar, visibility, creator_user_id, creator_username)
-       VALUES ($1, 'Staging Demo Owned Group', 'Staging demo group — owned by whoever is currently testing, for owner-only UI checks.', 'SO', 'public', $2, $3)
-       ON CONFLICT (id) DO UPDATE SET creator_user_id = EXCLUDED.creator_user_id, creator_username = EXCLUDED.creator_username`,
+      `INSERT INTO groups (id, name, description, avatar, avatar_url, visibility, creator_user_id, creator_username)
+       VALUES ($1, 'Staging Demo Owned Group', 'Staging demo group — owned by whoever is currently testing, for owner-only UI checks.', 'SO', 'https://picsum.photos/seed/group-staging-owned-1/200', 'public', $2, $3)
+       ON CONFLICT (id) DO UPDATE SET creator_user_id = EXCLUDED.creator_user_id, creator_username = EXCLUDED.creator_username, avatar_url = EXCLUDED.avatar_url`,
       [groupId, me.id, me.username]
     );
     await pool.query(
@@ -2416,9 +2475,9 @@ async function seedStagingOwnedEntities(currentUser) {
     }
 
     await pool.query(
-      `INSERT INTO channels (id, name, description, avatar, creator_user_id, creator_username)
-       VALUES ($1, 'Staging Demo Owned Channel', 'Staging demo channel — owned by whoever is currently testing, for owner-only UI checks.', 'SC', $2, $3)
-       ON CONFLICT (id) DO UPDATE SET creator_user_id = EXCLUDED.creator_user_id, creator_username = EXCLUDED.creator_username`,
+      `INSERT INTO channels (id, name, description, avatar, avatar_url, creator_user_id, creator_username)
+       VALUES ($1, 'Staging Demo Owned Channel', 'Staging demo channel — owned by whoever is currently testing, for owner-only UI checks.', 'SC', 'https://picsum.photos/seed/channel-staging-owned-1/200', $2, $3)
+       ON CONFLICT (id) DO UPDATE SET creator_user_id = EXCLUDED.creator_user_id, creator_username = EXCLUDED.creator_username, avatar_url = EXCLUDED.avatar_url`,
       [channelId, me.id, me.username]
     );
     await pool.query(
@@ -2499,7 +2558,7 @@ async function seedStagingUsers() {
     // fixtures, but never had their own `users` row -- avatar_url join in
     // loadGroupWithMembers/GET /api/groups silently returned null for them.
     { id: 'staging-demo-user-2', username: 'staging-demo-ana', pubkey: '0x3e5c7d9f1b3a5c7e9f1b3d5a7c9e1f3b5d7a9c1e', offset: '1 hour', avatarUrl: 'https://picsum.photos/seed/staging-demo-ana/200' },
-    { id: 'staging-demo-user-3', username: 'staging-demo-budi', pubkey: '0x7a9c1e3f5b7d9a1c3e5f7b9d1a3c5e7f9b1d3a5c', offset: '90 minutes' },
+    { id: 'staging-demo-user-3', username: 'staging-demo-budi', pubkey: '0x7a9c1e3f5b7d9a1c3e5f7b9d1a3c5e7f9b1d3a5c', offset: '90 minutes', avatarUrl: 'https://picsum.photos/seed/staging-demo-budi/200' },
     { id: 'staging-demo-user-4', username: 'staging-demo-citra', pubkey: '0x1f3a9c2e7b5d44680a9f0c1e2d3b4a5968f7e6d5', offset: '5 minutes' },
     { id: 'staging-demo-user-5', username: 'staging-demo-dedi', pubkey: '0x8b2e4f6a1c9d3e5b7a0f2c4e6d8b9a1f3e5c7d09', offset: '2 hours' },
     // Regression fixture peer for SHOT_PERSIST_REMOVAL -- a real group/channel/DM
