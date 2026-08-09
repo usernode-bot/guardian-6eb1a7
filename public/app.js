@@ -57,6 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=session-expired           simulates a 401 on load                                  → session-expired banner must render, polling halted
   //   ?shot=messages-select           enters multi-select on the first Messages row on load     → selection toolbar + selected row must render
   //   ?shot=messages-archived         archives + mutes the first DM and opens the Archived tab   → active Archived tab + muted row must render
+  //   ?shot=messages-actions          opens the long-press action sheet on the first Messages row → Tandai/Pin/Mute/Archive labels must render
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -92,6 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_GROUPS_TAB = SHOT === 'groups-tab';
   const SHOT_MESSAGES_SELECT = SHOT === 'messages-select';
   const SHOT_MESSAGES_ARCHIVED = SHOT === 'messages-archived';
+  const SHOT_MESSAGES_ACTIONS = SHOT === 'messages-actions';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
   const SHOT_CREATE_GROUP_NAME = 'Staging demo one-invite group';
@@ -1499,7 +1501,6 @@ document.addEventListener('DOMContentLoaded', () => {
       listEl.innerHTML = conversationsList || `<div class="empty-state"><div class="empty-icon">💬</div><div class="empty-message">${emptyMessage}</div></div>`;
       attachConversationListeners();
       setupConversationSelection();
-      setupConversationSwipeActions();
     }
   }
 
@@ -2083,14 +2084,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Attach event listeners to conversation list items
     attachConversationListeners();
 
-    // Long-press a conversation row to enter multi-select mode (replaces the
-    // old per-row context menu); once in selection mode, taps toggle rows.
+    // Long-press a conversation row to open the Tandai/Pin/Mute/Archive
+    // action sheet (replaces the old per-row context menu); once in
+    // selection mode, taps toggle rows.
     setupConversationSelection();
-
-    // Swipe a row left to reveal Pin/Mute/Archive (restores what the old
-    // per-row context menu offered, without conflicting with the long-press
-    // multi-select above).
-    setupConversationSwipeActions();
 
     // Poll while this screen stays open so a new incoming DM or request shows
     // up without the user having to leave and come back.
@@ -2230,9 +2227,10 @@ document.addEventListener('DOMContentLoaded', () => {
     );
   }
 
-  // Long-press a conversation row to enter WhatsApp/Telegram-style
-  // multi-select mode; while active, tapping any row toggles its selection
-  // (handled in attachConversationListeners) instead of opening it.
+  // Long-press a conversation row to open the Tandai/Pin/Mute/Archive action
+  // sheet (see openConversationActionSheet); while multi-select is already
+  // active, a long-press instead toggles that row's selection, same as a tap
+  // (handled in attachConversationListeners).
   function setupConversationSelection() {
     const LONG_PRESS_DURATION = 350;
     let longPressTimer = null;
@@ -2245,14 +2243,14 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    function handleLongPress(convId) {
+    function handleLongPress(convId, rowEl) {
       // Swallow the click that follows this long-press (mouseup/touchend)
       // so it doesn't immediately toggle the row's selection back off.
       suppressNextConversationClick = true;
       setTimeout(() => { suppressNextConversationClick = false; }, 400);
 
       if (!messagesSelectionMode) {
-        startConversationSelection(convId);
+        openConversationActionSheet(convId, rowEl);
       } else {
         toggleConversationSelection(convId);
       }
@@ -2264,7 +2262,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Mouse events
       item.addEventListener('mousedown', () => {
         if (lastEventWasTouch) return;
-        longPressTimer = setTimeout(() => handleLongPress(convId), LONG_PRESS_DURATION);
+        longPressTimer = setTimeout(() => handleLongPress(convId, item), LONG_PRESS_DURATION);
       });
       item.addEventListener('mouseup', clearLongPressTimer);
       item.addEventListener('mouseleave', clearLongPressTimer);
@@ -2272,7 +2270,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Touch events
       item.addEventListener('touchstart', () => {
         lastEventWasTouch = true;
-        longPressTimer = setTimeout(() => handleLongPress(convId), LONG_PRESS_DURATION);
+        longPressTimer = setTimeout(() => handleLongPress(convId, item), LONG_PRESS_DURATION);
       });
       item.addEventListener('touchend', () => {
         clearLongPressTimer();
@@ -2282,43 +2280,33 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Reveal Pin/Mute/Archive on a left swipe of a Messages-list row, via the
-  // native-feel UI kit's swipe-action tray. Skipped entirely in multi-select
-  // mode -- swiping a row to reveal actions would fight with tap-to-toggle.
-  // The kit routes its drag gesture through the same shared arbiter a
-  // hand-rolled gesture would use, so it coexists with the long-press timers
-  // wired by setupConversationSelection() above without extra plumbing.
-  function setupConversationSwipeActions() {
-    if (messagesSelectionMode) return;
-    if (!window.unNative || typeof unNative.attachSwipeActions !== 'function') return;
+  // Long-press action sheet for a Messages-list row: Tandai (mark - enters
+  // multi-select with this row selected, the old direct long-press
+  // behavior), Pin, Mute, Archive, in that fixed order. Replaces the earlier
+  // swipe-to-reveal tray, which read as an accidental gesture to some users
+  // and fought with the multi-select long-press on the same row.
+  function openConversationActionSheet(convId, rowEl) {
+    const conv = conversations.find(c => c.id === convId);
+    if (!conv) return;
 
-    document.querySelectorAll('.conversation-item').forEach(rowEl => {
-      const convId = rowEl.dataset.conversationId;
-      const conv = conversations.find(c => c.id === convId);
-      if (!conv) return;
+    if (!window.unNative || typeof unNative.menu !== 'function') {
+      // No kit available -- fall back to the original direct behavior
+      // rather than leaving the long-press a dead end.
+      startConversationSelection(convId);
+      return;
+    }
 
-      const isPinned = !!conv.pinned;
-      const isMuted = isConversationMuted(conv);
+    const isPinned = !!conv.pinned;
+    const isMuted = isConversationMuted(conv);
 
-      unNative.attachSwipeActions(rowEl, {
-        actions: [
-          {
-            label: isPinned ? 'Unpin' : 'Pin',
-            color: '#ffb300',
-            handler: () => togglePinFromList(conv)
-          },
-          {
-            label: isMuted ? 'Unmute' : 'Mute',
-            color: '#8e8e93',
-            handler: () => toggleMuteFromList(conv)
-          },
-          {
-            label: conv.archivedByUser ? 'Unarchive' : 'Archive',
-            color: '#007aff',
-            handler: () => toggleConversationArchive(conv)
-          }
-        ]
-      });
+    unNative.menu({
+      anchorEl: rowEl,
+      items: [
+        { label: 'Tandai', handler: () => startConversationSelection(convId) },
+        { label: isPinned ? 'Unpin' : 'Pin', handler: () => togglePinFromList(conv) },
+        { label: isMuted ? 'Unmute' : 'Mute', handler: () => toggleMuteFromList(conv) },
+        { label: conv.archivedByUser ? 'Unarchive' : 'Archive', handler: () => toggleConversationArchive(conv) }
+      ]
     });
   }
 
@@ -2848,7 +2836,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Pin/unpin any conversation row (DM, group, or channel) -- shared by the DM
-  // ⋮ menu's Pin option and the Messages list swipe-to-pin action.
+  // ⋮ menu's Pin option and the Messages list long-press action sheet.
   async function togglePinFromList(conv) {
     const newPinnedState = !conv.pinned;
     try {
@@ -2865,7 +2853,7 @@ document.addEventListener('DOMContentLoaded', () => {
     showToast(newPinnedState ? 'Conversation pinned' : 'Conversation unpinned', { type: 'success' });
   }
 
-  // Mute/unmute any conversation row from the Messages list swipe action.
+  // Mute/unmute any conversation row from the Messages list action sheet.
   function toggleMuteFromList(conv) {
     const wasMuted = isConversationMuted(conv);
     if (conv.type === 'channel') {
@@ -8941,10 +8929,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Special handling for messages page
     if (pageName === 'messages') {
-      // Screenshot-state: archive + mute the first DM the same way the swipe
-      // actions would, then open straight into the Archived tab, so dapp.json
-      // can assert on both deterministically (a swipe gesture itself can't be
-      // driven by a plain navigation).
+      // Screenshot-state: archive + mute the first DM the same way the
+      // Tandai/Pin/Mute/Archive action sheet would, then open straight into
+      // the Archived tab, so dapp.json can assert on both deterministically
+      // (a long-press gesture itself can't be driven by a plain navigation).
       if (SHOT_MESSAGES_ARCHIVED) {
         const target = conversations.find(c => c.type === 'direct' && !c.hiddenFromInbox);
         if (target) {
@@ -8963,6 +8951,14 @@ document.addEventListener('DOMContentLoaded', () => {
       if (SHOT_MESSAGES_SELECT) {
         const firstConv = filterConversations('all', '')[0];
         if (firstConv) startConversationSelection(firstConv.id);
+      }
+      // Screenshot-state: open the long-press action sheet on the first row
+      // (a long-press itself can't be driven by a plain navigation) so
+      // dapp.json can assert the Tandai/Pin/Mute/Archive labels render.
+      if (SHOT_MESSAGES_ACTIONS) {
+        const firstConv = filterConversations('all', '')[0];
+        const rowEl = firstConv ? document.querySelector(`.conversation-item[data-conversation-id="${firstConv.id}"]`) : null;
+        if (firstConv) openConversationActionSheet(firstConv.id, rowEl);
       }
     } else if (pageName === 'create') {
       renderNewMessagePage();

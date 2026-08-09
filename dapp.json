@@ -561,7 +561,7 @@
       "expectSelector": ".messages-header h1"
     },
     {
-      "name": "Long-pressing a conversation row enters multi-select mode and shows the selection toolbar (regression: old long-press menu replaced with WhatsApp/Telegram-style select)",
+      "name": "Choosing \"Tandai\" from the long-press action sheet enters multi-select mode and shows the selection toolbar (regression: old long-press menu replaced with WhatsApp/Telegram-style select, now reached via the action sheet's first item)",
       "path": "/?shot=messages-select",
       "expectSelector": ".messages-selection-toolbar"
     },
@@ -594,6 +594,16 @@
       "name": "A muted conversation shows the muted indicator in the Messages list",
       "path": "/?shot=messages-archived",
       "expectSelector": ".conversation-item .conversation-mute-icon"
+    },
+    {
+      "name": "Long-pressing a conversation row opens a Tandai/Pin/Mute/Archive action sheet (regression: Pin/Mute/Archive swipe actions replaced with a long-press action sheet, in this exact order)",
+      "path": "/?shot=messages-actions",
+      "expectText": "Tandai"
+    },
+    {
+      "name": "The long-press action sheet's last item is Archive, not a swipe action",
+      "path": "/?shot=messages-actions",
+      "expectText": "Archive"
     },
     {
       "name": "Group creation is still reachable from the Create menu",
