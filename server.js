@@ -2104,8 +2104,55 @@ async function initDatabase() {
     throw err;
   }
 
+  // Must run before seedStagingData() below -- that function (re-)inserts
+  // fixed-id staging demo messages/conversations on every boot, and this
+  // wipe would otherwise erase them again the moment they land.
+  await wipeAllMessageHistoryOnce();
   await mergeDuplicateDirectConversationsByUsername();
   await seedStagingData();
+}
+
+// One-time, irreversible reset of message/conversation history for every
+// user, so everyone who already has data starts fresh exactly like a
+// brand-new user. Guarded by an app_state marker inserted in the same
+// transaction as the deletes, so it fires exactly once, ever, across the
+// life of the database -- never again on subsequent boots/restarts.
+//
+// Clears: messages, message_hidden_for, direct_conversations.
+// Leaves untouched: users, groups, group_members, channels,
+// channel_followers, join_requests, conversation_user_state (pin/mute/
+// read-state preferences aren't "message history" and groups/channels
+// themselves aren't being reset, only their message content).
+async function wipeAllMessageHistoryOnce() {
+  const MARKER_KEY = 'message_history_wipe_v1';
+  const already = await pool.query('SELECT 1 FROM app_state WHERE key = $1', [MARKER_KEY]);
+  if (already.rows.length > 0) return;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Claim the marker first: if another process already claimed it between
+    // our check above and here, back off without touching any data.
+    const claimed = await client.query(
+      `INSERT INTO app_state (key, value) VALUES ($1, 'true') ON CONFLICT (key) DO NOTHING`,
+      [MARKER_KEY]
+    );
+    if (claimed.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return;
+    }
+    await client.query('DELETE FROM message_hidden_for');
+    await client.query('DELETE FROM messages');
+    await client.query('DELETE FROM direct_conversations');
+    await client.query('COMMIT');
+    console.log('One-time reset: cleared messages, message_hidden_for, and direct_conversations for all users');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Message history wipe error:', err);
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 // direct_conversations has a UNIQUE (user_id_a, user_id_b) constraint, so two
