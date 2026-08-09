@@ -1248,20 +1248,33 @@ app.put('/api/conversations/:id/state', async (req, res) => {
 // message-delivery bug -- the frontend's `conv_<peerId>` id is a per-browser
 // construct, not a shared identity, so persistence has to be keyed on
 // something both sides agree on.
-async function getOrCreateDirectConversation(userIdA, userIdB, requesterId) {
-  const [a, b] = [userIdA, userIdB].sort();
+// Shared lookup for an existing direct_conversations row between two user
+// ids, used by both the write path (getOrCreateDirectConversation) and the
+// read path (GET /api/messages/direct/:peerId) so a conversation is found
+// the same way regardless of whether the caller is about to append to it or
+// just reading it.
+//
+// Tries an exact-id match first, then falls back to matching by peer
+// username: users.id isn't guaranteed stable across sessions/logins (the
+// platform's JWT `id` claim can differ across logins for the same real
+// user) and users.username has no uniqueness constraint, so a returning
+// contact (on either side of this pair) can otherwise look like a new peer
+// even though a conversation with them already exists. `viaUsernameFallback`
+// tells the caller the match only succeeded because of this, so it knows to
+// reconcile the row's stored ids.
+async function findDirectConversation(userIdA, userIdB) {
   // Match the stored (sorted) pair in either comparison order -- the row was
-  // inserted using the sorted a/b below, but the exact-pair clause here must
-  // still work regardless of which of userIdA/userIdB sorts first. Also match
-  // a row where one side is the 'user_self' sentinel and the other is EITHER
-  // input id (not just the alphabetically-later one) -- same OR-match pattern
-  // as getGroupRole/getChannelRole below, applied here so a staging-seeded
-  // demo DM (seeded against 'user_self') resolves to whichever real user is
-  // currently logged in, instead of a second, duplicate conversation being
-  // created underneath it. (Comparing only against the sorted-later id was
-  // the bug: when a real user's id sorted after the fixture's id, the
-  // sentinel clause silently missed the seeded row and a duplicate got
-  // inserted.)
+  // inserted using a sorted pair, but the exact-pair clause here must still
+  // work regardless of which of userIdA/userIdB sorts first. Also match a
+  // row where one side is the 'user_self' sentinel and the other is EITHER
+  // input id (not just the alphabetically-later one) -- same OR-match
+  // pattern as getGroupRole/getChannelRole below, applied here so a
+  // staging-seeded demo DM (seeded against 'user_self') resolves to
+  // whichever real user is currently logged in, instead of a second,
+  // duplicate conversation being created underneath it. (Comparing only
+  // against the sorted-later id was the bug: when a real user's id sorted
+  // after the fixture's id, the sentinel clause silently missed the seeded
+  // row and a duplicate got inserted.)
   const existing = await pool.query(
     `SELECT id, status, requested_by_user_id FROM direct_conversations
       WHERE (user_id_a = $1 AND user_id_b = $2)
@@ -1270,15 +1283,11 @@ async function getOrCreateDirectConversation(userIdA, userIdB, requesterId) {
          OR (user_id_b = 'user_self' AND (user_id_a = $1 OR user_id_a = $2))`,
     [userIdA, userIdB]
   );
-  if (existing.rowCount > 0) return existing.rows[0];
+  if (existing.rowCount > 0) return { row: existing.rows[0], viaUsernameFallback: false };
 
   // No row matches either input id exactly. Before creating a brand new one,
   // check whether EITHER input id already has a conversation with a
-  // DIFFERENT peer id that resolves to the OTHER input id's username --
-  // users.id isn't guaranteed stable across sessions/logins and
-  // users.username has no uniqueness constraint, so a returning contact
-  // (on either side of this pair) can otherwise look like a new peer and a
-  // second row gets created for what the human sees as the same contact.
+  // DIFFERENT peer id that resolves to the OTHER input id's username.
   // Checked both ways round since either userIdA or userIdB could be the
   // "new" id for a returning party. (mergeDuplicateDirectConversationsByUsername
   // cleans up rows that were already created this way before this check
@@ -1298,7 +1307,47 @@ async function getOrCreateDirectConversation(userIdA, userIdB, requesterId) {
       LIMIT 1`,
     [userIdA, userIdB]
   );
-  if (reuse.rowCount > 0) return reuse.rows[0];
+  if (reuse.rowCount > 0) return { row: reuse.rows[0], viaUsernameFallback: true };
+  return null;
+}
+
+async function getOrCreateDirectConversation(userIdA, userIdB, requesterId) {
+  const [a, b] = [userIdA, userIdB].sort();
+  const found = await findDirectConversation(userIdA, userIdB);
+  if (found) {
+    if (found.viaUsernameFallback) {
+      // The row was found by username, not by exact id match, which means
+      // the platform-issued id for at least one side has drifted since the
+      // row was last written. Bring user_id_a/user_id_b back in sync with
+      // the currently active ids -- using the same sorted-pair convention as
+      // a freshly inserted row -- so exact-match queries elsewhere find this
+      // row on the very next request instead of only this write path ever
+      // reconciling it.
+      //
+      // requested_by_user_id can go stale the same way: it's whichever side
+      // originally sent the request, stored as THAT side's id at the time.
+      // If it no longer matches either current id, resolve it by username
+      // against a/b so "pending request I sent" (GET /api/direct-conversations'
+      // requested_by_user_id = caller check) keeps recognizing the request as
+      // the caller's own after their id has drifted, instead of it silently
+      // looking like a request from someone else.
+      let requestedBy = found.row.requested_by_user_id;
+      if (requestedBy !== a && requestedBy !== b) {
+        const match = await pool.query(
+          `SELECT id FROM users WHERE id IN ($1, $2)
+             AND lower(username) = lower((SELECT username FROM users WHERE id = $3))`,
+          [a, b, requestedBy]
+        );
+        if (match.rowCount > 0) requestedBy = match.rows[0].id;
+      }
+      await pool.query(
+        'UPDATE direct_conversations SET user_id_a = $1, user_id_b = $2, requested_by_user_id = $3 WHERE id = $4',
+        [a, b, requestedBy, found.row.id]
+      );
+      found.row.requested_by_user_id = requestedBy;
+    }
+    return found.row;
+  }
 
   const id = 'dm_' + crypto.randomBytes(12).toString('hex');
   await pool.query(
@@ -1419,21 +1468,38 @@ async function listMessages(conversationType, conversationId, userId) {
 // under GET /api/message-requests instead, not in the normal inbox.
 app.get('/api/direct-conversations', async (req, res) => {
   try {
+    // "Is user_id_a the caller" has to tolerate id drift too: a row found
+    // only because its username still matches the caller's (exact id match
+    // missed) must still resolve the CORRECT side as peer, or the caller's
+    // own drifted-id row would show up with the caller listed as their own
+    // peer. ua/ub carry each side's username purely for that self/peer
+    // determination -- reused for the peer-identity joins below and for the
+    // WHERE clause's own username fallback.
     const result = await pool.query(
       `SELECT dc.id, dc.user_id_a, dc.user_id_b, dc.status, dc.requested_by_user_id,
+              ua.username AS a_username,
               u.username AS peer_username, u.usernode_pubkey AS peer_pubkey,
               lm.text AS last_text, lm.sender_user_id AS last_sender_id, lm.created_at AS last_at,
               cus.pinned AS pinned, cus.hidden_from_inbox AS hidden_from_inbox,
               COALESCE(unread.count, 0) AS unread_count
          FROM direct_conversations dc
-         LEFT JOIN users u ON u.id = (CASE WHEN dc.user_id_a = $1 OR dc.user_id_a = 'user_self' THEN dc.user_id_b ELSE dc.user_id_a END)
+         LEFT JOIN users ua ON ua.id = dc.user_id_a
+         LEFT JOIN users ub ON ub.id = dc.user_id_b
+         LEFT JOIN users req_user ON req_user.id = dc.requested_by_user_id
+         LEFT JOIN users u ON u.id = (
+           CASE WHEN dc.user_id_a = $1 OR dc.user_id_a = 'user_self' OR lower(ua.username) = lower($2)
+                THEN dc.user_id_b ELSE dc.user_id_a END
+         )
          LEFT JOIN LATERAL (
            SELECT text, sender_user_id, created_at FROM messages
             WHERE conversation_type = 'direct' AND conversation_id = dc.id
             ORDER BY created_at DESC LIMIT 1
          ) lm ON true
          LEFT JOIN conversation_user_state cus
-           ON cus.conversation_id = 'conv_' || (CASE WHEN dc.user_id_a = $1 OR dc.user_id_a = 'user_self' THEN dc.user_id_b ELSE dc.user_id_a END)
+           ON cus.conversation_id = 'conv_' || (
+                CASE WHEN dc.user_id_a = $1 OR dc.user_id_a = 'user_self' OR lower(ua.username) = lower($2)
+                     THEN dc.user_id_b ELSE dc.user_id_a END
+              )
           AND cus.user_id = $1
          LEFT JOIN LATERAL (
            SELECT count(*)::int AS count FROM messages
@@ -1441,10 +1507,12 @@ app.get('/api/direct-conversations', async (req, res) => {
               AND sender_user_id != $1
               AND (cus.last_read_at IS NULL OR created_at > cus.last_read_at)
          ) unread ON true
-        WHERE (dc.user_id_a = $1 OR dc.user_id_b = $1 OR dc.user_id_a = 'user_self' OR dc.user_id_b = 'user_self')
-          AND (dc.status = 'accepted' OR dc.requested_by_user_id = $1)
+        WHERE (dc.user_id_a = $1 OR dc.user_id_b = $1 OR dc.user_id_a = 'user_self' OR dc.user_id_b = 'user_self'
+               OR lower(ua.username) = lower($2) OR lower(ub.username) = lower($2))
+          AND (dc.status = 'accepted' OR dc.requested_by_user_id = $1
+               OR lower(req_user.username) = lower($2))
         ORDER BY COALESCE(lm.created_at, dc.created_at) DESC`,
-      [req.user.id]
+      [req.user.id, req.user.username]
     );
     // Two rows can legitimately resolve to the same peer username (see
     // mergeDuplicateDirectConversationsByUsername) if the migration hasn't
@@ -1455,7 +1523,9 @@ app.get('/api/direct-conversations', async (req, res) => {
     const seenPeerUsernames = new Set();
     const conversations = [];
     for (const row of result.rows) {
-      const peerId = (row.user_id_a === req.user.id || row.user_id_a === 'user_self') ? row.user_id_b : row.user_id_a;
+      const isSelfA = row.user_id_a === req.user.id || row.user_id_a === 'user_self'
+        || (row.a_username && row.a_username.toLowerCase() === req.user.username.toLowerCase());
+      const peerId = isSelfA ? row.user_id_b : row.user_id_a;
       // The peer may not have a `users` row yet (they've never loaded the app
       // in this environment) -- that must NOT hide an otherwise valid,
       // already-persisted conversation from the caller's own list, so fall
@@ -1579,21 +1649,14 @@ app.post('/api/message-requests/:conversationId/decline', async (req, res) => {
 app.get('/api/messages/direct/:peerId', async (req, res) => {
   try {
     const peerId = req.params.peerId;
-    // The stored row's (user_id_a, user_id_b) is alphabetically sorted (see
-    // getOrCreateDirectConversation), so the exact-pair match has to check
-    // both orderings -- otherwise this silently returns zero rows (and an
-    // empty thread) whenever req.user.id sorts after peerId, even though the
-    // conversation and its messages exist.
-    const convRes = await pool.query(
-      `SELECT id FROM direct_conversations
-        WHERE (user_id_a = $1 AND user_id_b = $2)
-           OR (user_id_a = $2 AND user_id_b = $1)
-           OR (user_id_a = 'user_self' AND user_id_b = $2)
-           OR (user_id_b = 'user_self' AND user_id_a = $2)`,
-      [req.user.id, peerId]
-    );
-    if (convRes.rowCount === 0) return res.json({ messages: [] });
-    res.json({ messages: await listMessages('direct', convRes.rows[0].id, req.user.id) });
+    // Uses the same exact-id-then-username-fallback lookup as
+    // getOrCreateDirectConversation, so a conversation whose stored ids have
+    // drifted from the caller's (or peer's) current session id still loads
+    // its history here instead of appearing empty just because the write
+    // path hasn't reconciled the row yet.
+    const found = await findDirectConversation(req.user.id, peerId);
+    if (!found) return res.json({ messages: [] });
+    res.json({ messages: await listMessages('direct', found.row.id, req.user.id) });
   } catch (err) {
     console.error('[messages] direct fetch failed:', err);
     res.status(500).json({ error: 'Failed to load messages' });
@@ -2082,7 +2145,7 @@ async function mergeDuplicateDirectConversationsByUsername() {
       // already have deleted one (a row can appear in two different callers'
       // duplicate groups at once).
       const rows = (await pool.query(
-        `SELECT dc.id, dc.user_id_a, dc.user_id_b, dc.created_at,
+        `SELECT dc.id, dc.user_id_a, dc.user_id_b, dc.created_at, dc.requested_by_user_id,
                 (SELECT count(*) FROM messages WHERE conversation_type = 'direct' AND conversation_id = dc.id) AS message_count,
                 (SELECT max(created_at) FROM messages WHERE conversation_type = 'direct' AND conversation_id = dc.id) AS last_message_at
            FROM direct_conversations dc WHERE dc.id = ANY($1)`,
@@ -2111,6 +2174,42 @@ async function mergeDuplicateDirectConversationsByUsername() {
           ['conv_' + stalePeerId, group.caller_id]
         );
         await pool.query(`DELETE FROM direct_conversations WHERE id = $1`, [row.id]);
+      }
+
+      // The rows in this group share a caller_id and peer username but were
+      // duplicates precisely because their PEER id differs -- the canonical
+      // row (picked above for message history) isn't necessarily the one
+      // holding the peer's most current id. The most-recently-created row is
+      // the best available signal for "current": before the reuse check in
+      // getOrCreateDirectConversation existed, a new row only got created
+      // here because the peer's id had already moved on from every existing
+      // row's stored id. Reconcile the surviving row's ids to that pairing,
+      // same sorted-pair convention as everywhere else.
+      const mostRecent = rows.reduce(
+        (best, r) => (!best || new Date(r.created_at) > new Date(best.created_at)) ? r : best,
+        null
+      );
+      const mostRecentPeerId = mostRecent.user_id_a === group.caller_id ? mostRecent.user_id_b : mostRecent.user_id_a;
+      const [a, b] = [group.caller_id, mostRecentPeerId].sort();
+      // requested_by_user_id is stored as whichever side's id was current at
+      // request time -- same staleness risk as user_id_a/user_id_b above.
+      // Resolve it against the reconciled pair by username so a request the
+      // caller originally sent doesn't start looking like one they received
+      // (see the matching fix in getOrCreateDirectConversation).
+      let requestedBy = canonical.requested_by_user_id;
+      if (requestedBy !== a && requestedBy !== b) {
+        const match = await pool.query(
+          `SELECT id FROM users WHERE id IN ($1, $2)
+             AND lower(username) = lower((SELECT username FROM users WHERE id = $3))`,
+          [a, b, requestedBy]
+        );
+        if (match.rowCount > 0) requestedBy = match.rows[0].id;
+      }
+      if (canonical.user_id_a !== a || canonical.user_id_b !== b || canonical.requested_by_user_id !== requestedBy) {
+        await pool.query(
+          'UPDATE direct_conversations SET user_id_a = $1, user_id_b = $2, requested_by_user_id = $3 WHERE id = $4',
+          [a, b, requestedBy, canonical.id]
+        );
       }
       console.log(
         `[migration] merged ${stale.length} duplicate direct_conversations row(s) for caller ${group.caller_id} ` +
