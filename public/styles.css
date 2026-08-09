@@ -204,6 +204,14 @@ html, body {
   flex-shrink: 0;
 }
 
+/* Small muted-bell icon shown on a muted conversation's row */
+.conversation-mute-icon {
+  font-size: 11px;
+  line-height: 1;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
 .conversation-timestamp {
   font-size: 13px;
   color: #999;

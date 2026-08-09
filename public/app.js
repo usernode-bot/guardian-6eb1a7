@@ -56,6 +56,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=channel-send-fail         publishes one post that deterministically fails (owned channel only) → "Failed to send" + retry must render
   //   ?shot=session-expired           simulates a 401 on load                                  → session-expired banner must render, polling halted
   //   ?shot=messages-select           enters multi-select on the first Messages row on load     → selection toolbar + selected row must render
+  //   ?shot=messages-archived         archives + mutes the first DM and opens the Archived tab   → active Archived tab + muted row must render
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -90,6 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_NOTIFICATIONS_SHEET = SHOT === 'notifications-sheet';
   const SHOT_GROUPS_TAB = SHOT === 'groups-tab';
   const SHOT_MESSAGES_SELECT = SHOT === 'messages-select';
+  const SHOT_MESSAGES_ARCHIVED = SHOT === 'messages-archived';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
   const SHOT_CREATE_GROUP_NAME = 'Staging demo one-invite group';
@@ -884,6 +886,29 @@ document.addEventListener('DOMContentLoaded', () => {
         conv.pinned = !!state.pinned;
         conv.manuallyMarkedUnread = !!state.manuallyMarkedUnread;
         if (state.hiddenFromInbox) conv.hiddenFromInbox = true;
+        conv.archivedByUser = !!state.archived;
+
+        // Channels keep their mute flag on the channel entity itself (shared
+        // with the per-follower unread-suppression check); DMs and groups
+        // keep it on the conversation row. See isConversationMuted.
+        if (conv.type === 'channel') {
+          const channel = channels.find(c => c.id === conv.channelId);
+          if (channel) {
+            if (!channel.mutedByUsers) channel.mutedByUsers = {};
+            if (state.muted) {
+              channel.mutedByUsers['user_self'] = true;
+            } else {
+              delete channel.mutedByUsers['user_self'];
+            }
+          }
+        } else {
+          if (!conv.mutedByUsers) conv.mutedByUsers = {};
+          if (state.muted) {
+            conv.mutedByUsers['user_self'] = true;
+          } else {
+            delete conv.mutedByUsers['user_self'];
+          }
+        }
       });
     } catch (error) {
       console.warn('Could not load conversation state:', error);
@@ -1349,12 +1374,20 @@ document.addEventListener('DOMContentLoaded', () => {
       filtered = conversations.filter(c => c.type === 'channel');
     } else if (tab === 'requests') {
       filtered = requests;
+    } else if (tab === 'archived') {
+      filtered = conversations.filter(c => c.archivedByUser);
     }
 
     // Deleted/left/unfollowed conversations stay in the array (so their
     // messages survive) but must disappear from every inbox tab.
     if (tab !== 'requests') {
       filtered = filtered.filter(c => !c.hiddenFromInbox);
+    }
+
+    // Archived chats are hidden from every tab except 'archived' itself --
+    // mirrors hiddenFromInbox, but reversible (see toggleConversationArchive).
+    if (tab !== 'archived' && tab !== 'requests') {
+      filtered = filtered.filter(c => !c.archivedByUser);
     }
 
     // Deduplication: keep only the first occurrence of each conversation ID
@@ -1402,6 +1435,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     const badgeColor = item.type === 'channel' ? '#FF6B6B' : '#007AFF';
     const isSelected = selectedConversationIds.has(item.id);
+    const isMuted = isConversationMuted(item);
 
     return `
       <div class="conversation-item ${item.pinned ? 'pinned' : ''} ${messagesSelectionMode ? 'selection-mode' : ''} ${isSelected ? 'selected' : ''}" data-conversation-id="${item.id}" data-route-hash="${routeHash}">
@@ -1412,6 +1446,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <span class="conversation-username-row">
               ${item.pinned ? '<span class="conversation-pin-icon">📌</span>' : ''}
               <span class="conversation-username">${escapeHtml(displayName)}</span>
+              ${isMuted ? '<span class="conversation-mute-icon">🔕</span>' : ''}
             </span>
             <span class="conversation-timestamp">${formatTimestamp(item.timestamp)}</span>
           </div>
@@ -1455,7 +1490,8 @@ document.addEventListener('DOMContentLoaded', () => {
       dm: 'No direct messages',
       groups: 'No groups',
       channels: 'No channels',
-      requests: 'No pending requests'
+      requests: 'No pending requests',
+      archived: 'No archived chats'
     }[activeMessagesTab];
 
     const listEl = document.getElementById('conversations-list');
@@ -1463,6 +1499,7 @@ document.addEventListener('DOMContentLoaded', () => {
       listEl.innerHTML = conversationsList || `<div class="empty-state"><div class="empty-icon">💬</div><div class="empty-message">${emptyMessage}</div></div>`;
       attachConversationListeners();
       setupConversationSelection();
+      setupConversationSwipeActions();
     }
   }
 
@@ -1918,7 +1955,8 @@ document.addEventListener('DOMContentLoaded', () => {
       dm: 'No direct messages',
       groups: 'No groups',
       channels: 'No channels',
-      requests: 'No pending requests'
+      requests: 'No pending requests',
+      archived: 'No archived chats'
     }[activeMessagesTab];
 
     const requestsCount = requests.length;
@@ -1959,6 +1997,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <button class="message-tab ${activeMessagesTab === 'groups' ? 'active' : ''}" data-tab="groups">Groups</button>
           <button class="message-tab ${activeMessagesTab === 'channels' ? 'active' : ''}" data-tab="channels">Channels</button>
           <button class="message-tab ${activeMessagesTab === 'requests' ? 'active' : ''}" data-tab="requests">Requests ${requestsBadge}</button>
+          <button class="message-tab ${activeMessagesTab === 'archived' ? 'active' : ''}" data-tab="archived">Archived</button>
         </div>
       `;
 
@@ -2047,6 +2086,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Long-press a conversation row to enter multi-select mode (replaces the
     // old per-row context menu); once in selection mode, taps toggle rows.
     setupConversationSelection();
+
+    // Swipe a row left to reveal Pin/Mute/Archive (restores what the old
+    // per-row context menu offered, without conflicting with the long-press
+    // multi-select above).
+    setupConversationSwipeActions();
 
     // Poll while this screen stays open so a new incoming DM or request shows
     // up without the user having to leave and come back.
@@ -2235,6 +2279,46 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => { lastEventWasTouch = false; }, 100);
       });
       item.addEventListener('touchmove', clearLongPressTimer);
+    });
+  }
+
+  // Reveal Pin/Mute/Archive on a left swipe of a Messages-list row, via the
+  // native-feel UI kit's swipe-action tray. Skipped entirely in multi-select
+  // mode -- swiping a row to reveal actions would fight with tap-to-toggle.
+  // The kit routes its drag gesture through the same shared arbiter a
+  // hand-rolled gesture would use, so it coexists with the long-press timers
+  // wired by setupConversationSelection() above without extra plumbing.
+  function setupConversationSwipeActions() {
+    if (messagesSelectionMode) return;
+    if (!window.unNative || typeof unNative.attachSwipeActions !== 'function') return;
+
+    document.querySelectorAll('.conversation-item').forEach(rowEl => {
+      const convId = rowEl.dataset.conversationId;
+      const conv = conversations.find(c => c.id === convId);
+      if (!conv) return;
+
+      const isPinned = !!conv.pinned;
+      const isMuted = isConversationMuted(conv);
+
+      unNative.attachSwipeActions(rowEl, {
+        actions: [
+          {
+            label: isPinned ? 'Unpin' : 'Pin',
+            color: '#ffb300',
+            handler: () => togglePinFromList(conv)
+          },
+          {
+            label: isMuted ? 'Unmute' : 'Mute',
+            color: '#8e8e93',
+            handler: () => toggleMuteFromList(conv)
+          },
+          {
+            label: conv.archivedByUser ? 'Unarchive' : 'Archive',
+            color: '#007aff',
+            handler: () => toggleConversationArchive(conv)
+          }
+        ]
+      });
     });
   }
 
@@ -2713,9 +2797,38 @@ document.addEventListener('DOMContentLoaded', () => {
     button.click();
   }
 
-  // Mute/unmute a DM conversation's notifications (client-side only, mirrors
-  // toggleMuteChannel)
-  function toggleMuteDM(conversationId, isMuted) {
+  // Shared PUT for the caller's own conversation_user_state row (pin/mute/
+  // archive/etc). The local state is expected to already be updated
+  // optimistically by the caller before this fires.
+  async function persistConversationState(conversationId, patch) {
+    try {
+      await fetch(`/api/conversations/${conversationId}/state`, {
+        method: 'PUT',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(patch)
+      });
+    } catch (error) {
+      console.error('Failed to persist conversation state:', error);
+    }
+  }
+
+  // Whether the given conversation's notifications are muted for the current
+  // user. DMs and groups keep their mute flag on the conversation row itself;
+  // channels keep theirs on the channel entity (see toggleMuteChannel), so
+  // that's the one to read for a channel-type row.
+  function isConversationMuted(conv) {
+    if (!conv) return false;
+    if (conv.type === 'channel') {
+      const channel = channels.find(c => c.id === conv.channelId);
+      return !!(channel && channel.mutedByUsers && channel.mutedByUsers['user_self']);
+    }
+    return !!(conv.mutedByUsers && conv.mutedByUsers['user_self']);
+  }
+
+  // Mute/unmute a DM or group conversation's notifications; persists per-user
+  // so it survives reload. Channels use toggleMuteChannel instead, since their
+  // mute flag also lives on the channel entity itself.
+  function toggleMuteConversationRow(conversationId, isMuted) {
     const conv = conversations.find(c => c.id === conversationId);
     if (!conv) return;
     if (!conv.mutedByUsers) conv.mutedByUsers = {};
@@ -2725,6 +2838,55 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       delete conv.mutedByUsers['user_self'];
     }
+    persistConversationState(conversationId, { muted: isMuted });
+  }
+
+  // Mute/unmute a DM conversation's notifications (persists; mirrors
+  // toggleMuteChannel)
+  function toggleMuteDM(conversationId, isMuted) {
+    toggleMuteConversationRow(conversationId, isMuted);
+  }
+
+  // Pin/unpin any conversation row (DM, group, or channel) -- shared by the DM
+  // ⋮ menu's Pin option and the Messages list swipe-to-pin action.
+  async function togglePinFromList(conv) {
+    const newPinnedState = !conv.pinned;
+    try {
+      const res = await fetch(`/api/conversations/${conv.id}/state`, {
+        method: 'PUT',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ pinned: newPinnedState })
+      });
+      if (res.ok) conv.pinned = newPinnedState;
+    } catch (error) {
+      console.error('Failed to pin conversation:', error);
+    }
+    renderMessagesPage();
+    showToast(newPinnedState ? 'Conversation pinned' : 'Conversation unpinned', { type: 'success' });
+  }
+
+  // Mute/unmute any conversation row from the Messages list swipe action.
+  function toggleMuteFromList(conv) {
+    const wasMuted = isConversationMuted(conv);
+    if (conv.type === 'channel') {
+      toggleMuteChannel(conv.channelId, !wasMuted);
+    } else {
+      toggleMuteConversationRow(conv.id, !wasMuted);
+    }
+    renderMessagesPage();
+    showToast(wasMuted ? 'Notifications unmuted' : 'Notifications muted', { type: 'success' });
+  }
+
+  // Archive/unarchive a conversation from the Messages list (Telegram/WhatsApp
+  // style): drops out of the All/DM/Groups/Channels tabs into the Archived tab
+  // but otherwise stays intact -- unrelated to the pre-existing conv.archived
+  // flag set by unfollowChannel(), which permanently hides a channel thread.
+  function toggleConversationArchive(conv) {
+    const newArchived = !conv.archivedByUser;
+    conv.archivedByUser = newArchived;
+    persistConversationState(conv.id, { archived: newArchived });
+    renderMessagesPage();
+    showToast(newArchived ? 'Chat archived' : 'Chat unarchived', { type: 'success' });
   }
 
   // Hide every message in a DM for the current user only ("delete for me",
@@ -6440,7 +6602,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Mute/unmute channel notifications
+  // Mute/unmute channel notifications; persists via the channel's own
+  // conversation-list row so it survives reload.
   function toggleMuteChannel(channelId, isMuted) {
     const channel = channels.find(c => c.id === channelId);
     if (!channel) return;
@@ -6450,6 +6613,9 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       delete channel.mutedByUsers['user_self'];
     }
+
+    const conv = conversations.find(c => c.type === 'channel' && c.channelId === channelId);
+    if (conv) persistConversationState(conv.id, { muted: isMuted });
   }
 
   // Delete a post (owner only)
@@ -8775,7 +8941,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Special handling for messages page
     if (pageName === 'messages') {
-      renderMessagesPage(SHOT_REQUESTS_TAB ? 'requests' : ((SHOT_GROUPS_TAB || SHOT_NOTIFICATIONS_SHEET) ? 'groups' : null));
+      // Screenshot-state: archive + mute the first DM the same way the swipe
+      // actions would, then open straight into the Archived tab, so dapp.json
+      // can assert on both deterministically (a swipe gesture itself can't be
+      // driven by a plain navigation).
+      if (SHOT_MESSAGES_ARCHIVED) {
+        const target = conversations.find(c => c.type === 'direct' && !c.hiddenFromInbox);
+        if (target) {
+          target.archivedByUser = true;
+          if (!target.mutedByUsers) target.mutedByUsers = {};
+          target.mutedByUsers['user_self'] = true;
+        }
+      }
+      renderMessagesPage(
+        SHOT_MESSAGES_ARCHIVED ? 'archived' :
+        SHOT_REQUESTS_TAB ? 'requests' :
+        ((SHOT_GROUPS_TAB || SHOT_NOTIFICATIONS_SHEET) ? 'groups' : null)
+      );
       // Screenshot-state: walk the same long-press the user makes (select the
       // first row) so dapp.json can assert on the selection toolbar deterministically.
       if (SHOT_MESSAGES_SELECT) {

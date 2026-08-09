@@ -1156,16 +1156,16 @@ app.delete('/api/channels/:channelId', async (req, res) => {
 // Conversation Management API Endpoints
 
 // GET /api/conversations/state - Bulk read-back of the caller's own view
-// state (pin, manually-marked-unread, hidden-from-inbox) for every
-// conversation they have an override for, keyed by the client-synthesized
-// conversation id. Called once at boot so pin/unread state set via the PUT
-// below survives a reload instead of resetting to the client-side defaults.
+// state (pin, manually-marked-unread, hidden-from-inbox, muted, archived) for
+// every conversation they have an override for, keyed by the client-synthesized
+// conversation id. Called once at boot so pin/unread/mute/archive state set via
+// the PUT below survives a reload instead of resetting to the client-side defaults.
 app.get('/api/conversations/state', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
 
   try {
     const result = await pool.query(
-      `SELECT conversation_id, pinned, manually_marked_unread, hidden_from_inbox
+      `SELECT conversation_id, pinned, manually_marked_unread, hidden_from_inbox, muted, archived
        FROM conversation_user_state WHERE user_id = $1`,
       [req.user.id]
     );
@@ -1174,7 +1174,9 @@ app.get('/api/conversations/state', async (req, res) => {
       states[row.conversation_id] = {
         pinned: row.pinned,
         manuallyMarkedUnread: row.manually_marked_unread,
-        hiddenFromInbox: row.hidden_from_inbox
+        hiddenFromInbox: row.hidden_from_inbox,
+        muted: row.muted,
+        archived: row.archived
       };
     }
     res.json({ states });
@@ -1185,8 +1187,9 @@ app.get('/api/conversations/state', async (req, res) => {
 });
 
 // PUT /api/conversations/:id/state - Update the caller's own view of a
-// conversation: pin, manually-marked-unread, or hidden-from-inbox (the local
-// "delete" for a DM; group/channel deletes are a leave/unfollow instead).
+// conversation: pin, manually-marked-unread, hidden-from-inbox (the local
+// "delete" for a DM; group/channel deletes are a leave/unfollow instead), mute,
+// or archive (Telegram/WhatsApp-style swipe actions on the Messages list).
 // Per-user data, so this route requires a verified req.user (see
 // PUBLIC_PREFIXES above). Each field is optional so callers can toggle one
 // flag at a time without clobbering the others.
@@ -1194,25 +1197,29 @@ app.put('/api/conversations/:id/state', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
 
   const { id } = req.params;
-  const { pinned, manuallyMarkedUnread, hiddenFromInbox, markRead } = req.body || {};
+  const { pinned, manuallyMarkedUnread, hiddenFromInbox, markRead, muted, archived } = req.body || {};
   const pinnedVal = typeof pinned === 'boolean' ? pinned : null;
   const unreadVal = typeof manuallyMarkedUnread === 'boolean' ? manuallyMarkedUnread : null;
   const hiddenVal = typeof hiddenFromInbox === 'boolean' ? hiddenFromInbox : null;
   const markReadVal = markRead === true;
+  const mutedVal = typeof muted === 'boolean' ? muted : null;
+  const archivedVal = typeof archived === 'boolean' ? archived : null;
 
   try {
     const result = await pool.query(
       `INSERT INTO conversation_user_state
-         (conversation_id, user_id, pinned, manually_marked_unread, hidden_from_inbox, last_read_at)
-       VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false), COALESCE($5, false), CASE WHEN $6 THEN now() ELSE NULL END)
+         (conversation_id, user_id, pinned, manually_marked_unread, hidden_from_inbox, last_read_at, muted, archived)
+       VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false), COALESCE($5, false), CASE WHEN $6 THEN now() ELSE NULL END, COALESCE($7, false), COALESCE($8, false))
        ON CONFLICT (conversation_id, user_id) DO UPDATE SET
          pinned = COALESCE($3, conversation_user_state.pinned),
          manually_marked_unread = COALESCE($4, conversation_user_state.manually_marked_unread),
          hidden_from_inbox = COALESCE($5, conversation_user_state.hidden_from_inbox),
          last_read_at = CASE WHEN $6 THEN now() ELSE conversation_user_state.last_read_at END,
+         muted = COALESCE($7, conversation_user_state.muted),
+         archived = COALESCE($8, conversation_user_state.archived),
          updated_at = now()
-       RETURNING pinned, manually_marked_unread, hidden_from_inbox, last_read_at`,
-      [id, req.user.id, pinnedVal, unreadVal, hiddenVal, markReadVal]
+       RETURNING pinned, manually_marked_unread, hidden_from_inbox, last_read_at, muted, archived`,
+      [id, req.user.id, pinnedVal, unreadVal, hiddenVal, markReadVal, mutedVal, archivedVal]
     );
     const row = result.rows[0];
     res.json({
@@ -1221,6 +1228,8 @@ app.put('/api/conversations/:id/state', async (req, res) => {
       manuallyMarkedUnread: row.manually_marked_unread,
       hiddenFromInbox: row.hidden_from_inbox,
       lastReadAt: row.last_read_at ? new Date(row.last_read_at).getTime() : null,
+      muted: row.muted,
+      archived: row.archived,
       message: 'Conversation state updated'
     });
   } catch (err) {
@@ -1975,6 +1984,16 @@ async function initDatabase() {
     // column ships. Only messages that arrive *after* a row exists count.
     await pool.query(
       `ALTER TABLE conversation_user_state ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMPTZ`
+    );
+
+    // Mute/archive per chat (Pin/Mute/Archive swipe actions on the Messages
+    // list). Same "missing row = default false" convention as the columns
+    // above -- an unmuted/unarchived chat never needs a row at all.
+    await pool.query(
+      `ALTER TABLE conversation_user_state ADD COLUMN IF NOT EXISTS muted BOOLEAN NOT NULL DEFAULT false`
+    );
+    await pool.query(
+      `ALTER TABLE conversation_user_state ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false`
     );
 
     await pool.query(
