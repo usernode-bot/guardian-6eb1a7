@@ -581,34 +581,19 @@
       "expectSelector": ".conversation-item.selected .conversation-select-indicator.checked"
     },
     {
-      "name": "Messages tab bar offers an Archived tab",
-      "path": "/",
-      "expectSelector": ".message-tab[data-tab=\"archived\"]"
-    },
-    {
-      "name": "Archiving a conversation moves it out of the main list into the Archived tab (regression: restoring Pin/Mute/Archive lost when the long-press menu became multi-select)",
-      "path": "/?shot=messages-archived",
-      "expectSelector": ".message-tab[data-tab=\"archived\"].active"
-    },
-    {
-      "name": "The Archived tab shows the archived conversation's row, not the empty state",
-      "path": "/?shot=messages-archived",
-      "expectSelector": ".conversation-item"
-    },
-    {
       "name": "A muted conversation shows the muted indicator in the Messages list",
-      "path": "/?shot=messages-archived",
+      "path": "/?shot=messages-muted",
       "expectSelector": ".conversation-item .conversation-mute-icon"
     },
     {
-      "name": "Long-pressing a conversation row opens a Tandai/Pin/Mute/Archive action sheet (regression: Pin/Mute/Archive swipe actions replaced with a long-press action sheet, in this exact order)",
+      "name": "Long-pressing a conversation row opens a Tandai/Pin/Mute action sheet (regression: Pin/Mute/Archive swipe actions replaced with a long-press action sheet, Archive later removed, in this exact order)",
       "path": "/?shot=messages-actions",
       "expectText": "Tandai"
     },
     {
-      "name": "The long-press action sheet's last item is Archive, not a swipe action",
+      "name": "The long-press action sheet's last item is Mute, not Archive (regression: Archive removed from the sheet)",
       "path": "/?shot=messages-actions",
-      "expectText": "Archive"
+      "expectText": "Mute"
     },
     {
       "name": "Group creation is still reachable from the Create menu",

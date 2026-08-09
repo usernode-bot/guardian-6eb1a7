@@ -56,8 +56,8 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=channel-send-fail         publishes one post that deterministically fails (owned channel only) → "Failed to send" + retry must render
   //   ?shot=session-expired           simulates a 401 on load                                  → session-expired banner must render, polling halted
   //   ?shot=messages-select           enters multi-select on the first Messages row on load     → selection toolbar + selected row must render
-  //   ?shot=messages-archived         archives + mutes the first DM and opens the Archived tab   → active Archived tab + muted row must render
-  //   ?shot=messages-actions          opens the long-press action sheet on the first Messages row → Tandai/Pin/Mute/Archive labels must render
+  //   ?shot=messages-muted            mutes the first DM on load                                 → muted row indicator must render
+  //   ?shot=messages-actions          opens the long-press action sheet on the first Messages row → Tandai/Pin/Mute labels must render
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -92,7 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_NOTIFICATIONS_SHEET = SHOT === 'notifications-sheet';
   const SHOT_GROUPS_TAB = SHOT === 'groups-tab';
   const SHOT_MESSAGES_SELECT = SHOT === 'messages-select';
-  const SHOT_MESSAGES_ARCHIVED = SHOT === 'messages-archived';
+  const SHOT_MESSAGES_MUTED = SHOT === 'messages-muted';
   const SHOT_MESSAGES_ACTIONS = SHOT === 'messages-actions';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
@@ -892,7 +892,6 @@ document.addEventListener('DOMContentLoaded', () => {
         conv.pinned = !!state.pinned;
         conv.manuallyMarkedUnread = !!state.manuallyMarkedUnread;
         if (state.hiddenFromInbox) conv.hiddenFromInbox = true;
-        conv.archivedByUser = !!state.archived;
 
         // Channels keep their mute flag on the channel entity itself (shared
         // with the per-follower unread-suppression check); DMs and groups
@@ -1380,20 +1379,12 @@ document.addEventListener('DOMContentLoaded', () => {
       filtered = conversations.filter(c => c.type === 'channel');
     } else if (tab === 'requests') {
       filtered = requests;
-    } else if (tab === 'archived') {
-      filtered = conversations.filter(c => c.archivedByUser);
     }
 
     // Deleted/left/unfollowed conversations stay in the array (so their
     // messages survive) but must disappear from every inbox tab.
     if (tab !== 'requests') {
       filtered = filtered.filter(c => !c.hiddenFromInbox);
-    }
-
-    // Archived chats are hidden from every tab except 'archived' itself --
-    // mirrors hiddenFromInbox, but reversible (see toggleConversationArchive).
-    if (tab !== 'archived' && tab !== 'requests') {
-      filtered = filtered.filter(c => !c.archivedByUser);
     }
 
     // Deduplication: keep only the first occurrence of each conversation ID
@@ -1496,8 +1487,7 @@ document.addEventListener('DOMContentLoaded', () => {
       dm: 'No direct messages',
       groups: 'No groups',
       channels: 'No channels',
-      requests: 'No pending requests',
-      archived: 'No archived chats'
+      requests: 'No pending requests'
     }[activeMessagesTab];
 
     const listEl = document.getElementById('conversations-list');
@@ -1960,8 +1950,7 @@ document.addEventListener('DOMContentLoaded', () => {
       dm: 'No direct messages',
       groups: 'No groups',
       channels: 'No channels',
-      requests: 'No pending requests',
-      archived: 'No archived chats'
+      requests: 'No pending requests'
     }[activeMessagesTab];
 
     const requestsCount = requests.length;
@@ -2002,7 +1991,6 @@ document.addEventListener('DOMContentLoaded', () => {
           <button class="message-tab ${activeMessagesTab === 'groups' ? 'active' : ''}" data-tab="groups">Groups</button>
           <button class="message-tab ${activeMessagesTab === 'channels' ? 'active' : ''}" data-tab="channels">Channels</button>
           <button class="message-tab ${activeMessagesTab === 'requests' ? 'active' : ''}" data-tab="requests">Requests ${requestsBadge}</button>
-          <button class="message-tab ${activeMessagesTab === 'archived' ? 'active' : ''}" data-tab="archived">Archived</button>
         </div>
       `;
 
@@ -2088,7 +2076,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Attach event listeners to conversation list items
     attachConversationListeners();
 
-    // Long-press a conversation row to open the Tandai/Pin/Mute/Archive
+    // Long-press a conversation row to open the Tandai/Pin/Mute
     // action sheet (replaces the old per-row context menu); once in
     // selection mode, taps toggle rows.
     setupConversationSelection();
@@ -2231,7 +2219,7 @@ document.addEventListener('DOMContentLoaded', () => {
     );
   }
 
-  // Long-press a conversation row to open the Tandai/Pin/Mute/Archive action
+  // Long-press a conversation row to open the Tandai/Pin/Mute action
   // sheet (see openConversationActionSheet); while multi-select is already
   // active, a long-press instead toggles that row's selection, same as a tap
   // (handled in attachConversationListeners).
@@ -2286,7 +2274,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Long-press action sheet for a Messages-list row: Tandai (mark - enters
   // multi-select with this row selected, the old direct long-press
-  // behavior), Pin, Mute, Archive, in that fixed order. Replaces the earlier
+  // behavior), Pin, Mute, in that fixed order. Replaces the earlier
   // swipe-to-reveal tray, which read as an accidental gesture to some users
   // and fought with the multi-select long-press on the same row.
   function openConversationActionSheet(convId, rowEl) {
@@ -2308,8 +2296,7 @@ document.addEventListener('DOMContentLoaded', () => {
       items: [
         { label: 'Tandai', handler: () => startConversationSelection(convId) },
         { label: isPinned ? 'Unpin' : 'Pin', handler: () => togglePinFromList(conv) },
-        { label: isMuted ? 'Unmute' : 'Mute', handler: () => toggleMuteFromList(conv) },
-        { label: conv.archivedByUser ? 'Unarchive' : 'Archive', handler: () => toggleConversationArchive(conv) }
+        { label: isMuted ? 'Unmute' : 'Mute', handler: () => toggleMuteFromList(conv) }
       ]
     });
   }
@@ -2790,7 +2777,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Shared PUT for the caller's own conversation_user_state row (pin/mute/
-  // archive/etc). The local state is expected to already be updated
+  // etc). The local state is expected to already be updated
   // optimistically by the caller before this fires.
   async function persistConversationState(conversationId, patch) {
     try {
@@ -2867,18 +2854,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     renderMessagesPage();
     showToast(wasMuted ? 'Notifications unmuted' : 'Notifications muted', { type: 'success' });
-  }
-
-  // Archive/unarchive a conversation from the Messages list (Telegram/WhatsApp
-  // style): drops out of the All/DM/Groups/Channels tabs into the Archived tab
-  // but otherwise stays intact -- unrelated to the pre-existing conv.archived
-  // flag set by unfollowChannel(), which permanently hides a channel thread.
-  function toggleConversationArchive(conv) {
-    const newArchived = !conv.archivedByUser;
-    conv.archivedByUser = newArchived;
-    persistConversationState(conv.id, { archived: newArchived });
-    renderMessagesPage();
-    showToast(newArchived ? 'Chat archived' : 'Chat unarchived', { type: 'success' });
   }
 
   // Hide every message in a DM for the current user only ("delete for me",
@@ -8933,20 +8908,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Special handling for messages page
     if (pageName === 'messages') {
-      // Screenshot-state: archive + mute the first DM the same way the
-      // Tandai/Pin/Mute/Archive action sheet would, then open straight into
-      // the Archived tab, so dapp.json can assert on both deterministically
-      // (a long-press gesture itself can't be driven by a plain navigation).
-      if (SHOT_MESSAGES_ARCHIVED) {
+      // Screenshot-state: mute the first DM the same way the long-press
+      // action sheet's Mute option would, so dapp.json can assert the muted
+      // indicator renders deterministically (a long-press gesture itself
+      // can't be driven by a plain navigation).
+      if (SHOT_MESSAGES_MUTED) {
         const target = conversations.find(c => c.type === 'direct' && !c.hiddenFromInbox);
         if (target) {
-          target.archivedByUser = true;
           if (!target.mutedByUsers) target.mutedByUsers = {};
           target.mutedByUsers['user_self'] = true;
         }
       }
       renderMessagesPage(
-        SHOT_MESSAGES_ARCHIVED ? 'archived' :
         SHOT_REQUESTS_TAB ? 'requests' :
         ((SHOT_GROUPS_TAB || SHOT_NOTIFICATIONS_SHEET) ? 'groups' : null)
       );
@@ -8958,7 +8931,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       // Screenshot-state: open the long-press action sheet on the first row
       // (a long-press itself can't be driven by a plain navigation) so
-      // dapp.json can assert the Tandai/Pin/Mute/Archive labels render.
+      // dapp.json can assert the Tandai/Pin/Mute labels render.
       if (SHOT_MESSAGES_ACTIONS) {
         const firstConv = filterConversations('all', '')[0];
         const rowEl = firstConv ? document.querySelector(`.conversation-item[data-conversation-id="${firstConv.id}"]`) : null;
