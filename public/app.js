@@ -57,7 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=session-expired           simulates a 401 on load                                  → session-expired banner must render, polling halted
   //   ?shot=messages-select           enters multi-select on the first Messages row on load     → selection toolbar + selected row must render
   //   ?shot=messages-muted            mutes the first DM on load                                 → muted row indicator must render
-  //   ?shot=messages-actions          opens the long-press action sheet on the first Messages row → Tandai/Pin/Mute labels must render
+  //   ?shot=messages-actions          opens the long-press action sheet on the first Messages row → Select/Pin/Mute labels must render
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -2076,7 +2076,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Attach event listeners to conversation list items
     attachConversationListeners();
 
-    // Long-press a conversation row to open the Tandai/Pin/Mute
+    // Long-press a conversation row to open the Select/Pin/Mute
     // action sheet (replaces the old per-row context menu); once in
     // selection mode, taps toggle rows.
     setupConversationSelection();
@@ -2219,7 +2219,7 @@ document.addEventListener('DOMContentLoaded', () => {
     );
   }
 
-  // Long-press a conversation row to open the Tandai/Pin/Mute action
+  // Long-press a conversation row to open the Select/Pin/Mute action
   // sheet (see openConversationActionSheet); while multi-select is already
   // active, a long-press instead toggles that row's selection, same as a tap
   // (handled in attachConversationListeners).
@@ -2272,7 +2272,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Long-press action sheet for a Messages-list row: Tandai (mark - enters
+  // Long-press action sheet for a Messages-list row: Select (mark - enters
   // multi-select with this row selected, the old direct long-press
   // behavior), Pin, Mute, in that fixed order. Replaces the earlier
   // swipe-to-reveal tray, which read as an accidental gesture to some users
@@ -2294,7 +2294,7 @@ document.addEventListener('DOMContentLoaded', () => {
     unNative.menu({
       anchorEl: rowEl,
       items: [
-        { label: 'Tandai', handler: () => startConversationSelection(convId) },
+        { label: 'Select', handler: () => startConversationSelection(convId) },
         { label: isPinned ? 'Unpin' : 'Pin', handler: () => togglePinFromList(conv) },
         { label: isMuted ? 'Unmute' : 'Mute', handler: () => toggleMuteFromList(conv) }
       ]
@@ -8931,7 +8931,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       // Screenshot-state: open the long-press action sheet on the first row
       // (a long-press itself can't be driven by a plain navigation) so
-      // dapp.json can assert the Tandai/Pin/Mute labels render.
+      // dapp.json can assert the Select/Pin/Mute labels render.
       if (SHOT_MESSAGES_ACTIONS) {
         const firstConv = filterConversations('all', '')[0];
         const rowEl = firstConv ? document.querySelector(`.conversation-item[data-conversation-id="${firstConv.id}"]`) : null;

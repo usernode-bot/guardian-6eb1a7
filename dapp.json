@@ -566,7 +566,7 @@
       "expectSelector": ".messages-header h1"
     },
     {
-      "name": "Choosing \"Tandai\" from the long-press action sheet enters multi-select mode and shows the selection toolbar (regression: old long-press menu replaced with WhatsApp/Telegram-style select, now reached via the action sheet's first item)",
+      "name": "Choosing \"Select\" from the long-press action sheet enters multi-select mode and shows the selection toolbar (regression: old long-press menu replaced with WhatsApp/Telegram-style select, now reached via the action sheet's first item, labeled in English)",
       "path": "/?shot=messages-select",
       "expectSelector": ".messages-selection-toolbar"
     },
@@ -586,9 +586,9 @@
       "expectSelector": ".conversation-item .conversation-mute-icon"
     },
     {
-      "name": "Long-pressing a conversation row opens a Tandai/Pin/Mute action sheet (regression: Pin/Mute/Archive swipe actions replaced with a long-press action sheet, Archive later removed, in this exact order)",
+      "name": "Long-pressing a conversation row opens a Select/Pin/Mute action sheet (regression: Pin/Mute/Archive swipe actions replaced with a long-press action sheet, Archive later removed, \"Tandai\" renamed to \"Select\", in this exact order)",
       "path": "/?shot=messages-actions",
-      "expectText": "Tandai"
+      "expectText": "Select"
     },
     {
       "name": "The long-press action sheet's last item is Mute, not Archive (regression: Archive removed from the sheet)",
