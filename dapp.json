@@ -156,11 +156,6 @@
       "expectSelector": ".conversation-page .composer-container .composer-input"
     },
     {
-      "name": "Deleted group message renders as a placeholder",
-      "path": "/?shot=message-deleted#/group/group_staging_owned_1",
-      "expectSelector": ".message-bubble.deleted"
-    },
-    {
       "name": "Sent group message appears in the thread",
       "path": "/?shot=send-stay#/group/group_staging_owned_1",
       "expectText": "Shot send stay check"
@@ -266,12 +261,12 @@
       "expectText": "Shot reload order check"
     },
     {
-      "name": "Deleting a DM message removes it from the thread immediately, with no leftover empty bubble wrapper (regression: hideMessageForSelf only removed the inner bubble, not the swipe wrapper)",
+      "name": "Deleting a DM message removes it from the thread immediately, with no leftover empty bubble wrapper (regression: delete only removed the inner bubble, not the swipe wrapper)",
       "path": "/?shot=dm-delete#/conversation/conv_staging-demo-delete-peer",
       "expectSelector": "[data-testid=\"dm-delete-check\"][data-hidden=\"true\"]"
     },
     {
-      "name": "Deleted DM message stays gone after a plain reload (regression: delete-for-me was client-only and reappeared on reload)",
+      "name": "Deleted DM message stays gone for everyone after a plain reload (regression: delete was client-only and reappeared on reload)",
       "path": "/#/conversation/conv_staging-demo-delete-peer",
       "expectSelector": "[data-testid=\"dm-delete-check\"][data-hidden=\"true\"]"
     },
@@ -284,6 +279,11 @@
       "name": "Messaging two different peer ids that share a username doesn't show the contact twice (regression: duplicate contact row)",
       "path": "/?shot=dm-username-dup",
       "expectSelector": "[data-testid=\"dm-username-dup-count\"][data-count=\"1\"]"
+    },
+    {
+      "name": "Reused DM conversation's history stays readable under its now-stale peer id after the ids reconcile (regression: DM conversations disappearing when the stored participant id drifts)",
+      "path": "/?shot=dm-username-dup",
+      "expectSelector": "[data-testid=\"dm-username-dup-stale-history-count\"][data-count=\"2\"]"
     },
     {
       "name": "Create Group page loads",
@@ -334,6 +334,11 @@
       "name": "Group chat displays system message",
       "path": "/#/group/group_staging_owned_1",
       "expectText": "Group created."
+    },
+    {
+      "name": "Group chat shows an in-thread system message when a member is added",
+      "path": "/#/group/group_staging_owned_1",
+      "expectText": "was added to the group"
     },
     {
       "name": "Discover page navigates",
@@ -561,6 +566,36 @@
       "expectSelector": ".messages-header h1"
     },
     {
+      "name": "Choosing \"Select\" from the long-press action sheet enters multi-select mode and shows the selection toolbar (regression: old long-press menu replaced with WhatsApp/Telegram-style select, now reached via the action sheet's first item, labeled in English)",
+      "path": "/?shot=messages-select",
+      "expectSelector": ".messages-selection-toolbar"
+    },
+    {
+      "name": "Multi-select toolbar shows a bulk delete action, not a mark-unread menu",
+      "path": "/?shot=messages-select",
+      "expectSelector": "[data-testid=\"selection-delete-btn\"]"
+    },
+    {
+      "name": "The long-pressed row is marked selected in multi-select mode",
+      "path": "/?shot=messages-select",
+      "expectSelector": ".conversation-item.selected .conversation-select-indicator.checked"
+    },
+    {
+      "name": "A muted conversation shows the muted indicator in the Messages list",
+      "path": "/?shot=messages-muted",
+      "expectSelector": ".conversation-item .conversation-mute-icon"
+    },
+    {
+      "name": "Long-pressing a conversation row opens a Select/Pin/Mute action sheet (regression: Pin/Mute/Archive swipe actions replaced with a long-press action sheet, Archive later removed, \"Tandai\" renamed to \"Select\", in this exact order)",
+      "path": "/?shot=messages-actions",
+      "expectText": "Select"
+    },
+    {
+      "name": "The long-press action sheet's last item is Mute, not Archive (regression: Archive removed from the sheet)",
+      "path": "/?shot=messages-actions",
+      "expectText": "Mute"
+    },
+    {
       "name": "Group creation is still reachable from the Create menu",
       "path": "/#/create",
       "expectSelector": ".create-group-card"
@@ -726,39 +761,19 @@
       "expectText": "Your session expired"
     },
     {
+      "name": "Update-available banner renders when a stale client detects a newer server version",
+      "path": "/?shot=stale-version",
+      "expectSelector": ".update-available-banner"
+    },
+    {
+      "name": "Update-available banner shows the refresh prompt text",
+      "path": "/?shot=stale-version",
+      "expectText": "A new version of Guardian is available"
+    },
+    {
       "name": "A left group, unfollowed channel, and deleted DM stay gone after a simulated app restart (regression: group-leave stub, channel isFollowing always true, both let removed conversations reappear)",
       "path": "/?shot=persist-removal",
       "expectSelector": "[data-testid=\"persist-removal-count\"][data-count=\"0\"]"
-    },
-    {
-      "name": "Notification bell renders on the Groups tab of the Messages screen",
-      "path": "/?shot=groups-tab",
-      "expectSelector": ".notification-bell"
-    },
-    {
-      "name": "Notification bell badge shows unread count for a pending admin-promotion notification",
-      "path": "/?shot=groups-tab",
-      "expectSelector": ".notification-bell-badge-visible"
-    },
-    {
-      "name": "Bottom-nav Messages tab shows a red dot when notifications are unread",
-      "path": "/",
-      "expectSelector": ".nav-dot-visible"
-    },
-    {
-      "name": "Notifications sheet opens and lists the admin-promotion notification",
-      "path": "/?shot=notifications-sheet",
-      "expectSelector": ".notifications-sheet-dialog"
-    },
-    {
-      "name": "Notifications sheet shows the admin-promotion notification text",
-      "path": "/?shot=notifications-sheet",
-      "expectText": "made you an admin of Staging Demo Owned Group"
-    },
-    {
-      "name": "Notifications sheet marks the notification unread state in markup",
-      "path": "/?shot=notifications-sheet",
-      "expectSelector": ".notification-item"
     },
     {
       "name": "An untouched conversation with no read-state row shows unread (regression: unread subquery/state INSERT treated never-opened as already read)",
@@ -774,6 +789,31 @@
       "name": "A reply target set in one DM does not leak onto a message sent in a different DM (regression: module-level replyState shared across all threads)",
       "path": "/?shot=reply-leak#/conversation/conv_staging-demo-user-12",
       "expectSelector": "[data-testid=\"reply-leak-check\"][data-leaked=\"false\"]"
+    },
+    {
+      "name": "Messages list preview reflects a sent DM, not just received ones (regression: sent and received DMs not showing up in the Messages list)",
+      "path": "/",
+      "expectText": "Shot mixed check: sent message"
+    },
+    {
+      "name": "A DM thread with messages in both directions renders the received message (regression: sent and received DMs not showing up)",
+      "path": "/#/conversation/conv_staging-demo-user-13",
+      "expectText": "Shot mixed check: received message"
+    },
+    {
+      "name": "A DM thread with messages in both directions renders the sent message (regression: sent and received DMs not showing up)",
+      "path": "/#/conversation/conv_staging-demo-user-13",
+      "expectText": "Shot mixed check: sent message"
+    },
+    {
+      "name": "Received DM bubble in a mixed-direction thread renders with incoming styling",
+      "path": "/#/conversation/conv_staging-demo-user-13",
+      "expectSelector": ".message.incoming"
+    },
+    {
+      "name": "Sent DM bubble in a mixed-direction thread renders with outgoing styling",
+      "path": "/#/conversation/conv_staging-demo-user-13",
+      "expectSelector": ".message.outgoing"
     }
   ]
 }

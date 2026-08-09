@@ -9,6 +9,10 @@ const PLATFORM_BASE_URL = process.env.PLATFORM_BASE_URL || 'https://social-vibec
 const APP_SLUG = process.env.APP_SLUG || 'guardian';
 const USERNODE_JWT_PUBLIC_KEY = process.env.USERNODE_JWT_PUBLIC_KEY;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
+// Rotates on every process start (i.e. every deploy). Lets already-open
+// clients detect that a newer bundle has shipped and prompt a reload —
+// see the /api/state serverVersion field below.
+const SERVER_BOOT_ID = Date.now().toString(36) + '-' + crypto.randomBytes(4).toString('hex');
 
 // Database connection
 const pool = new Pool({
@@ -59,7 +63,16 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static('public'));
+// /app.js and /styles.css always revalidate (no-cache) so an open tab can't
+// keep running a stale, pre-deploy bundle from the browser's HTTP cache.
+// ETag/Last-Modified are untouched, so an unchanged file still gets a 304.
+app.use(express.static('public', {
+  setHeaders: (res, path) => {
+    if (path.endsWith('/app.js') || path.endsWith('/styles.css')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  },
+}));
 
 // Auth middleware - follows Usernode platform conventions
 const PUBLIC_API_PATHS = new Set(['/health', '/api/state']);
@@ -111,7 +124,7 @@ app.get('/api/state', async (req, res) => {
     }
     await seedStagingOwnedEntities(req.user);
   }
-  res.json({ status: 'ok', user: req.user || null });
+  res.json({ status: 'ok', user: req.user || null, serverVersion: SERVER_BOOT_ID });
 });
 
 // ---------------------------------------------------------------------------
@@ -659,6 +672,8 @@ app.post('/api/groups/:groupId/members', async (req, res) => {
          ON CONFLICT (group_id, user_id) DO NOTHING`,
         [groupId, invitee.id, invitee.username, req.user.id]
       );
+      await insertMessage('group', groupId, { id: 'system', username: 'System' },
+        { text: `${invitee.username} was added to the group` }, 'system');
     }
 
     const group = await loadGroupWithMembers(groupId);
@@ -757,86 +772,12 @@ app.put('/api/groups/:groupId/members/:memberId/role', async (req, res) => {
     : `${target.username} is no longer an admin`;
   await insertMessage('group', groupId, { id: 'system', username: 'System' }, { text: announcement }, 'system');
 
-  // Only promotions notify -- a demote is a quiet in-thread announcement only,
-  // per spec (losing admin isn't something the target needs alerted to).
-  if (role === 'admin') {
-    const groupRes = await pool.query('SELECT name FROM groups WHERE id = $1', [groupId]);
-    await insertNotification(memberId, {
-      type: 'group_admin_promotion',
-      groupId,
-      groupName: groupRes.rows[0] ? groupRes.rows[0].name : null,
-      actorId: req.user.id,
-      actorUsername: req.user.username || req.user.id
-    });
-  }
-
   res.json({
     id: groupId,
     memberId,
     role,
     message: 'Member role updated successfully'
   });
-});
-
-// ---------------------------------------------------------------------------
-// Notifications API Endpoints
-// ---------------------------------------------------------------------------
-
-// GET /api/notifications/unread-count - lightweight poll target for the
-// bottom-nav red dot; deliberately separate from the full list below so the
-// ~20s global poll doesn't pull full notification bodies every tick.
-app.get('/api/notifications/unread-count', async (req, res) => {
-  try {
-    const result = await pool.query(
-      `SELECT COUNT(*)::int AS count FROM notifications WHERE user_id = $1 AND read = false`,
-      [req.user.id]
-    );
-    res.json({ count: result.rows[0].count });
-  } catch (err) {
-    console.error('[notifications] unread-count failed:', err);
-    res.status(500).json({ error: 'Failed to load unread count' });
-  }
-});
-
-// GET /api/notifications - the caller's own notifications, most recent first.
-app.get('/api/notifications', async (req, res) => {
-  try {
-    const result = await pool.query(
-      `SELECT id, type, group_id, group_name, actor_user_id, actor_username, read, created_at
-         FROM notifications
-        WHERE user_id = $1
-        ORDER BY created_at DESC
-        LIMIT 50`,
-      [req.user.id]
-    );
-    res.json({
-      notifications: result.rows.map((row) => ({
-        id: row.id,
-        type: row.type,
-        groupId: row.group_id,
-        groupName: row.group_name,
-        actorId: row.actor_user_id,
-        actorUsername: row.actor_username,
-        read: row.read,
-        createdAt: new Date(row.created_at).getTime()
-      }))
-    });
-  } catch (err) {
-    console.error('[notifications] list failed:', err);
-    res.status(500).json({ error: 'Failed to load notifications' });
-  }
-});
-
-// POST /api/notifications/read-all - mark every one of the caller's
-// notifications read (opening the panel, or tapping into an entry from it).
-app.post('/api/notifications/read-all', async (req, res) => {
-  try {
-    await pool.query(`UPDATE notifications SET read = true WHERE user_id = $1 AND read = false`, [req.user.id]);
-    res.json({ message: 'Notifications marked as read' });
-  } catch (err) {
-    console.error('[notifications] mark-all-read failed:', err);
-    res.status(500).json({ error: 'Failed to mark notifications as read' });
-  }
 });
 
 // POST /api/groups/:groupId/leave - Leave the group. If the leaving member
@@ -1215,16 +1156,16 @@ app.delete('/api/channels/:channelId', async (req, res) => {
 // Conversation Management API Endpoints
 
 // GET /api/conversations/state - Bulk read-back of the caller's own view
-// state (pin, manually-marked-unread, hidden-from-inbox) for every
-// conversation they have an override for, keyed by the client-synthesized
-// conversation id. Called once at boot so pin/unread state set via the PUT
-// below survives a reload instead of resetting to the client-side defaults.
+// state (pin, manually-marked-unread, hidden-from-inbox, muted) for
+// every conversation they have an override for, keyed by the client-synthesized
+// conversation id. Called once at boot so pin/unread/mute state set via
+// the PUT below survives a reload instead of resetting to the client-side defaults.
 app.get('/api/conversations/state', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
 
   try {
     const result = await pool.query(
-      `SELECT conversation_id, pinned, manually_marked_unread, hidden_from_inbox
+      `SELECT conversation_id, pinned, manually_marked_unread, hidden_from_inbox, muted
        FROM conversation_user_state WHERE user_id = $1`,
       [req.user.id]
     );
@@ -1233,7 +1174,8 @@ app.get('/api/conversations/state', async (req, res) => {
       states[row.conversation_id] = {
         pinned: row.pinned,
         manuallyMarkedUnread: row.manually_marked_unread,
-        hiddenFromInbox: row.hidden_from_inbox
+        hiddenFromInbox: row.hidden_from_inbox,
+        muted: row.muted
       };
     }
     res.json({ states });
@@ -1244,34 +1186,36 @@ app.get('/api/conversations/state', async (req, res) => {
 });
 
 // PUT /api/conversations/:id/state - Update the caller's own view of a
-// conversation: pin, manually-marked-unread, or hidden-from-inbox (the local
-// "delete" for a DM; group/channel deletes are a leave/unfollow instead).
-// Per-user data, so this route requires a verified req.user (see
+// conversation: pin, manually-marked-unread, hidden-from-inbox (the local
+// "delete" for a DM; group/channel deletes are a leave/unfollow instead), or
+// mute. Per-user data, so this route requires a verified req.user (see
 // PUBLIC_PREFIXES above). Each field is optional so callers can toggle one
 // flag at a time without clobbering the others.
 app.put('/api/conversations/:id/state', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
 
   const { id } = req.params;
-  const { pinned, manuallyMarkedUnread, hiddenFromInbox, markRead } = req.body || {};
+  const { pinned, manuallyMarkedUnread, hiddenFromInbox, markRead, muted } = req.body || {};
   const pinnedVal = typeof pinned === 'boolean' ? pinned : null;
   const unreadVal = typeof manuallyMarkedUnread === 'boolean' ? manuallyMarkedUnread : null;
   const hiddenVal = typeof hiddenFromInbox === 'boolean' ? hiddenFromInbox : null;
   const markReadVal = markRead === true;
+  const mutedVal = typeof muted === 'boolean' ? muted : null;
 
   try {
     const result = await pool.query(
       `INSERT INTO conversation_user_state
-         (conversation_id, user_id, pinned, manually_marked_unread, hidden_from_inbox, last_read_at)
-       VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false), COALESCE($5, false), CASE WHEN $6 THEN now() ELSE NULL END)
+         (conversation_id, user_id, pinned, manually_marked_unread, hidden_from_inbox, last_read_at, muted)
+       VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false), COALESCE($5, false), CASE WHEN $6 THEN now() ELSE NULL END, COALESCE($7, false))
        ON CONFLICT (conversation_id, user_id) DO UPDATE SET
          pinned = COALESCE($3, conversation_user_state.pinned),
          manually_marked_unread = COALESCE($4, conversation_user_state.manually_marked_unread),
          hidden_from_inbox = COALESCE($5, conversation_user_state.hidden_from_inbox),
          last_read_at = CASE WHEN $6 THEN now() ELSE conversation_user_state.last_read_at END,
+         muted = COALESCE($7, conversation_user_state.muted),
          updated_at = now()
-       RETURNING pinned, manually_marked_unread, hidden_from_inbox, last_read_at`,
-      [id, req.user.id, pinnedVal, unreadVal, hiddenVal, markReadVal]
+       RETURNING pinned, manually_marked_unread, hidden_from_inbox, last_read_at, muted`,
+      [id, req.user.id, pinnedVal, unreadVal, hiddenVal, markReadVal, mutedVal]
     );
     const row = result.rows[0];
     res.json({
@@ -1280,6 +1224,7 @@ app.put('/api/conversations/:id/state', async (req, res) => {
       manuallyMarkedUnread: row.manually_marked_unread,
       hiddenFromInbox: row.hidden_from_inbox,
       lastReadAt: row.last_read_at ? new Date(row.last_read_at).getTime() : null,
+      muted: row.muted,
       message: 'Conversation state updated'
     });
   } catch (err) {
@@ -1298,20 +1243,33 @@ app.put('/api/conversations/:id/state', async (req, res) => {
 // message-delivery bug -- the frontend's `conv_<peerId>` id is a per-browser
 // construct, not a shared identity, so persistence has to be keyed on
 // something both sides agree on.
-async function getOrCreateDirectConversation(userIdA, userIdB, requesterId) {
-  const [a, b] = [userIdA, userIdB].sort();
+// Shared lookup for an existing direct_conversations row between two user
+// ids, used by both the write path (getOrCreateDirectConversation) and the
+// read path (GET /api/messages/direct/:peerId) so a conversation is found
+// the same way regardless of whether the caller is about to append to it or
+// just reading it.
+//
+// Tries an exact-id match first, then falls back to matching by peer
+// username: users.id isn't guaranteed stable across sessions/logins (the
+// platform's JWT `id` claim can differ across logins for the same real
+// user) and users.username has no uniqueness constraint, so a returning
+// contact (on either side of this pair) can otherwise look like a new peer
+// even though a conversation with them already exists. `viaUsernameFallback`
+// tells the caller the match only succeeded because of this, so it knows to
+// reconcile the row's stored ids.
+async function findDirectConversation(userIdA, userIdB) {
   // Match the stored (sorted) pair in either comparison order -- the row was
-  // inserted using the sorted a/b below, but the exact-pair clause here must
-  // still work regardless of which of userIdA/userIdB sorts first. Also match
-  // a row where one side is the 'user_self' sentinel and the other is EITHER
-  // input id (not just the alphabetically-later one) -- same OR-match pattern
-  // as getGroupRole/getChannelRole below, applied here so a staging-seeded
-  // demo DM (seeded against 'user_self') resolves to whichever real user is
-  // currently logged in, instead of a second, duplicate conversation being
-  // created underneath it. (Comparing only against the sorted-later id was
-  // the bug: when a real user's id sorted after the fixture's id, the
-  // sentinel clause silently missed the seeded row and a duplicate got
-  // inserted.)
+  // inserted using a sorted pair, but the exact-pair clause here must still
+  // work regardless of which of userIdA/userIdB sorts first. Also match a
+  // row where one side is the 'user_self' sentinel and the other is EITHER
+  // input id (not just the alphabetically-later one) -- same OR-match
+  // pattern as getGroupRole/getChannelRole below, applied here so a
+  // staging-seeded demo DM (seeded against 'user_self') resolves to
+  // whichever real user is currently logged in, instead of a second,
+  // duplicate conversation being created underneath it. (Comparing only
+  // against the sorted-later id was the bug: when a real user's id sorted
+  // after the fixture's id, the sentinel clause silently missed the seeded
+  // row and a duplicate got inserted.)
   const existing = await pool.query(
     `SELECT id, status, requested_by_user_id FROM direct_conversations
       WHERE (user_id_a = $1 AND user_id_b = $2)
@@ -1320,15 +1278,11 @@ async function getOrCreateDirectConversation(userIdA, userIdB, requesterId) {
          OR (user_id_b = 'user_self' AND (user_id_a = $1 OR user_id_a = $2))`,
     [userIdA, userIdB]
   );
-  if (existing.rowCount > 0) return existing.rows[0];
+  if (existing.rowCount > 0) return { row: existing.rows[0], viaUsernameFallback: false };
 
   // No row matches either input id exactly. Before creating a brand new one,
   // check whether EITHER input id already has a conversation with a
-  // DIFFERENT peer id that resolves to the OTHER input id's username --
-  // users.id isn't guaranteed stable across sessions/logins and
-  // users.username has no uniqueness constraint, so a returning contact
-  // (on either side of this pair) can otherwise look like a new peer and a
-  // second row gets created for what the human sees as the same contact.
+  // DIFFERENT peer id that resolves to the OTHER input id's username.
   // Checked both ways round since either userIdA or userIdB could be the
   // "new" id for a returning party. (mergeDuplicateDirectConversationsByUsername
   // cleans up rows that were already created this way before this check
@@ -1348,7 +1302,47 @@ async function getOrCreateDirectConversation(userIdA, userIdB, requesterId) {
       LIMIT 1`,
     [userIdA, userIdB]
   );
-  if (reuse.rowCount > 0) return reuse.rows[0];
+  if (reuse.rowCount > 0) return { row: reuse.rows[0], viaUsernameFallback: true };
+  return null;
+}
+
+async function getOrCreateDirectConversation(userIdA, userIdB, requesterId) {
+  const [a, b] = [userIdA, userIdB].sort();
+  const found = await findDirectConversation(userIdA, userIdB);
+  if (found) {
+    if (found.viaUsernameFallback) {
+      // The row was found by username, not by exact id match, which means
+      // the platform-issued id for at least one side has drifted since the
+      // row was last written. Bring user_id_a/user_id_b back in sync with
+      // the currently active ids -- using the same sorted-pair convention as
+      // a freshly inserted row -- so exact-match queries elsewhere find this
+      // row on the very next request instead of only this write path ever
+      // reconciling it.
+      //
+      // requested_by_user_id can go stale the same way: it's whichever side
+      // originally sent the request, stored as THAT side's id at the time.
+      // If it no longer matches either current id, resolve it by username
+      // against a/b so "pending request I sent" (GET /api/direct-conversations'
+      // requested_by_user_id = caller check) keeps recognizing the request as
+      // the caller's own after their id has drifted, instead of it silently
+      // looking like a request from someone else.
+      let requestedBy = found.row.requested_by_user_id;
+      if (requestedBy !== a && requestedBy !== b) {
+        const match = await pool.query(
+          `SELECT id FROM users WHERE id IN ($1, $2)
+             AND lower(username) = lower((SELECT username FROM users WHERE id = $3))`,
+          [a, b, requestedBy]
+        );
+        if (match.rowCount > 0) requestedBy = match.rows[0].id;
+      }
+      await pool.query(
+        'UPDATE direct_conversations SET user_id_a = $1, user_id_b = $2, requested_by_user_id = $3 WHERE id = $4',
+        [a, b, requestedBy, found.row.id]
+      );
+      found.row.requested_by_user_id = requestedBy;
+    }
+    return found.row;
+  }
 
   const id = 'dm_' + crypto.randomBytes(12).toString('hex');
   await pool.query(
@@ -1438,21 +1432,6 @@ async function insertMessage(conversationType, conversationId, sender, body, kin
   return shapeMessage(row.rows[0]);
 }
 
-// Insert a per-user notification (currently: group admin promotions only).
-// Fire-and-forget from call sites' perspective isn't appropriate here since
-// the caller needs the row to exist before responding -- unlike showToast,
-// which is client-only and actor-facing, this is server-persisted and
-// target-facing, so it must be awaited like insertMessage above.
-async function insertNotification(userId, { type, groupId, groupName, actorId, actorUsername }) {
-  const id = `notif_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-  await pool.query(
-    `INSERT INTO notifications (id, user_id, type, group_id, group_name, actor_user_id, actor_username)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     ON CONFLICT (id) DO NOTHING`,
-    [id, userId, type, groupId || null, groupName || null, actorId || null, actorUsername || null]
-  );
-}
-
 // userId is optional: when given, messages that user has hidden-for-self
 // (see message_hidden_for / POST .../hide below) are excluded -- otherwise a
 // deleted-for-me message reappears on the very next fetch (e.g. a reload),
@@ -1484,21 +1463,38 @@ async function listMessages(conversationType, conversationId, userId) {
 // under GET /api/message-requests instead, not in the normal inbox.
 app.get('/api/direct-conversations', async (req, res) => {
   try {
+    // "Is user_id_a the caller" has to tolerate id drift too: a row found
+    // only because its username still matches the caller's (exact id match
+    // missed) must still resolve the CORRECT side as peer, or the caller's
+    // own drifted-id row would show up with the caller listed as their own
+    // peer. ua/ub carry each side's username purely for that self/peer
+    // determination -- reused for the peer-identity joins below and for the
+    // WHERE clause's own username fallback.
     const result = await pool.query(
       `SELECT dc.id, dc.user_id_a, dc.user_id_b, dc.status, dc.requested_by_user_id,
+              ua.username AS a_username,
               u.username AS peer_username, u.usernode_pubkey AS peer_pubkey,
               lm.text AS last_text, lm.sender_user_id AS last_sender_id, lm.created_at AS last_at,
               cus.pinned AS pinned, cus.hidden_from_inbox AS hidden_from_inbox,
               COALESCE(unread.count, 0) AS unread_count
          FROM direct_conversations dc
-         LEFT JOIN users u ON u.id = (CASE WHEN dc.user_id_a = $1 OR dc.user_id_a = 'user_self' THEN dc.user_id_b ELSE dc.user_id_a END)
+         LEFT JOIN users ua ON ua.id = dc.user_id_a
+         LEFT JOIN users ub ON ub.id = dc.user_id_b
+         LEFT JOIN users req_user ON req_user.id = dc.requested_by_user_id
+         LEFT JOIN users u ON u.id = (
+           CASE WHEN dc.user_id_a = $1 OR dc.user_id_a = 'user_self' OR lower(ua.username) = lower($2)
+                THEN dc.user_id_b ELSE dc.user_id_a END
+         )
          LEFT JOIN LATERAL (
            SELECT text, sender_user_id, created_at FROM messages
             WHERE conversation_type = 'direct' AND conversation_id = dc.id
             ORDER BY created_at DESC LIMIT 1
          ) lm ON true
          LEFT JOIN conversation_user_state cus
-           ON cus.conversation_id = 'conv_' || (CASE WHEN dc.user_id_a = $1 OR dc.user_id_a = 'user_self' THEN dc.user_id_b ELSE dc.user_id_a END)
+           ON cus.conversation_id = 'conv_' || (
+                CASE WHEN dc.user_id_a = $1 OR dc.user_id_a = 'user_self' OR lower(ua.username) = lower($2)
+                     THEN dc.user_id_b ELSE dc.user_id_a END
+              )
           AND cus.user_id = $1
          LEFT JOIN LATERAL (
            SELECT count(*)::int AS count FROM messages
@@ -1506,10 +1502,12 @@ app.get('/api/direct-conversations', async (req, res) => {
               AND sender_user_id != $1
               AND (cus.last_read_at IS NULL OR created_at > cus.last_read_at)
          ) unread ON true
-        WHERE (dc.user_id_a = $1 OR dc.user_id_b = $1 OR dc.user_id_a = 'user_self' OR dc.user_id_b = 'user_self')
-          AND (dc.status = 'accepted' OR dc.requested_by_user_id = $1)
+        WHERE (dc.user_id_a = $1 OR dc.user_id_b = $1 OR dc.user_id_a = 'user_self' OR dc.user_id_b = 'user_self'
+               OR lower(ua.username) = lower($2) OR lower(ub.username) = lower($2))
+          AND (dc.status = 'accepted' OR dc.requested_by_user_id = $1
+               OR lower(req_user.username) = lower($2))
         ORDER BY COALESCE(lm.created_at, dc.created_at) DESC`,
-      [req.user.id]
+      [req.user.id, req.user.username]
     );
     // Two rows can legitimately resolve to the same peer username (see
     // mergeDuplicateDirectConversationsByUsername) if the migration hasn't
@@ -1520,7 +1518,9 @@ app.get('/api/direct-conversations', async (req, res) => {
     const seenPeerUsernames = new Set();
     const conversations = [];
     for (const row of result.rows) {
-      const peerId = (row.user_id_a === req.user.id || row.user_id_a === 'user_self') ? row.user_id_b : row.user_id_a;
+      const isSelfA = row.user_id_a === req.user.id || row.user_id_a === 'user_self'
+        || (row.a_username && row.a_username.toLowerCase() === req.user.username.toLowerCase());
+      const peerId = isSelfA ? row.user_id_b : row.user_id_a;
       // The peer may not have a `users` row yet (they've never loaded the app
       // in this environment) -- that must NOT hide an otherwise valid,
       // already-persisted conversation from the caller's own list, so fall
@@ -1644,21 +1644,14 @@ app.post('/api/message-requests/:conversationId/decline', async (req, res) => {
 app.get('/api/messages/direct/:peerId', async (req, res) => {
   try {
     const peerId = req.params.peerId;
-    // The stored row's (user_id_a, user_id_b) is alphabetically sorted (see
-    // getOrCreateDirectConversation), so the exact-pair match has to check
-    // both orderings -- otherwise this silently returns zero rows (and an
-    // empty thread) whenever req.user.id sorts after peerId, even though the
-    // conversation and its messages exist.
-    const convRes = await pool.query(
-      `SELECT id FROM direct_conversations
-        WHERE (user_id_a = $1 AND user_id_b = $2)
-           OR (user_id_a = $2 AND user_id_b = $1)
-           OR (user_id_a = 'user_self' AND user_id_b = $2)
-           OR (user_id_b = 'user_self' AND user_id_a = $2)`,
-      [req.user.id, peerId]
-    );
-    if (convRes.rowCount === 0) return res.json({ messages: [] });
-    res.json({ messages: await listMessages('direct', convRes.rows[0].id, req.user.id) });
+    // Uses the same exact-id-then-username-fallback lookup as
+    // getOrCreateDirectConversation, so a conversation whose stored ids have
+    // drifted from the caller's (or peer's) current session id still loads
+    // its history here instead of appearing empty just because the write
+    // path hasn't reconciled the row yet.
+    const found = await findDirectConversation(req.user.id, peerId);
+    if (!found) return res.json({ messages: [] });
+    res.json({ messages: await listMessages('direct', found.row.id, req.user.id) });
   } catch (err) {
     console.error('[messages] direct fetch failed:', err);
     res.status(500).json({ error: 'Failed to load messages' });
@@ -1690,14 +1683,16 @@ app.post('/api/messages/direct/:peerId', async (req, res) => {
   }
 });
 
-// POST /api/messages/direct/:peerId/:messageId/hide - "delete for me": hides
-// one message from only the caller's own view of this DM thread. Either
-// participant may hide any message in a thread they're part of (matching the
-// client's long-press menu, which allows this on the peer's messages too) --
-// the other participant's history is untouched. Scoped through the same
-// peerId conversation lookup as the GET route above, so a caller can't hide a
-// message belonging to a thread they're not part of.
-app.post('/api/messages/direct/:peerId/:messageId/hide', async (req, res) => {
+// POST /api/messages/direct/:peerId/:messageId/delete - "delete for
+// everyone": permanently removes the message row, so neither participant's
+// client will ever be served it again (as opposed to /clear below, which only
+// hides messages from the caller's own view). Either participant may delete
+// any message in a thread they're part of, matching the client's long-press
+// menu. Scoped through the same peerId conversation lookup as the GET route
+// above, so a caller can't delete a message belonging to a thread they're not
+// part of. Also clears any leftover message_hidden_for rows for the deleted
+// id, though those are harmless once the message row itself is gone.
+app.post('/api/messages/direct/:peerId/:messageId/delete', async (req, res) => {
   try {
     const { peerId, messageId } = req.params;
     const convRes = await pool.query(
@@ -1710,20 +1705,16 @@ app.post('/api/messages/direct/:peerId/:messageId/hide', async (req, res) => {
     );
     if (convRes.rowCount === 0) return res.status(404).json({ error: 'Conversation not found' });
     const conversationId = convRes.rows[0].id;
-    const msgRes = await pool.query(
-      `SELECT id FROM messages WHERE id = $1 AND conversation_type = 'direct' AND conversation_id = $2`,
+    const delRes = await pool.query(
+      `DELETE FROM messages WHERE id = $1 AND conversation_type = 'direct' AND conversation_id = $2`,
       [messageId, conversationId]
     );
-    if (msgRes.rowCount === 0) return res.status(404).json({ error: 'Message not found' });
-    await pool.query(
-      `INSERT INTO message_hidden_for (message_id, user_id) VALUES ($1, $2)
-       ON CONFLICT (message_id, user_id) DO NOTHING`,
-      [messageId, req.user.id]
-    );
-    res.json({ id: messageId, hidden: true });
+    if (delRes.rowCount === 0) return res.status(404).json({ error: 'Message not found' });
+    await pool.query(`DELETE FROM message_hidden_for WHERE message_id = $1`, [messageId]);
+    res.json({ id: messageId, deleted: true });
   } catch (err) {
-    console.error('[messages] direct hide failed:', err);
-    res.status(500).json({ error: 'Failed to hide message' });
+    console.error('[messages] direct delete failed:', err);
+    res.status(500).json({ error: 'Failed to delete message' });
   }
 });
 
@@ -1786,6 +1777,33 @@ app.post('/api/messages/group/:groupId', async (req, res) => {
   }
 });
 
+// POST /api/messages/group/:groupId/:messageId/delete - "delete for
+// everyone": permanently removes the message row so no member's client is
+// ever served it again. Own messages may be deleted by their sender; owners
+// and admins may additionally delete anyone's message (moderation).
+app.post('/api/messages/group/:groupId/:messageId/delete', async (req, res) => {
+  try {
+    const { groupId, messageId } = req.params;
+    const role = await getGroupRole(groupId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Group not found' });
+    const msgRes = await pool.query(
+      `SELECT sender_user_id FROM messages WHERE id = $1 AND conversation_type = 'group' AND conversation_id = $2`,
+      [messageId, groupId]
+    );
+    if (msgRes.rowCount === 0) return res.status(404).json({ error: 'Message not found' });
+    const isOwnMessage = msgRes.rows[0].sender_user_id === req.user.id;
+    const isAdmin = role === 'owner' || role === 'admin';
+    if (!isOwnMessage && !isAdmin) {
+      return res.status(403).json({ error: 'You can only delete your own messages' });
+    }
+    await pool.query(`DELETE FROM messages WHERE id = $1`, [messageId]);
+    res.json({ id: messageId, deleted: true });
+  } catch (err) {
+    console.error('[messages] group delete failed:', err);
+    res.status(500).json({ error: 'Failed to delete message' });
+  }
+});
+
 // GET /api/messages/channel/:channelId - channel posts are broadcast content;
 // any authenticated user can read them (matches renderChannelView showing the
 // feed to owners, followers and Discover previews alike).
@@ -1812,6 +1830,32 @@ app.post('/api/messages/channel/:channelId', async (req, res) => {
   } catch (err) {
     console.error('[messages] channel send failed:', err);
     res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+// POST /api/messages/channel/:channelId/:messageId/delete - "delete for
+// everyone": permanently removes the message row so no follower's client is
+// ever served it again. Only the sender may delete it -- in practice only the
+// channel owner ever posts (see POST above), so this is effectively
+// owner-only too.
+app.post('/api/messages/channel/:channelId/:messageId/delete', async (req, res) => {
+  try {
+    const { channelId, messageId } = req.params;
+    const role = await getChannelRole(channelId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Channel not found' });
+    const msgRes = await pool.query(
+      `SELECT sender_user_id FROM messages WHERE id = $1 AND conversation_type = 'channel' AND conversation_id = $2`,
+      [messageId, channelId]
+    );
+    if (msgRes.rowCount === 0) return res.status(404).json({ error: 'Message not found' });
+    if (msgRes.rows[0].sender_user_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only delete your own messages' });
+    }
+    await pool.query(`DELETE FROM messages WHERE id = $1`, [messageId]);
+    res.json({ id: messageId, deleted: true });
+  } catch (err) {
+    console.error('[messages] channel delete failed:', err);
+    res.status(500).json({ error: 'Failed to delete message' });
   }
 });
 
@@ -2000,6 +2044,19 @@ async function initDatabase() {
       `ALTER TABLE conversation_user_state ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMPTZ`
     );
 
+    // Mute per chat (Pin/Mute action on the Messages list). Same
+    // "missing row = default false" convention as the columns above -- an
+    // unmuted chat never needs a row at all.
+    await pool.query(
+      `ALTER TABLE conversation_user_state ADD COLUMN IF NOT EXISTS muted BOOLEAN NOT NULL DEFAULT false`
+    );
+    // `archived` column intentionally left in place (unused) -- the Archive
+    // feature was removed from the UI; dropping the column isn't worth the
+    // migration risk for an already-idempotent, harmless leftover.
+    await pool.query(
+      `ALTER TABLE conversation_user_state ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false`
+    );
+
     await pool.query(
       `CREATE INDEX IF NOT EXISTS conversation_user_state_user_idx
          ON conversation_user_state (user_id)`
@@ -2013,27 +2070,9 @@ async function initDatabase() {
       `CREATE INDEX IF NOT EXISTS group_members_user_idx ON group_members (user_id)`
     );
 
-    // Per-user notifications (currently: group admin promotions only). Kept
-    // separate from `messages` -- a notification is about an event the
-    // recipient should be alerted to, not a chat line, and it needs its own
-    // read/unread state independent of conversation_user_state.
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS notifications (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        type TEXT NOT NULL,
-        group_id TEXT,
-        group_name TEXT,
-        actor_user_id TEXT,
-        actor_username TEXT,
-        read BOOLEAN NOT NULL DEFAULT false,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      );
-    `);
-    await pool.query(
-      `CREATE INDEX IF NOT EXISTS notifications_user_idx
-         ON notifications (user_id, created_at DESC)`
-    );
+    // The admin-promotion bell/notifications feature was removed in favor of
+    // an in-thread system message, so the table is no longer needed.
+    await pool.query(`DROP TABLE IF EXISTS notifications`);
 
     // Private: a private group's name/description is member-only content, and
     // group_members maps a username to every community they belong to — more
@@ -2057,8 +2096,6 @@ async function initDatabase() {
     await pool.query(`COMMENT ON TABLE channel_followers IS 'staging:private'`);
     // Private: ties a real user_id to which private group they've asked to join.
     await pool.query(`COMMENT ON TABLE join_requests IS 'staging:private'`);
-    // Private: ties a real user_id to the group-role events they were alerted to.
-    await pool.query(`COMMENT ON TABLE notifications IS 'staging:private'`);
 
     console.log('Database initialized');
   } catch (err) {
@@ -2106,7 +2143,7 @@ async function mergeDuplicateDirectConversationsByUsername() {
       // already have deleted one (a row can appear in two different callers'
       // duplicate groups at once).
       const rows = (await pool.query(
-        `SELECT dc.id, dc.user_id_a, dc.user_id_b, dc.created_at,
+        `SELECT dc.id, dc.user_id_a, dc.user_id_b, dc.created_at, dc.requested_by_user_id,
                 (SELECT count(*) FROM messages WHERE conversation_type = 'direct' AND conversation_id = dc.id) AS message_count,
                 (SELECT max(created_at) FROM messages WHERE conversation_type = 'direct' AND conversation_id = dc.id) AS last_message_at
            FROM direct_conversations dc WHERE dc.id = ANY($1)`,
@@ -2135,6 +2172,42 @@ async function mergeDuplicateDirectConversationsByUsername() {
           ['conv_' + stalePeerId, group.caller_id]
         );
         await pool.query(`DELETE FROM direct_conversations WHERE id = $1`, [row.id]);
+      }
+
+      // The rows in this group share a caller_id and peer username but were
+      // duplicates precisely because their PEER id differs -- the canonical
+      // row (picked above for message history) isn't necessarily the one
+      // holding the peer's most current id. The most-recently-created row is
+      // the best available signal for "current": before the reuse check in
+      // getOrCreateDirectConversation existed, a new row only got created
+      // here because the peer's id had already moved on from every existing
+      // row's stored id. Reconcile the surviving row's ids to that pairing,
+      // same sorted-pair convention as everywhere else.
+      const mostRecent = rows.reduce(
+        (best, r) => (!best || new Date(r.created_at) > new Date(best.created_at)) ? r : best,
+        null
+      );
+      const mostRecentPeerId = mostRecent.user_id_a === group.caller_id ? mostRecent.user_id_b : mostRecent.user_id_a;
+      const [a, b] = [group.caller_id, mostRecentPeerId].sort();
+      // requested_by_user_id is stored as whichever side's id was current at
+      // request time -- same staleness risk as user_id_a/user_id_b above.
+      // Resolve it against the reconciled pair by username so a request the
+      // caller originally sent doesn't start looking like one they received
+      // (see the matching fix in getOrCreateDirectConversation).
+      let requestedBy = canonical.requested_by_user_id;
+      if (requestedBy !== a && requestedBy !== b) {
+        const match = await pool.query(
+          `SELECT id FROM users WHERE id IN ($1, $2)
+             AND lower(username) = lower((SELECT username FROM users WHERE id = $3))`,
+          [a, b, requestedBy]
+        );
+        if (match.rowCount > 0) requestedBy = match.rows[0].id;
+      }
+      if (canonical.user_id_a !== a || canonical.user_id_b !== b || canonical.requested_by_user_id !== requestedBy) {
+        await pool.query(
+          'UPDATE direct_conversations SET user_id_a = $1, user_id_b = $2, requested_by_user_id = $3 WHERE id = $4',
+          [a, b, requestedBy, canonical.id]
+        );
       }
       console.log(
         `[migration] merged ${stale.length} duplicate direct_conversations row(s) for caller ${group.caller_id} ` +
@@ -2403,15 +2476,27 @@ async function seedStagingOwnedEntities(currentUser) {
       [`conv_${groupId}`, me.id]
     );
 
-    // Fixed-id notification row, re-pointed to whoever is currently testing
-    // and reset to unread on every call -- same precedent as the pin/unread
-    // conversation_user_state rows above, so the bell/nav-dot always have
-    // something to show in staging without a real promotion having happened.
+    // Fixed-id "member added" system message -- gives staging's owned group
+    // an in-thread announcement to check for, mirroring what a real
+    // POST /api/groups/:groupId/members call produces (fixed id + ON
+    // CONFLICT DO NOTHING means this is safe to call unconditionally, even
+    // for groups seeded before this fixture existed).
+    await insertMessage('group', groupId, { id: 'system', username: 'System' },
+      { id: `msg_${groupId}_3`, text: `${helper.username} was added to the group` }, 'system');
+
+    // Fixed-id "sent by me" message, re-pointed to whoever is currently
+    // testing (boot-time seeding in seedStagingDirectConversations can't do
+    // this -- it has no real user id to attribute the message to). Paired
+    // with the boot-seeded received message in the same thread, this gives
+    // dm_staging_mixed_1 one message in each direction, and being the newer
+    // of the two, its text is what the Messages list preview must show --
+    // regression coverage for the "sent and received DMs don't show up in
+    // the list" bug report.
     await pool.query(
-      `INSERT INTO notifications (id, user_id, type, group_id, group_name, actor_user_id, actor_username, read, created_at)
-       VALUES ('notif_staging_owned_1', $1, 'group_admin_promotion', $2, 'Staging Demo Owned Group', $3, $4, false, now())
-       ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, read = false, created_at = now()`,
-      [me.id, groupId, helper.id, helper.username]
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+       VALUES ('msg_staging_mixed_sent', 'direct', 'dm_staging_mixed_1', $1, $2, 'Shot mixed check: sent message', now() - '35 minutes'::interval)
+       ON CONFLICT (id) DO UPDATE SET sender_user_id = EXCLUDED.sender_user_id, sender_username = EXCLUDED.sender_username, created_at = now() - '35 minutes'::interval`,
+      [me.id, me.username]
     );
   } catch (err) {
     console.error('Staging owned entities seed error:', err);
@@ -2459,7 +2544,11 @@ async function seedStagingUsers() {
     // other DM fixture so sending a shot message into this thread can't
     // change conversation_user_state on a conversation another test asserts
     // an "untouched" or "500+ message" precondition against.
-    { id: 'staging-demo-user-12', username: 'staging-demo-ivan', pubkey: '0x5d7f9b1e3c5a7d9f1b3e5c7a9d1f3b5e7c9a1d3f', offset: '6 hours' }
+    { id: 'staging-demo-user-12', username: 'staging-demo-ivan', pubkey: '0x5d7f9b1e3c5a7d9f1b3e5c7a9d1f3b5e7c9a1d3f', offset: '6 hours' },
+    // Peer for the mixed-direction DM fixture (both a received AND a sent
+    // message in the same thread) -- regression coverage for the Messages
+    // list bug report where sent+received DMs failed to show up in the list.
+    { id: 'staging-demo-user-13', username: 'staging-demo-joko', pubkey: '0x0b2d4f6810c2e4a6890c2e4f6a8b0d2f4e6a8c0e', offset: '45 minutes' }
   ];
 
   try {
@@ -2601,6 +2690,23 @@ async function seedStagingDirectConversations() {
       `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
        VALUES ('msg_staging_reply_leak_1', 'direct', 'dm_staging_reply_leak_1', 'staging-demo-user-12', 'staging-demo-ivan',
                'This thread is unrelated to whatever you were replying to elsewhere.', now() - '3 hours'::interval)
+       ON CONFLICT (id) DO NOTHING`
+    );
+
+    // Mixed-direction thread -- a received message followed by a sent
+    // ('user_self') message as the newest one. Regression fixture for the
+    // Messages-list bug report ("sent and received DMs don't show up in the
+    // list"): the list preview must reflect the SENT message here, not just
+    // ever show received ones, and the thread must render both directions.
+    await pool.query(
+      `INSERT INTO direct_conversations (id, user_id_a, user_id_b, status, requested_by_user_id, created_at)
+       VALUES ('dm_staging_mixed_1', 'staging-demo-user-13', 'user_self', 'accepted', 'staging-demo-user-13', now() - '45 minutes'::interval)
+       ON CONFLICT (user_id_a, user_id_b) DO NOTHING`
+    );
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+       VALUES ('msg_staging_mixed_received', 'direct', 'dm_staging_mixed_1', 'staging-demo-user-13', 'staging-demo-joko',
+               'Shot mixed check: received message', now() - '40 minutes'::interval)
        ON CONFLICT (id) DO NOTHING`
     );
 
