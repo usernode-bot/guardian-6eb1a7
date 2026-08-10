@@ -2327,7 +2327,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Render conversation screen
   // Shared composer markup for DM, group and channel threads.
-  // The attach-image control sits on the LEFT of the input field.
+  // The attach-image control sits INSIDE the input pill, pinned to its
+  // bottom-right corner next to the send button.
   function composerMarkup(options = {}) {
     const disabled = options.disabled ? 'disabled' : '';
     // The reply bar's visible state must come from THIS conversation's reply
@@ -2354,14 +2355,16 @@ document.addEventListener('DOMContentLoaded', () => {
         <span class="pending-image-status">Uploading…</span>
         <button class="pending-image-remove" aria-label="Remove image">✕</button>
       </div>
-      <button class="attach-image-button" type="button" aria-label="Add image" ${disabled}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.19 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.49"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <input type="file" class="attach-image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display: none;" />
-      <textarea class="composer-input" placeholder="Message" rows="1" ${disabled}></textarea>
+      <div class="composer-input-shell">
+        <textarea class="composer-input" placeholder="Message" rows="1" ${disabled}></textarea>
+        <button class="attach-image-button" type="button" aria-label="Add image" ${disabled}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.19 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.49"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <input type="file" class="attach-image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display: none;" />
+      </div>
       <button class="send-button" aria-label="Send" ${disabled}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M2 21l21-9L2 3v7l15 2-15 2v7z" fill="currentColor"/>
