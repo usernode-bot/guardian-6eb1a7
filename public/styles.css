@@ -1098,6 +1098,12 @@ html, body {
   color: #999;
 }
 
+.search-field[readonly] {
+  cursor: pointer;
+  background-color: #fff;
+  caret-color: transparent;
+}
+
 .create-group-card {
   display: flex;
   align-items: center;
@@ -2158,6 +2164,26 @@ html, body {
 }
 
 .add-members-sheet-list {
+  background-color: transparent;
+  max-height: none !important;
+}
+
+/* User Search Modal (Create screen wallet/username search) */
+.user-search-modal-dialog {
+  max-height: 80vh;
+}
+
+.user-search-modal-dialog .dialog-content {
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 16px !important;
+}
+
+.user-search-modal-dialog .form-input {
+  margin-bottom: 12px;
+}
+
+.user-search-modal-dialog .users-list {
   background-color: transparent;
   max-height: none !important;
 }

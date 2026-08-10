@@ -82,6 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_DESC_EDIT = SHOT === 'desc-edit';
   let shotDescEditFired = false;
   const SHOT_SEARCH_USERS = SHOT === 'search-users';
+  const SHOT_CREATE_SEARCH_MODAL = SHOT === 'create-search-modal';
   const SHOT_REQUESTS_TAB = SHOT === 'requests-tab';
   const SHOT_DC_PREVIEW = SHOT === 'dc-preview';
   const SHOT_CHANNEL_ADMIN = SHOT === 'channel-admin';
@@ -5133,6 +5134,82 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Render new message page
+  // Search modal opened from the Create screen's wallet/username trigger
+  // field. Mirrors showAddMembersSheet's shell, but has no footer since
+  // tapping a row acts immediately (starts the DM and closes the modal)
+  // instead of accumulating a selection to confirm.
+  function showUserSearchModal(initialQuery) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog user-search-modal-dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Search wallet, username</h2>
+        <button class="close-dialog-button">✕</button>
+      </div>
+      <div class="dialog-content">
+        <input type="text" class="form-input" id="user-search-modal-input" placeholder="🔍 Search wallet, username" />
+        <div class="users-list" id="user-search-modal-list"></div>
+      </div>
+    `;
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const searchInput = dialog.querySelector('#user-search-modal-input');
+    const usersListEl = dialog.querySelector('#user-search-modal-list');
+    let searchTimeout = null;
+    let currentResults = suggestedUsers;
+
+    function renderResults(results, emptyMessage) {
+      currentResults = results;
+      usersListEl.innerHTML = results.length > 0
+        ? results.map(user => renderUserListItemHtml(user)).join('')
+        : `<div class="empty-state">${emptyMessage}</div>`;
+      usersListEl.querySelectorAll('.suggested-user-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const userId = item.dataset.userId;
+          const user = currentResults.find(u => u.id === userId);
+          if (user) {
+            overlay.remove();
+            startConversationWith(user);
+          }
+        });
+      });
+    }
+
+    async function runSearch(query) {
+      if (!query) {
+        renderResults(suggestedUsers, 'No suggested users.');
+        return;
+      }
+      const results = await searchUsers(query);
+      if (searchInput.value.trim() !== query) return; // stale response, a newer query has since landed
+      renderResults(results, 'No users found.');
+    }
+
+    renderResults(suggestedUsers, 'No suggested users.');
+
+    searchInput.addEventListener('input', (e) => {
+      const query = e.target.value.trim();
+      if (searchTimeout) clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => runSearch(query), 300);
+    });
+
+    dialog.querySelector('.close-dialog-button').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+
+    if (initialQuery) {
+      searchInput.value = initialQuery;
+      runSearch(initialQuery);
+    } else {
+      searchInput.focus();
+    }
+  }
+
   function renderNewMessagePage() {
     function usersListHtml(list) {
       return list.length > 0
@@ -5146,7 +5223,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <h1>Guardian</h1>
         </div>
         <div class="search-container">
-          <input type="text" class="search-field" id="new-message-search-field" placeholder="🔍 Search wallet, username" />
+          <input type="text" class="search-field" id="new-message-search-field" placeholder="🔍 Search wallet, username" readonly />
         </div>
         <div class="create-scroll">
           <div class="create-options">
@@ -5195,65 +5272,45 @@ document.addEventListener('DOMContentLoaded', () => {
     attachManagedListListeners();
 
     const usersListEl = document.getElementById('new-message-users-list');
-    const usersHeaderEl = document.getElementById('new-message-users-header');
     const searchField = document.getElementById('new-message-search-field');
-    let searchTimeout = null;
-    let currentResults = suggestedUsers;
 
-    // Tapping a suggested/search user opens (or starts) a DM with them.
+    // Tapping a suggested user opens (or starts) a DM with them.
     function attachUserItemHandlers() {
       usersListEl.querySelectorAll('.suggested-user-item').forEach(item => {
         item.addEventListener('click', () => {
           const userId = item.dataset.userId;
-          const user = currentResults.find(u => u.id === userId);
+          const user = suggestedUsers.find(u => u.id === userId);
           if (user) startConversationWith(user);
         });
       });
     }
     attachUserItemHandlers();
 
-    // Search wallet/username — debounced, backed by the real directory search.
-    searchField.addEventListener('input', (e) => {
-      const query = e.target.value.trim();
-      if (searchTimeout) clearTimeout(searchTimeout);
-      searchTimeout = setTimeout(async () => {
-        if (!query) {
-          currentResults = suggestedUsers;
-          usersHeaderEl.textContent = 'Suggested Users';
-          usersListEl.innerHTML = usersListHtml(currentResults);
-          attachUserItemHandlers();
-          return;
-        }
-        currentResults = await searchUsers(query);
-        usersHeaderEl.textContent = 'Search Results';
-        usersListEl.innerHTML = currentResults.length > 0
-          ? currentResults.map(user => renderUserListItemHtml(user)).join('')
-          : '<div class="empty-state">No users found.</div>';
-        attachUserItemHandlers();
-      }, 300);
+    // Tapping/focusing the (readonly) search field opens the search modal
+    // instead of typing inline. Blur immediately so the on-screen keyboard
+    // never opens against this trigger, only against the modal's own
+    // input, and so the field can be re-focused to reopen the modal later.
+    searchField.addEventListener('focus', () => {
+      searchField.blur();
+      showUserSearchModal();
     });
 
     // Refresh Suggested Users with the latest directory each time this screen opens.
     fetchSuggestedUsers().then(() => {
-      if (searchField.value.trim()) return;
-      currentResults = suggestedUsers;
-      usersListEl.innerHTML = usersListHtml(currentResults);
+      usersListEl.innerHTML = usersListHtml(suggestedUsers);
       attachUserItemHandlers();
     });
 
-    // Screenshot-state deep link: run a real search against the staging seed
-    // data so the wallet/username search results are reachable for a screenshot
-    // without needing to type into the field by hand.
+    // Screenshot-state deep link: open the search modal pre-filled with a
+    // real query against the staging seed data, so the wallet/username
+    // search results are reachable for a screenshot without needing to
+    // type into the field by hand.
     if (SHOT_SEARCH_USERS) {
-      searchField.value = SHOT_SEARCH_QUERY;
-      (async () => {
-        currentResults = await searchUsers(SHOT_SEARCH_QUERY);
-        usersHeaderEl.textContent = 'Search Results';
-        usersListEl.innerHTML = currentResults.length > 0
-          ? currentResults.map(user => renderUserListItemHtml(user)).join('')
-          : '<div class="empty-state">No users found.</div>';
-        attachUserItemHandlers();
-      })();
+      showUserSearchModal(SHOT_SEARCH_QUERY);
+    } else if (SHOT_CREATE_SEARCH_MODAL) {
+      // Screenshot-state deep link: open the search modal empty, since the
+      // modal itself is otherwise only reachable by tapping the trigger field.
+      showUserSearchModal();
     }
   }
 
