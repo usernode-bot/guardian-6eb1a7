@@ -1676,6 +1676,21 @@ app.post('/api/messages/direct/:peerId', async (req, res) => {
       );
     }
     const message = await insertMessage('direct', conversation.id, req.user, req.body);
+
+    // Hiding a DM (performDeleteDirectConversation) only ever sets
+    // hidden_from_inbox = true and nothing was clearing it back to false, so
+    // once either side hid the thread it would stay filtered out of their
+    // Messages list forever, even as the other person kept messaging them --
+    // the exact "DM not showing up" symptom this fixes. A fresh message means
+    // the thread is active again for both participants, so clear it on send.
+    await pool.query(
+      `UPDATE conversation_user_state SET hidden_from_inbox = false
+         WHERE hidden_from_inbox = true
+           AND ((conversation_id = $1 AND user_id = $2)
+             OR (conversation_id = $3 AND user_id = $4))`,
+      ['conv_' + req.user.id, peerId, 'conv_' + peerId, req.user.id]
+    );
+
     res.status(201).json({ message });
   } catch (err) {
     console.error('[messages] direct send failed:', err);

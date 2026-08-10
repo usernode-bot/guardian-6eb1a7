@@ -776,6 +776,11 @@
       "expectSelector": "[data-testid=\"persist-removal-count\"][data-count=\"0\"]"
     },
     {
+      "name": "A DM hidden via Delete Chat reappears after the peer's next message, surviving a simulated app restart (regression: hidden_from_inbox was set on hide but never cleared, so a hidden DM never resurfaced no matter how many new messages arrived)",
+      "path": "/?shot=dm-unhide-on-message",
+      "expectSelector": "[data-testid=\"unhide-on-message-result\"][data-hidden-after-setup=\"true\"][data-visible-after-message=\"true\"]"
+    },
+    {
       "name": "An untouched conversation with no read-state row shows unread (regression: unread subquery/state INSERT treated never-opened as already read)",
       "path": "/",
       "expectSelector": "[data-conversation-id=\"conv_staging-demo-user-8\"] .unread-badge"
