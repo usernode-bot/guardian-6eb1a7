@@ -236,6 +236,11 @@
       "expectText": "staging-demo-citra"
     },
     {
+      "name": "Tapping the Create search field opens a modal listing suggested users",
+      "path": "/?shot=create-search-modal#/create",
+      "expectSelector": ".user-search-modal-dialog .suggested-user-item"
+    },
+    {
       "name": "Messages list shows a freshly-delivered DM's real preview text, not blank",
       "path": "/?shot=dc-preview",
       "expectText": "Shot dc preview check"
