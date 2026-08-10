@@ -236,6 +236,11 @@
       "expectText": "staging-demo-citra"
     },
     {
+      "name": "Tapping the Create search field opens a modal listing suggested users",
+      "path": "/?shot=create-search-modal#/create",
+      "expectSelector": ".user-search-modal-dialog .suggested-user-item"
+    },
+    {
       "name": "Messages list shows a freshly-delivered DM's real preview text, not blank",
       "path": "/?shot=dc-preview",
       "expectText": "Shot dc preview check"
@@ -774,6 +779,11 @@
       "name": "A left group, unfollowed channel, and deleted DM stay gone after a simulated app restart (regression: group-leave stub, channel isFollowing always true, both let removed conversations reappear)",
       "path": "/?shot=persist-removal",
       "expectSelector": "[data-testid=\"persist-removal-count\"][data-count=\"0\"]"
+    },
+    {
+      "name": "A DM hidden via Delete Chat reappears after the peer's next message, surviving a simulated app restart (regression: hidden_from_inbox was set on hide but never cleared, so a hidden DM never resurfaced no matter how many new messages arrived)",
+      "path": "/?shot=dm-unhide-on-message",
+      "expectSelector": "[data-testid=\"unhide-on-message-result\"][data-hidden-after-setup=\"true\"][data-visible-after-message=\"true\"]"
     },
     {
       "name": "An untouched conversation with no read-state row shows unread (regression: unread subquery/state INSERT treated never-opened as already read)",

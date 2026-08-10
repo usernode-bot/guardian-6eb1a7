@@ -83,6 +83,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_DESC_EDIT = SHOT === 'desc-edit';
   let shotDescEditFired = false;
   const SHOT_SEARCH_USERS = SHOT === 'search-users';
+  const SHOT_CREATE_SEARCH_MODAL = SHOT === 'create-search-modal';
   const SHOT_REQUESTS_TAB = SHOT === 'requests-tab';
   const SHOT_DC_PREVIEW = SHOT === 'dc-preview';
   const SHOT_CHANNEL_ADMIN = SHOT === 'channel-admin';
@@ -167,6 +168,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_REPLY_LEAK = SHOT === 'reply-leak';
   const SHOT_REPLY_LEAK_SOURCE_CONVERSATION_ID = 'conv_staging-demo-user-5';
   const SHOT_REPLY_LEAK_TARGET_PEER_ID = 'staging-demo-user-12';
+  // Regression check for the "DM between two users not showing up" bug
+  // report: hiding a DM (performDeleteDirectConversation) only ever set
+  // hidden_from_inbox = true and nothing cleared it back, so once either
+  // side hid the thread it stayed filtered out of their Messages list
+  // forever even as new messages kept arriving in it. This hides a DM
+  // through the real endpoint, sends another message into it (the fixed
+  // send route now clears hidden_from_inbox for both participants), then
+  // simulates an app restart to prove the conversation reappears server
+  // side, not just in this tab's in-memory state.
+  const SHOT_DM_UNHIDE_ON_MESSAGE = SHOT === 'dm-unhide-on-message';
+  const SHOT_DM_UNHIDE_PEER_ID = 'staging-demo-unhide-peer';
+  const SHOT_DM_UNHIDE_TEXT_BEFORE_HIDE = 'Shot unhide check: before hide';
+  const SHOT_DM_UNHIDE_TEXT_AFTER_HIDE = 'Shot unhide check: after hide';
 
   // The signed-in Usernode user, hydrated from /api/state at boot. Server rows
   // for this id are mapped onto the app's long-standing 'user_self' sentinel so
@@ -5284,6 +5298,82 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Render new message page
+  // Search modal opened from the Create screen's wallet/username trigger
+  // field. Mirrors showAddMembersSheet's shell, but has no footer since
+  // tapping a row acts immediately (starts the DM and closes the modal)
+  // instead of accumulating a selection to confirm.
+  function showUserSearchModal(initialQuery) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog user-search-modal-dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Search wallet, username</h2>
+        <button class="close-dialog-button">✕</button>
+      </div>
+      <div class="dialog-content">
+        <input type="text" class="form-input" id="user-search-modal-input" placeholder="🔍 Search wallet, username" />
+        <div class="users-list" id="user-search-modal-list"></div>
+      </div>
+    `;
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const searchInput = dialog.querySelector('#user-search-modal-input');
+    const usersListEl = dialog.querySelector('#user-search-modal-list');
+    let searchTimeout = null;
+    let currentResults = suggestedUsers;
+
+    function renderResults(results, emptyMessage) {
+      currentResults = results;
+      usersListEl.innerHTML = results.length > 0
+        ? results.map(user => renderUserListItemHtml(user)).join('')
+        : `<div class="empty-state">${emptyMessage}</div>`;
+      usersListEl.querySelectorAll('.suggested-user-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const userId = item.dataset.userId;
+          const user = currentResults.find(u => u.id === userId);
+          if (user) {
+            overlay.remove();
+            startConversationWith(user);
+          }
+        });
+      });
+    }
+
+    async function runSearch(query) {
+      if (!query) {
+        renderResults(suggestedUsers, 'No suggested users.');
+        return;
+      }
+      const results = await searchUsers(query);
+      if (searchInput.value.trim() !== query) return; // stale response, a newer query has since landed
+      renderResults(results, 'No users found.');
+    }
+
+    renderResults(suggestedUsers, 'No suggested users.');
+
+    searchInput.addEventListener('input', (e) => {
+      const query = e.target.value.trim();
+      if (searchTimeout) clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => runSearch(query), 300);
+    });
+
+    dialog.querySelector('.close-dialog-button').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+
+    if (initialQuery) {
+      searchInput.value = initialQuery;
+      runSearch(initialQuery);
+    } else {
+      searchInput.focus();
+    }
+  }
+
   function renderNewMessagePage() {
     function usersListHtml(list) {
       return list.length > 0
@@ -5297,7 +5387,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <h1>Guardian</h1>
         </div>
         <div class="search-container">
-          <input type="text" class="search-field" id="new-message-search-field" placeholder="🔍 Search wallet, username" />
+          <input type="text" class="search-field" id="new-message-search-field" placeholder="🔍 Search wallet, username" readonly />
         </div>
         <div class="create-scroll">
           <div class="create-options">
@@ -5346,65 +5436,45 @@ document.addEventListener('DOMContentLoaded', () => {
     attachManagedListListeners();
 
     const usersListEl = document.getElementById('new-message-users-list');
-    const usersHeaderEl = document.getElementById('new-message-users-header');
     const searchField = document.getElementById('new-message-search-field');
-    let searchTimeout = null;
-    let currentResults = suggestedUsers;
 
-    // Tapping a suggested/search user opens (or starts) a DM with them.
+    // Tapping a suggested user opens (or starts) a DM with them.
     function attachUserItemHandlers() {
       usersListEl.querySelectorAll('.suggested-user-item').forEach(item => {
         item.addEventListener('click', () => {
           const userId = item.dataset.userId;
-          const user = currentResults.find(u => u.id === userId);
+          const user = suggestedUsers.find(u => u.id === userId);
           if (user) startConversationWith(user);
         });
       });
     }
     attachUserItemHandlers();
 
-    // Search wallet/username — debounced, backed by the real directory search.
-    searchField.addEventListener('input', (e) => {
-      const query = e.target.value.trim();
-      if (searchTimeout) clearTimeout(searchTimeout);
-      searchTimeout = setTimeout(async () => {
-        if (!query) {
-          currentResults = suggestedUsers;
-          usersHeaderEl.textContent = 'Suggested Users';
-          usersListEl.innerHTML = usersListHtml(currentResults);
-          attachUserItemHandlers();
-          return;
-        }
-        currentResults = await searchUsers(query);
-        usersHeaderEl.textContent = 'Search Results';
-        usersListEl.innerHTML = currentResults.length > 0
-          ? currentResults.map(user => renderUserListItemHtml(user)).join('')
-          : '<div class="empty-state">No users found.</div>';
-        attachUserItemHandlers();
-      }, 300);
+    // Tapping/focusing the (readonly) search field opens the search modal
+    // instead of typing inline. Blur immediately so the on-screen keyboard
+    // never opens against this trigger, only against the modal's own
+    // input, and so the field can be re-focused to reopen the modal later.
+    searchField.addEventListener('focus', () => {
+      searchField.blur();
+      showUserSearchModal();
     });
 
     // Refresh Suggested Users with the latest directory each time this screen opens.
     fetchSuggestedUsers().then(() => {
-      if (searchField.value.trim()) return;
-      currentResults = suggestedUsers;
-      usersListEl.innerHTML = usersListHtml(currentResults);
+      usersListEl.innerHTML = usersListHtml(suggestedUsers);
       attachUserItemHandlers();
     });
 
-    // Screenshot-state deep link: run a real search against the staging seed
-    // data so the wallet/username search results are reachable for a screenshot
-    // without needing to type into the field by hand.
+    // Screenshot-state deep link: open the search modal pre-filled with a
+    // real query against the staging seed data, so the wallet/username
+    // search results are reachable for a screenshot without needing to
+    // type into the field by hand.
     if (SHOT_SEARCH_USERS) {
-      searchField.value = SHOT_SEARCH_QUERY;
-      (async () => {
-        currentResults = await searchUsers(SHOT_SEARCH_QUERY);
-        usersHeaderEl.textContent = 'Search Results';
-        usersListEl.innerHTML = currentResults.length > 0
-          ? currentResults.map(user => renderUserListItemHtml(user)).join('')
-          : '<div class="empty-state">No users found.</div>';
-        attachUserItemHandlers();
-      })();
+      showUserSearchModal(SHOT_SEARCH_QUERY);
+    } else if (SHOT_CREATE_SEARCH_MODAL) {
+      // Screenshot-state deep link: open the search modal empty, since the
+      // modal itself is otherwise only reachable by tapping the trigger field.
+      showUserSearchModal();
     }
   }
 
@@ -9401,6 +9471,27 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
+    if (SHOT_DM_UNHIDE_ON_MESSAGE) {
+      // Screenshot-state: message a fixture peer, then hide the resulting DM
+      // through the real Delete Chat endpoint -- BEFORE the first hydration
+      // below -- so the "send unhides it" check further down starts from a
+      // thread that's genuinely hidden server side, not just client state.
+      try {
+        await fetch(`/api/messages/direct/${SHOT_DM_UNHIDE_PEER_ID}`, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ id: `shot_unhide_before_${Date.now()}`, text: SHOT_DM_UNHIDE_TEXT_BEFORE_HIDE })
+        });
+        await fetch(`/api/conversations/conv_${SHOT_DM_UNHIDE_PEER_ID}/state`, {
+          method: 'PUT',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ hiddenFromInbox: true })
+        });
+      } catch (error) {
+        console.warn('Could not set up shot dm-unhide-on-message fixtures:', error);
+      }
+    }
+
     await Promise.all([
       fetchSuggestedUsers(),
       hydrateServerGroups(),
@@ -9536,6 +9627,42 @@ document.addEventListener('DOMContentLoaded', () => {
       marker.setAttribute('data-count', String(stillPresent));
       marker.style.display = 'none';
       marker.textContent = 'StillPresent:' + stillPresent;
+      document.body.appendChild(marker);
+    }
+
+    if (SHOT_DM_UNHIDE_ON_MESSAGE) {
+      // The DM was hidden through the real endpoint before hydration above --
+      // hydration still loads the row (hiding only affects Messages-list
+      // rendering), but its hiddenFromInbox flag must be true here.
+      const hiddenAfterSetup = conversations.some(c => c.type === 'direct' && c.id === 'conv_' + SHOT_DM_UNHIDE_PEER_ID && c.hiddenFromInbox);
+
+      // Send another message into the hidden thread -- the fixed send route
+      // should clear hidden_from_inbox for this side as part of handling it.
+      try {
+        await fetch(`/api/messages/direct/${SHOT_DM_UNHIDE_PEER_ID}`, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ id: `shot_unhide_after_${Date.now()}`, text: SHOT_DM_UNHIDE_TEXT_AFTER_HIDE })
+        });
+      } catch (error) {
+        console.warn('Could not deliver shot dm-unhide-on-message follow-up:', error);
+      }
+
+      // Simulate closing and reopening the app so this proves the unhide was
+      // persisted server side, not just applied to this tab's in-memory list.
+      conversations.length = 0;
+      await hydrateServerDirectConversations();
+      await hydrateConversationUserState();
+
+      const visibleAfterMessage =
+        conversations.some(c => c.type === 'direct' && c.id === 'conv_' + SHOT_DM_UNHIDE_PEER_ID && !c.hiddenFromInbox);
+
+      const marker = document.createElement('div');
+      marker.setAttribute('data-testid', 'unhide-on-message-result');
+      marker.setAttribute('data-hidden-after-setup', String(hiddenAfterSetup));
+      marker.setAttribute('data-visible-after-message', String(visibleAfterMessage));
+      marker.style.display = 'none';
+      marker.textContent = 'HiddenAfterSetup:' + hiddenAfterSetup + ' VisibleAfterMessage:' + visibleAfterMessage;
       document.body.appendChild(marker);
     }
 
