@@ -58,6 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=messages-select           enters multi-select on the first Messages row on load     → selection toolbar + selected row must render
   //   ?shot=messages-muted            mutes the first DM on load                                 → muted row indicator must render
   //   ?shot=messages-actions          opens the long-press action sheet on the first Messages row → Select/Pin/Mute labels must render
+  //   ?shot=typing-demo               forces a synthetic "typing…" state on the opened DM/group thread → typing-indicator-bar must render
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -95,6 +96,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_MESSAGES_SELECT = SHOT === 'messages-select';
   const SHOT_MESSAGES_MUTED = SHOT === 'messages-muted';
   const SHOT_MESSAGES_ACTIONS = SHOT === 'messages-actions';
+  // Forces the typing-indicator bar on without waiting on a second real
+  // session to type -- skips the real GET /api/typing/* poll entirely and
+  // renders a fixed synthetic name against whichever staging DM/group fixture
+  // the deep link opens.
+  const SHOT_TYPING_DEMO = SHOT === 'typing-demo';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
   const SHOT_CREATE_GROUP_NAME = 'Staging demo one-invite group';
@@ -222,6 +228,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (sessionExpired) return;
     sessionExpired = true;
     stopThreadPolling();
+    stopTypingPolling();
     stopMessagesListPolling();
     showSessionExpiredBanner();
   }
@@ -418,6 +425,38 @@ document.addEventListener('DOMContentLoaded', () => {
   // otherwise), so a concurrent Messages-list poll doesn't clobber a local
   // "just marked read" state before the server-side markRead PUT lands.
   let currentOpenConversationId = null;
+
+  // The DM/group whose composer last sent a typing ping (or null). Lets
+  // handleNavigation below fire a best-effort "stopped typing" DELETE when
+  // the user leaves a thread mid-keystroke, without setupComposer needing to
+  // register its own navigation listener that would just leak on re-render.
+  let activeTypingTarget = null;
+
+  function typingApiPath(target) {
+    return `/api/typing/${target.type}/${encodeURIComponent(target.id)}`;
+  }
+
+  // Fire-and-forget: a failed ping/clear just means the indicator is stale or
+  // absent for a few seconds, never worth surfacing to the typer.
+  function pingTyping(target) {
+    activeTypingTarget = target;
+    authFetch(typingApiPath(target), { method: 'POST', headers: authHeaders() }).catch(() => {});
+  }
+
+  function clearTyping(target) {
+    if (activeTypingTarget && activeTypingTarget.type === target.type && activeTypingTarget.id === target.id) {
+      activeTypingTarget = null;
+    }
+    authFetch(typingApiPath(target), { method: 'DELETE', headers: authHeaders() }).catch(() => {});
+  }
+
+  // Best-effort: called when navigating away from whichever thread's
+  // composer last pinged, so the peer's indicator doesn't sit on for the
+  // full TYPING_TTL_MS server-side timeout after the user leaves.
+  function clearActiveTypingBestEffort() {
+    if (!activeTypingTarget) return;
+    clearTyping(activeTypingTarget);
+  }
 
   async function hydrateMessageRequests() {
     try {
@@ -1116,6 +1155,50 @@ document.addEventListener('DOMContentLoaded', () => {
     items.sort((a, b) => sortAscending ? a.timestamp - b.timestamp : b.timestamp - a.timestamp);
   }
 
+  // "Someone is typing…" -- fetch the list of other participants currently
+  // typing (DM: at most one; group: any member), and render it into the
+  // thread's indicator bar. SHOT_TYPING_DEMO short-circuits the real fetch so
+  // the bar is reachable from a plain deep link for screenshots.
+  async function fetchTypingUsers(type, id) {
+    if (SHOT_TYPING_DEMO) return ['staging-demo-ana'];
+    if (!id) return [];
+    try {
+      const response = await authFetch(`/api/typing/${type}/${encodeURIComponent(id)}`, { headers: authHeaders() });
+      if (!response.ok) return [];
+      const payload = await response.json();
+      return payload.typing || [];
+    } catch (error) {
+      console.warn(`Could not load ${type} typing status:`, error);
+      return [];
+    }
+  }
+
+  // Patches the indicator bar's text/visibility in place -- never a full
+  // thread re-render, so it can't clobber an in-progress composer draft or
+  // scroll position. `isGroup` selects the name-formatting rule: DMs only
+  // ever have one other participant, so they get a fixed "Typing…"; groups
+  // name who's typing since there can be more than one.
+  function renderTypingIndicator(barEl, isGroup, names) {
+    if (!barEl) return;
+    if (!names || names.length === 0) {
+      barEl.textContent = '';
+      barEl.classList.remove('is-visible');
+      return;
+    }
+    let text;
+    if (!isGroup) {
+      text = 'Typing…';
+    } else if (names.length === 1) {
+      text = `${names[0]} is typing…`;
+    } else if (names.length === 2) {
+      text = `${names[0]} and ${names[1]} are typing…`;
+    } else {
+      text = `${names[0]} and ${names.length - 1} others are typing…`;
+    }
+    barEl.textContent = text;
+    barEl.classList.add('is-visible');
+  }
+
   // At most one thread polls at a time -- only one conversation/group/channel
   // screen is ever open at once, so there's nothing to key this by.
   let activeThreadPollTimer = null;
@@ -1159,6 +1242,30 @@ document.addEventListener('DOMContentLoaded', () => {
       const changed = await hydrateFn();
       if (changed) onChanged();
     }, THREAD_POLL_INTERVAL_MS);
+  }
+
+  // Separate, shorter-interval lifecycle from the thread-history poll above
+  // (2.5s vs 4s) since "someone started typing" needs to appear/disappear
+  // snappier than message history does. Always started/stopped in lockstep
+  // with startThreadPolling/stopThreadPolling at both the DM and group call
+  // sites, but kept as its own timer so patching the indicator bar never
+  // triggers (or waits on) the message-history re-render path.
+  let activeTypingPollTimer = null;
+  const TYPING_POLL_INTERVAL_MS = 2500;
+
+  function stopTypingPolling() {
+    if (activeTypingPollTimer) {
+      clearInterval(activeTypingPollTimer);
+      activeTypingPollTimer = null;
+    }
+  }
+
+  function startTypingPolling(fetchFn, patchFn) {
+    stopTypingPolling();
+    if (sessionExpired) return;
+    const tick = async () => patchFn(await fetchFn());
+    tick();
+    activeTypingPollTimer = setInterval(tick, TYPING_POLL_INTERVAL_MS);
   }
 
   // Keep the Messages list / Requests tab live too -- without this, a newly
@@ -2678,6 +2785,7 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           ${scrollToLatestFabHTML()}
         </div>
+        <div class="typing-indicator-bar" aria-live="polite"></div>
         <div class="composer-container">
           ${composerMarkup({ conversationId: conversation.id })}
         </div>
@@ -2739,7 +2847,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupImageLightbox();
 
     // Set up send button and reply state management
-    setupComposer(conversation, { isGroup: false });
+    setupComposer(conversation, { isGroup: false, typingTarget: peerId ? { type: 'direct', id: peerId } : null });
 
     // Tap a "Failed to send" label to retry delivering that message.
     conversationRoot.querySelectorAll('[data-retry-message-id]').forEach(el => {
@@ -2763,6 +2871,12 @@ document.addEventListener('DOMContentLoaded', () => {
         failed.forEach(msg => deliverThreadMessage('direct', peerId, msg, () => renderConversationPage(conversationId)));
         return true;
       }
+    );
+
+    // Separate lifecycle from message polling above -- see startTypingPolling.
+    startTypingPolling(
+      () => fetchTypingUsers('direct', peerId),
+      (names) => renderTypingIndicator(conversationRoot.querySelector('.typing-indicator-bar'), false, names)
     );
 
     // Must stay last: the send re-renders this page underneath us.
@@ -4394,6 +4508,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function setupComposer(thread, options) {
     const opts = options || {};
     const isGroup = !!opts.isGroup;
+    const typingTarget = opts.typingTarget || null;
     // How to redraw the screen we're on after a send. Defaults to the direct
     // conversation renderer; group and channel views pass their own.
     const rerender = typeof opts.rerender === 'function'
@@ -4435,6 +4550,35 @@ document.addEventListener('DOMContentLoaded', () => {
         composerInput.style.height = '48px';
       }
     });
+
+    // Typing ping: only wired for DM/group (typingTarget is null for the
+    // channel composer, which never gets one -- publishing a post isn't
+    // "typing at" anyone). Pings are throttled to at most one every 3s so a
+    // fast typist doesn't hammer the endpoint on every keystroke; going idle
+    // for 3s (or emptying the box, or sending) clears the status right away
+    // rather than waiting out the server's TTL fallback.
+    if (typingTarget) {
+      const TYPING_PING_THROTTLE_MS = 3000;
+      const TYPING_IDLE_MS = 3000;
+      let lastTypingPingAt = 0;
+      let typingIdleTimer = null;
+      composerInput.addEventListener('input', () => {
+        if (typingIdleTimer) {
+          clearTimeout(typingIdleTimer);
+          typingIdleTimer = null;
+        }
+        if (composerInput.value.trim() === '') {
+          clearTyping(typingTarget);
+          return;
+        }
+        const now = Date.now();
+        if (now - lastTypingPingAt >= TYPING_PING_THROTTLE_MS) {
+          lastTypingPingAt = now;
+          pingTyping(typingTarget);
+        }
+        typingIdleTimer = setTimeout(() => clearTyping(typingTarget), TYPING_IDLE_MS);
+      });
+    }
 
     if (replyCloseButton) {
       replyCloseButton.addEventListener('click', () => {
@@ -4478,6 +4622,7 @@ document.addEventListener('DOMContentLoaded', () => {
       composerInput.style.height = '48px';
       clearReplyState(conversation.id);
       imageAttachment.clearPendingImage();
+      if (typingTarget) clearTyping(typingTarget);
 
       // Update conversation last message and timestamp for All tab sorting. A
       // group's row in the Messages list is keyed by groupId (a channel's by
@@ -4684,6 +4829,7 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           ${scrollToLatestFabHTML()}
         </div>
+        <div class="typing-indicator-bar" aria-live="polite"></div>
         <div class="composer-container">
           ${actionAreaHTML}
         </div>
@@ -4808,7 +4954,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // the viewer is actually a member; non-members see the Join/Request
     // button wired above instead.
     if (isMember) {
-      setupComposer(group, { isGroup: true });
+      setupComposer(group, { isGroup: true, typingTarget: { type: 'group', id: groupId } });
 
       // Tap a "Failed to send" label to retry delivering that message.
       groupRoot.querySelectorAll('[data-retry-message-id]').forEach(el => {
@@ -4829,6 +4975,11 @@ document.addEventListener('DOMContentLoaded', () => {
           failed.forEach(msg => deliverThreadMessage('group', groupId, msg, () => renderGroupConversationPage(groupId)));
           return true;
         }
+      );
+
+      startTypingPolling(
+        () => fetchTypingUsers('group', groupId),
+        (names) => renderTypingIndicator(groupRoot.querySelector('.typing-indicator-bar'), true, names)
       );
     }
 
@@ -9121,6 +9272,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // onChanged callback would yank the user back into that thread's render
     // out from under whatever screen they navigated to.
     stopThreadPolling();
+    stopTypingPolling();
+    clearActiveTypingBestEffort();
     stopMessagesListPolling();
     // Defense-in-depth: a reply target left set on the thread we're leaving
     // should not still be sitting there if the user comes back to it later
