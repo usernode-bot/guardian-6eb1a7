@@ -384,6 +384,27 @@ html, body {
   min-height: 0;
 }
 
+/* Sits in a fixed spot right above the composer, patched in place by
+   renderTypingIndicator rather than re-rendered -- collapses to nothing when
+   no one is typing so it never reserves layout space it isn't using. */
+.typing-indicator-bar {
+  flex-shrink: 0;
+  height: 0;
+  padding: 0 16px;
+  overflow: hidden;
+  color: #8a8a8e;
+  font-size: 12px;
+  font-style: italic;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  transition: height 0.15s ease, padding 0.15s ease;
+}
+
+.typing-indicator-bar.is-visible {
+  height: 20px;
+  padding: 6px 16px;
+}
+
 .scroll-to-latest-fab {
   position: absolute;
   right: 16px;

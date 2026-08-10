@@ -814,6 +814,16 @@
       "name": "Sent DM bubble in a mixed-direction thread renders with outgoing styling",
       "path": "/#/conversation/conv_staging-demo-user-13",
       "expectSelector": ".message.outgoing"
+    },
+    {
+      "name": "Typing indicator renders in direct message view",
+      "path": "/?shot=typing-demo#/conversation/conv_staging-demo-user-5",
+      "expectSelector": ".typing-indicator-bar.is-visible"
+    },
+    {
+      "name": "Typing indicator renders in group chat view",
+      "path": "/?shot=typing-demo#/group/group_staging_owned_1",
+      "expectSelector": ".typing-indicator-bar.is-visible"
     }
   ]
 }

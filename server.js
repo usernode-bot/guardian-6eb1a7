@@ -1308,6 +1308,15 @@ app.put('/api/conversations/:id/state', async (req, res) => {
 // even though a conversation with them already exists. `viaUsernameFallback`
 // tells the caller the match only succeeded because of this, so it knows to
 // reconcile the row's stored ids.
+// Canonical thread_key for DM typing_status rows. Deliberately independent
+// of direct_conversations.id -- looking that up (or creating it) just to key
+// a typing ping would lazily create a pending conversation row the instant
+// someone starts typing, surfacing an empty "message request" to the
+// recipient (see GET /api/message-requests below).
+function pairKey(userIdA, userIdB) {
+  return [userIdA, userIdB].sort().join('|');
+}
+
 async function findDirectConversation(userIdA, userIdB) {
   // Match the stored (sorted) pair in either comparison order -- the row was
   // inserted using a sorted pair, but the exact-pair clause here must still
@@ -1855,6 +1864,124 @@ app.post('/api/messages/group/:groupId/:messageId/delete', async (req, res) => {
   }
 });
 
+// Typing indicator TTL: a row older than this is treated as stale (the
+// client's inactivity timer clears it explicitly well before this, so it
+// only kicks in if a tab was closed without firing the DELETE).
+const TYPING_TTL_MS = 8000;
+
+// POST /api/typing/direct/:peerId - upsert "I am typing" for this DM thread.
+// Keyed by the canonical pair, not a conversation id (see pairKey above).
+app.post('/api/typing/direct/:peerId', async (req, res) => {
+  const peerId = req.params.peerId;
+  if (peerId === req.user.id) return res.status(400).json({ error: "Can't message yourself" });
+  try {
+    await pool.query(
+      `INSERT INTO typing_status (thread_type, thread_key, user_id, username, updated_at)
+       VALUES ('direct', $1, $2, $3, now())
+       ON CONFLICT (thread_type, thread_key, user_id)
+       DO UPDATE SET username = $3, updated_at = now()`,
+      [pairKey(req.user.id, peerId), req.user.id, req.user.username]
+    );
+    res.status(204).end();
+  } catch (err) {
+    console.error('[typing] direct ping failed:', err);
+    res.status(500).json({ error: 'Failed to update typing status' });
+  }
+});
+
+// DELETE /api/typing/direct/:peerId - explicitly clear "I am typing" (sent on
+// send, on going idle, and best-effort when leaving the thread).
+app.delete('/api/typing/direct/:peerId', async (req, res) => {
+  const peerId = req.params.peerId;
+  if (peerId === req.user.id) return res.status(400).json({ error: "Can't message yourself" });
+  try {
+    await pool.query(
+      `DELETE FROM typing_status WHERE thread_type = 'direct' AND thread_key = $1 AND user_id = $2`,
+      [pairKey(req.user.id, peerId), req.user.id]
+    );
+    res.status(204).end();
+  } catch (err) {
+    console.error('[typing] direct clear failed:', err);
+    res.status(500).json({ error: 'Failed to update typing status' });
+  }
+});
+
+// GET /api/typing/direct/:peerId - is the peer currently typing? Filters out
+// stale rows (TYPING_TTL_MS) in the query itself, so a client that never got
+// its DELETE call through doesn't leave the indicator stuck on.
+app.get('/api/typing/direct/:peerId', async (req, res) => {
+  const peerId = req.params.peerId;
+  if (peerId === req.user.id) return res.status(400).json({ error: "Can't message yourself" });
+  try {
+    const result = await pool.query(
+      `SELECT username FROM typing_status
+        WHERE thread_type = 'direct' AND thread_key = $1 AND user_id = $2
+          AND updated_at > now() - interval '${TYPING_TTL_MS} milliseconds'`,
+      [pairKey(req.user.id, peerId), peerId]
+    );
+    res.json({ typing: result.rows.map(r => r.username) });
+  } catch (err) {
+    console.error('[typing] direct read failed:', err);
+    res.status(500).json({ error: 'Failed to load typing status' });
+  }
+});
+
+// POST /api/typing/group/:groupId - upsert "I am typing" for this group.
+// Gated by membership, same as the group message routes above.
+app.post('/api/typing/group/:groupId', async (req, res) => {
+  try {
+    const role = await getGroupRole(req.params.groupId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Group not found' });
+    await pool.query(
+      `INSERT INTO typing_status (thread_type, thread_key, user_id, username, updated_at)
+       VALUES ('group', $1, $2, $3, now())
+       ON CONFLICT (thread_type, thread_key, user_id)
+       DO UPDATE SET username = $3, updated_at = now()`,
+      [req.params.groupId, req.user.id, req.user.username]
+    );
+    res.status(204).end();
+  } catch (err) {
+    console.error('[typing] group ping failed:', err);
+    res.status(500).json({ error: 'Failed to update typing status' });
+  }
+});
+
+// DELETE /api/typing/group/:groupId - explicitly clear "I am typing".
+app.delete('/api/typing/group/:groupId', async (req, res) => {
+  try {
+    const role = await getGroupRole(req.params.groupId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Group not found' });
+    await pool.query(
+      `DELETE FROM typing_status WHERE thread_type = 'group' AND thread_key = $1 AND user_id = $2`,
+      [req.params.groupId, req.user.id]
+    );
+    res.status(204).end();
+  } catch (err) {
+    console.error('[typing] group clear failed:', err);
+    res.status(500).json({ error: 'Failed to update typing status' });
+  }
+});
+
+// GET /api/typing/group/:groupId - usernames of every other member
+// currently typing, filtered to non-stale rows.
+app.get('/api/typing/group/:groupId', async (req, res) => {
+  try {
+    const role = await getGroupRole(req.params.groupId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Group not found' });
+    const result = await pool.query(
+      `SELECT username FROM typing_status
+        WHERE thread_type = 'group' AND thread_key = $1 AND user_id != $2
+          AND updated_at > now() - interval '${TYPING_TTL_MS} milliseconds'
+        ORDER BY updated_at ASC`,
+      [req.params.groupId, req.user.id]
+    );
+    res.json({ typing: result.rows.map(r => r.username) });
+  } catch (err) {
+    console.error('[typing] group read failed:', err);
+    res.status(500).json({ error: 'Failed to load typing status' });
+  }
+});
+
 // GET /api/messages/channel/:channelId - channel posts are broadcast content;
 // any authenticated user can read them (matches renderChannelView showing the
 // feed to owners, followers and Discover previews alike).
@@ -2133,6 +2260,28 @@ async function initDatabase() {
     // an in-thread system message, so the table is no longer needed.
     await pool.query(`DROP TABLE IF EXISTS notifications`);
 
+    // "Someone is typing…" state for DMs and groups. Keyed by a caller-chosen
+    // thread_key rather than direct_conversations.id -- for DMs that key is a
+    // canonical sorted pair (see pairKey()) so a typing ping never lazily
+    // creates a direct_conversations row (which would surface an empty
+    // "message request" to the recipient, see GET /api/message-requests).
+    // Rows are upserted on every ping and read back with a TTL filter in the
+    // application layer, so there is no server-side expiry job to run.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS typing_status (
+        thread_type TEXT NOT NULL CHECK (thread_type IN ('direct', 'group')),
+        thread_key TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (thread_type, thread_key, user_id)
+      );
+    `);
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS typing_status_thread_idx
+         ON typing_status (thread_type, thread_key, updated_at)`
+    );
+
     // Private: a private group's name/description is member-only content, and
     // group_members maps a username to every community they belong to — more
     // than a public profile exposes. Staging therefore gets schema only, which
@@ -2155,6 +2304,9 @@ async function initDatabase() {
     await pool.query(`COMMENT ON TABLE channel_followers IS 'staging:private'`);
     // Private: ties a real user_id to which private group they've asked to join.
     await pool.query(`COMMENT ON TABLE join_requests IS 'staging:private'`);
+    // Private: reveals who is actively typing to whom (DMs) or in which
+    // private group -- same sensitivity class as the messages themselves.
+    await pool.query(`COMMENT ON TABLE typing_status IS 'staging:private'`);
 
     console.log('Database initialized');
   } catch (err) {
