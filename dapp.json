@@ -236,6 +236,11 @@
       "expectText": "staging-demo-citra"
     },
     {
+      "name": "Tapping the Create search field opens a modal listing suggested users",
+      "path": "/?shot=create-search-modal#/create",
+      "expectSelector": ".user-search-modal-dialog .suggested-user-item"
+    },
+    {
       "name": "Messages list shows a freshly-delivered DM's real preview text, not blank",
       "path": "/?shot=dc-preview",
       "expectText": "Shot dc preview check"
@@ -776,6 +781,11 @@
       "expectSelector": "[data-testid=\"persist-removal-count\"][data-count=\"0\"]"
     },
     {
+      "name": "A DM hidden via Delete Chat reappears after the peer's next message, surviving a simulated app restart (regression: hidden_from_inbox was set on hide but never cleared, so a hidden DM never resurfaced no matter how many new messages arrived)",
+      "path": "/?shot=dm-unhide-on-message",
+      "expectSelector": "[data-testid=\"unhide-on-message-result\"][data-hidden-after-setup=\"true\"][data-visible-after-message=\"true\"]"
+    },
+    {
       "name": "An untouched conversation with no read-state row shows unread (regression: unread subquery/state INSERT treated never-opened as already read)",
       "path": "/",
       "expectSelector": "[data-conversation-id=\"conv_staging-demo-user-8\"] .unread-badge"
@@ -854,6 +864,16 @@
       "name": "DM composer attach input still restricts file picker to images only",
       "path": "/#/conversation/conv_staging-demo-user-5",
       "expectSelector": ".chat-composer .attach-image-input[accept=\"image/png,image/jpeg,image/gif,image/webp\"]"
+    },
+    {
+      "name": "Typing indicator renders in direct message view",
+      "path": "/?shot=typing-demo#/conversation/conv_staging-demo-user-5",
+      "expectSelector": ".typing-indicator-bar.is-visible"
+    },
+    {
+      "name": "Typing indicator renders in group chat view",
+      "path": "/?shot=typing-demo#/group/group_staging_owned_1",
+      "expectSelector": ".typing-indicator-bar.is-visible"
     }
   ]
 }

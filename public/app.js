@@ -58,6 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=messages-select           enters multi-select on the first Messages row on load     → selection toolbar + selected row must render
   //   ?shot=messages-muted            mutes the first DM on load                                 → muted row indicator must render
   //   ?shot=messages-actions          opens the long-press action sheet on the first Messages row → Select/Pin/Mute labels must render
+  //   ?shot=typing-demo               forces a synthetic "typing…" state on the opened DM/group thread → typing-indicator-bar must render
   //
   // The top/bottom pair matters: asserting only "the FAB is visible" would still
   // pass if the FAB were visible unconditionally, so the bottom state pins the
@@ -82,6 +83,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_DESC_EDIT = SHOT === 'desc-edit';
   let shotDescEditFired = false;
   const SHOT_SEARCH_USERS = SHOT === 'search-users';
+  const SHOT_CREATE_SEARCH_MODAL = SHOT === 'create-search-modal';
   const SHOT_REQUESTS_TAB = SHOT === 'requests-tab';
   const SHOT_DC_PREVIEW = SHOT === 'dc-preview';
   const SHOT_CHANNEL_ADMIN = SHOT === 'channel-admin';
@@ -94,6 +96,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_MESSAGES_SELECT = SHOT === 'messages-select';
   const SHOT_MESSAGES_MUTED = SHOT === 'messages-muted';
   const SHOT_MESSAGES_ACTIONS = SHOT === 'messages-actions';
+  // Forces the typing-indicator bar on without waiting on a second real
+  // session to type -- skips the real GET /api/typing/* poll entirely and
+  // renders a fixed synthetic name against whichever staging DM/group fixture
+  // the deep link opens.
+  const SHOT_TYPING_DEMO = SHOT === 'typing-demo';
   const SHOT_LONG_THREAD = SHOT_SCROLL_FAB || SHOT_SCROLL_FAB_BOTTOM || SHOT_SEND_STAY;
   const SHOT_SEND_TEXT = 'Shot send stay check';
   const SHOT_CREATE_GROUP_NAME = 'Staging demo one-invite group';
@@ -161,6 +168,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_REPLY_LEAK = SHOT === 'reply-leak';
   const SHOT_REPLY_LEAK_SOURCE_CONVERSATION_ID = 'conv_staging-demo-user-5';
   const SHOT_REPLY_LEAK_TARGET_PEER_ID = 'staging-demo-user-12';
+  // Regression check for the "DM between two users not showing up" bug
+  // report: hiding a DM (performDeleteDirectConversation) only ever set
+  // hidden_from_inbox = true and nothing cleared it back, so once either
+  // side hid the thread it stayed filtered out of their Messages list
+  // forever even as new messages kept arriving in it. This hides a DM
+  // through the real endpoint, sends another message into it (the fixed
+  // send route now clears hidden_from_inbox for both participants), then
+  // simulates an app restart to prove the conversation reappears server
+  // side, not just in this tab's in-memory state.
+  const SHOT_DM_UNHIDE_ON_MESSAGE = SHOT === 'dm-unhide-on-message';
+  const SHOT_DM_UNHIDE_PEER_ID = 'staging-demo-unhide-peer';
+  const SHOT_DM_UNHIDE_TEXT_BEFORE_HIDE = 'Shot unhide check: before hide';
+  const SHOT_DM_UNHIDE_TEXT_AFTER_HIDE = 'Shot unhide check: after hide';
 
   // The signed-in Usernode user, hydrated from /api/state at boot. Server rows
   // for this id are mapped onto the app's long-standing 'user_self' sentinel so
@@ -208,6 +228,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (sessionExpired) return;
     sessionExpired = true;
     stopThreadPolling();
+    stopTypingPolling();
     stopMessagesListPolling();
     showSessionExpiredBanner();
   }
@@ -404,6 +425,38 @@ document.addEventListener('DOMContentLoaded', () => {
   // otherwise), so a concurrent Messages-list poll doesn't clobber a local
   // "just marked read" state before the server-side markRead PUT lands.
   let currentOpenConversationId = null;
+
+  // The DM/group whose composer last sent a typing ping (or null). Lets
+  // handleNavigation below fire a best-effort "stopped typing" DELETE when
+  // the user leaves a thread mid-keystroke, without setupComposer needing to
+  // register its own navigation listener that would just leak on re-render.
+  let activeTypingTarget = null;
+
+  function typingApiPath(target) {
+    return `/api/typing/${target.type}/${encodeURIComponent(target.id)}`;
+  }
+
+  // Fire-and-forget: a failed ping/clear just means the indicator is stale or
+  // absent for a few seconds, never worth surfacing to the typer.
+  function pingTyping(target) {
+    activeTypingTarget = target;
+    authFetch(typingApiPath(target), { method: 'POST', headers: authHeaders() }).catch(() => {});
+  }
+
+  function clearTyping(target) {
+    if (activeTypingTarget && activeTypingTarget.type === target.type && activeTypingTarget.id === target.id) {
+      activeTypingTarget = null;
+    }
+    authFetch(typingApiPath(target), { method: 'DELETE', headers: authHeaders() }).catch(() => {});
+  }
+
+  // Best-effort: called when navigating away from whichever thread's
+  // composer last pinged, so the peer's indicator doesn't sit on for the
+  // full TYPING_TTL_MS server-side timeout after the user leaves.
+  function clearActiveTypingBestEffort() {
+    if (!activeTypingTarget) return;
+    clearTyping(activeTypingTarget);
+  }
 
   async function hydrateMessageRequests() {
     try {
@@ -1102,6 +1155,50 @@ document.addEventListener('DOMContentLoaded', () => {
     items.sort((a, b) => sortAscending ? a.timestamp - b.timestamp : b.timestamp - a.timestamp);
   }
 
+  // "Someone is typing…" -- fetch the list of other participants currently
+  // typing (DM: at most one; group: any member), and render it into the
+  // thread's indicator bar. SHOT_TYPING_DEMO short-circuits the real fetch so
+  // the bar is reachable from a plain deep link for screenshots.
+  async function fetchTypingUsers(type, id) {
+    if (SHOT_TYPING_DEMO) return ['staging-demo-ana'];
+    if (!id) return [];
+    try {
+      const response = await authFetch(`/api/typing/${type}/${encodeURIComponent(id)}`, { headers: authHeaders() });
+      if (!response.ok) return [];
+      const payload = await response.json();
+      return payload.typing || [];
+    } catch (error) {
+      console.warn(`Could not load ${type} typing status:`, error);
+      return [];
+    }
+  }
+
+  // Patches the indicator bar's text/visibility in place -- never a full
+  // thread re-render, so it can't clobber an in-progress composer draft or
+  // scroll position. `isGroup` selects the name-formatting rule: DMs only
+  // ever have one other participant, so they get a fixed "Typing…"; groups
+  // name who's typing since there can be more than one.
+  function renderTypingIndicator(barEl, isGroup, names) {
+    if (!barEl) return;
+    if (!names || names.length === 0) {
+      barEl.textContent = '';
+      barEl.classList.remove('is-visible');
+      return;
+    }
+    let text;
+    if (!isGroup) {
+      text = 'Typing…';
+    } else if (names.length === 1) {
+      text = `${names[0]} is typing…`;
+    } else if (names.length === 2) {
+      text = `${names[0]} and ${names[1]} are typing…`;
+    } else {
+      text = `${names[0]} and ${names.length - 1} others are typing…`;
+    }
+    barEl.textContent = text;
+    barEl.classList.add('is-visible');
+  }
+
   // At most one thread polls at a time -- only one conversation/group/channel
   // screen is ever open at once, so there's nothing to key this by.
   let activeThreadPollTimer = null;
@@ -1145,6 +1242,30 @@ document.addEventListener('DOMContentLoaded', () => {
       const changed = await hydrateFn();
       if (changed) onChanged();
     }, THREAD_POLL_INTERVAL_MS);
+  }
+
+  // Separate, shorter-interval lifecycle from the thread-history poll above
+  // (2.5s vs 4s) since "someone started typing" needs to appear/disappear
+  // snappier than message history does. Always started/stopped in lockstep
+  // with startThreadPolling/stopThreadPolling at both the DM and group call
+  // sites, but kept as its own timer so patching the indicator bar never
+  // triggers (or waits on) the message-history re-render path.
+  let activeTypingPollTimer = null;
+  const TYPING_POLL_INTERVAL_MS = 2500;
+
+  function stopTypingPolling() {
+    if (activeTypingPollTimer) {
+      clearInterval(activeTypingPollTimer);
+      activeTypingPollTimer = null;
+    }
+  }
+
+  function startTypingPolling(fetchFn, patchFn) {
+    stopTypingPolling();
+    if (sessionExpired) return;
+    const tick = async () => patchFn(await fetchFn());
+    tick();
+    activeTypingPollTimer = setInterval(tick, TYPING_POLL_INTERVAL_MS);
   }
 
   // Keep the Messages list / Requests tab live too -- without this, a newly
@@ -2676,6 +2797,7 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           ${scrollToLatestFabHTML()}
         </div>
+        <div class="typing-indicator-bar" aria-live="polite"></div>
         <div class="composer-container chat-composer">
           ${composerMarkup({ conversationId: conversation.id })}
         </div>
@@ -2737,7 +2859,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupImageLightbox();
 
     // Set up send button and reply state management
-    setupComposer(conversation, { isGroup: false });
+    setupComposer(conversation, { isGroup: false, typingTarget: peerId ? { type: 'direct', id: peerId } : null });
 
     // Tap a "Failed to send" label to retry delivering that message.
     conversationRoot.querySelectorAll('[data-retry-message-id]').forEach(el => {
@@ -2761,6 +2883,12 @@ document.addEventListener('DOMContentLoaded', () => {
         failed.forEach(msg => deliverThreadMessage('direct', peerId, msg, () => renderConversationPage(conversationId)));
         return true;
       }
+    );
+
+    // Separate lifecycle from message polling above -- see startTypingPolling.
+    startTypingPolling(
+      () => fetchTypingUsers('direct', peerId),
+      (names) => renderTypingIndicator(conversationRoot.querySelector('.typing-indicator-bar'), false, names)
     );
 
     // Must stay last: the send re-renders this page underneath us.
@@ -4392,6 +4520,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function setupComposer(thread, options) {
     const opts = options || {};
     const isGroup = !!opts.isGroup;
+    const typingTarget = opts.typingTarget || null;
     // How to redraw the screen we're on after a send. Defaults to the direct
     // conversation renderer; group and channel views pass their own.
     const rerender = typeof opts.rerender === 'function'
@@ -4433,6 +4562,35 @@ document.addEventListener('DOMContentLoaded', () => {
         composerInput.style.height = '48px';
       }
     });
+
+    // Typing ping: only wired for DM/group (typingTarget is null for the
+    // channel composer, which never gets one -- publishing a post isn't
+    // "typing at" anyone). Pings are throttled to at most one every 3s so a
+    // fast typist doesn't hammer the endpoint on every keystroke; going idle
+    // for 3s (or emptying the box, or sending) clears the status right away
+    // rather than waiting out the server's TTL fallback.
+    if (typingTarget) {
+      const TYPING_PING_THROTTLE_MS = 3000;
+      const TYPING_IDLE_MS = 3000;
+      let lastTypingPingAt = 0;
+      let typingIdleTimer = null;
+      composerInput.addEventListener('input', () => {
+        if (typingIdleTimer) {
+          clearTimeout(typingIdleTimer);
+          typingIdleTimer = null;
+        }
+        if (composerInput.value.trim() === '') {
+          clearTyping(typingTarget);
+          return;
+        }
+        const now = Date.now();
+        if (now - lastTypingPingAt >= TYPING_PING_THROTTLE_MS) {
+          lastTypingPingAt = now;
+          pingTyping(typingTarget);
+        }
+        typingIdleTimer = setTimeout(() => clearTyping(typingTarget), TYPING_IDLE_MS);
+      });
+    }
 
     if (replyCloseButton) {
       replyCloseButton.addEventListener('click', () => {
@@ -4476,6 +4634,7 @@ document.addEventListener('DOMContentLoaded', () => {
       composerInput.style.height = '48px';
       clearReplyState(conversation.id);
       imageAttachment.clearPendingImage();
+      if (typingTarget) clearTyping(typingTarget);
 
       // Update conversation last message and timestamp for All tab sorting. A
       // group's row in the Messages list is keyed by groupId (a channel's by
@@ -4682,6 +4841,7 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           ${scrollToLatestFabHTML()}
         </div>
+        <div class="typing-indicator-bar" aria-live="polite"></div>
         <div class="composer-container chat-composer">
           ${actionAreaHTML}
         </div>
@@ -4806,7 +4966,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // the viewer is actually a member; non-members see the Join/Request
     // button wired above instead.
     if (isMember) {
-      setupComposer(group, { isGroup: true });
+      setupComposer(group, { isGroup: true, typingTarget: { type: 'group', id: groupId } });
 
       // Tap a "Failed to send" label to retry delivering that message.
       groupRoot.querySelectorAll('[data-retry-message-id]').forEach(el => {
@@ -4827,6 +4987,11 @@ document.addEventListener('DOMContentLoaded', () => {
           failed.forEach(msg => deliverThreadMessage('group', groupId, msg, () => renderGroupConversationPage(groupId)));
           return true;
         }
+      );
+
+      startTypingPolling(
+        () => fetchTypingUsers('group', groupId),
+        (names) => renderTypingIndicator(groupRoot.querySelector('.typing-indicator-bar'), true, names)
       );
     }
 
@@ -5145,6 +5310,82 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Render new message page
+  // Search modal opened from the Create screen's wallet/username trigger
+  // field. Mirrors showAddMembersSheet's shell, but has no footer since
+  // tapping a row acts immediately (starts the DM and closes the modal)
+  // instead of accumulating a selection to confirm.
+  function showUserSearchModal(initialQuery) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog user-search-modal-dialog';
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Search wallet, username</h2>
+        <button class="close-dialog-button">✕</button>
+      </div>
+      <div class="dialog-content">
+        <input type="text" class="form-input" id="user-search-modal-input" placeholder="🔍 Search wallet, username" />
+        <div class="users-list" id="user-search-modal-list"></div>
+      </div>
+    `;
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const searchInput = dialog.querySelector('#user-search-modal-input');
+    const usersListEl = dialog.querySelector('#user-search-modal-list');
+    let searchTimeout = null;
+    let currentResults = suggestedUsers;
+
+    function renderResults(results, emptyMessage) {
+      currentResults = results;
+      usersListEl.innerHTML = results.length > 0
+        ? results.map(user => renderUserListItemHtml(user)).join('')
+        : `<div class="empty-state">${emptyMessage}</div>`;
+      usersListEl.querySelectorAll('.suggested-user-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const userId = item.dataset.userId;
+          const user = currentResults.find(u => u.id === userId);
+          if (user) {
+            overlay.remove();
+            startConversationWith(user);
+          }
+        });
+      });
+    }
+
+    async function runSearch(query) {
+      if (!query) {
+        renderResults(suggestedUsers, 'No suggested users.');
+        return;
+      }
+      const results = await searchUsers(query);
+      if (searchInput.value.trim() !== query) return; // stale response, a newer query has since landed
+      renderResults(results, 'No users found.');
+    }
+
+    renderResults(suggestedUsers, 'No suggested users.');
+
+    searchInput.addEventListener('input', (e) => {
+      const query = e.target.value.trim();
+      if (searchTimeout) clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => runSearch(query), 300);
+    });
+
+    dialog.querySelector('.close-dialog-button').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+
+    if (initialQuery) {
+      searchInput.value = initialQuery;
+      runSearch(initialQuery);
+    } else {
+      searchInput.focus();
+    }
+  }
+
   function renderNewMessagePage() {
     function usersListHtml(list) {
       return list.length > 0
@@ -5158,7 +5399,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <h1>Guardian</h1>
         </div>
         <div class="search-container">
-          <input type="text" class="search-field" id="new-message-search-field" placeholder="🔍 Search wallet, username" />
+          <input type="text" class="search-field" id="new-message-search-field" placeholder="🔍 Search wallet, username" readonly />
         </div>
         <div class="create-scroll">
           <div class="create-options">
@@ -5207,65 +5448,45 @@ document.addEventListener('DOMContentLoaded', () => {
     attachManagedListListeners();
 
     const usersListEl = document.getElementById('new-message-users-list');
-    const usersHeaderEl = document.getElementById('new-message-users-header');
     const searchField = document.getElementById('new-message-search-field');
-    let searchTimeout = null;
-    let currentResults = suggestedUsers;
 
-    // Tapping a suggested/search user opens (or starts) a DM with them.
+    // Tapping a suggested user opens (or starts) a DM with them.
     function attachUserItemHandlers() {
       usersListEl.querySelectorAll('.suggested-user-item').forEach(item => {
         item.addEventListener('click', () => {
           const userId = item.dataset.userId;
-          const user = currentResults.find(u => u.id === userId);
+          const user = suggestedUsers.find(u => u.id === userId);
           if (user) startConversationWith(user);
         });
       });
     }
     attachUserItemHandlers();
 
-    // Search wallet/username — debounced, backed by the real directory search.
-    searchField.addEventListener('input', (e) => {
-      const query = e.target.value.trim();
-      if (searchTimeout) clearTimeout(searchTimeout);
-      searchTimeout = setTimeout(async () => {
-        if (!query) {
-          currentResults = suggestedUsers;
-          usersHeaderEl.textContent = 'Suggested Users';
-          usersListEl.innerHTML = usersListHtml(currentResults);
-          attachUserItemHandlers();
-          return;
-        }
-        currentResults = await searchUsers(query);
-        usersHeaderEl.textContent = 'Search Results';
-        usersListEl.innerHTML = currentResults.length > 0
-          ? currentResults.map(user => renderUserListItemHtml(user)).join('')
-          : '<div class="empty-state">No users found.</div>';
-        attachUserItemHandlers();
-      }, 300);
+    // Tapping/focusing the (readonly) search field opens the search modal
+    // instead of typing inline. Blur immediately so the on-screen keyboard
+    // never opens against this trigger, only against the modal's own
+    // input, and so the field can be re-focused to reopen the modal later.
+    searchField.addEventListener('focus', () => {
+      searchField.blur();
+      showUserSearchModal();
     });
 
     // Refresh Suggested Users with the latest directory each time this screen opens.
     fetchSuggestedUsers().then(() => {
-      if (searchField.value.trim()) return;
-      currentResults = suggestedUsers;
-      usersListEl.innerHTML = usersListHtml(currentResults);
+      usersListEl.innerHTML = usersListHtml(suggestedUsers);
       attachUserItemHandlers();
     });
 
-    // Screenshot-state deep link: run a real search against the staging seed
-    // data so the wallet/username search results are reachable for a screenshot
-    // without needing to type into the field by hand.
+    // Screenshot-state deep link: open the search modal pre-filled with a
+    // real query against the staging seed data, so the wallet/username
+    // search results are reachable for a screenshot without needing to
+    // type into the field by hand.
     if (SHOT_SEARCH_USERS) {
-      searchField.value = SHOT_SEARCH_QUERY;
-      (async () => {
-        currentResults = await searchUsers(SHOT_SEARCH_QUERY);
-        usersHeaderEl.textContent = 'Search Results';
-        usersListEl.innerHTML = currentResults.length > 0
-          ? currentResults.map(user => renderUserListItemHtml(user)).join('')
-          : '<div class="empty-state">No users found.</div>';
-        attachUserItemHandlers();
-      })();
+      showUserSearchModal(SHOT_SEARCH_QUERY);
+    } else if (SHOT_CREATE_SEARCH_MODAL) {
+      // Screenshot-state deep link: open the search modal empty, since the
+      // modal itself is otherwise only reachable by tapping the trigger field.
+      showUserSearchModal();
     }
   }
 
@@ -9063,6 +9284,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // onChanged callback would yank the user back into that thread's render
     // out from under whatever screen they navigated to.
     stopThreadPolling();
+    stopTypingPolling();
+    clearActiveTypingBestEffort();
     stopMessagesListPolling();
     // Defense-in-depth: a reply target left set on the thread we're leaving
     // should not still be sitting there if the user comes back to it later
@@ -9260,6 +9483,27 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
+    if (SHOT_DM_UNHIDE_ON_MESSAGE) {
+      // Screenshot-state: message a fixture peer, then hide the resulting DM
+      // through the real Delete Chat endpoint -- BEFORE the first hydration
+      // below -- so the "send unhides it" check further down starts from a
+      // thread that's genuinely hidden server side, not just client state.
+      try {
+        await fetch(`/api/messages/direct/${SHOT_DM_UNHIDE_PEER_ID}`, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ id: `shot_unhide_before_${Date.now()}`, text: SHOT_DM_UNHIDE_TEXT_BEFORE_HIDE })
+        });
+        await fetch(`/api/conversations/conv_${SHOT_DM_UNHIDE_PEER_ID}/state`, {
+          method: 'PUT',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ hiddenFromInbox: true })
+        });
+      } catch (error) {
+        console.warn('Could not set up shot dm-unhide-on-message fixtures:', error);
+      }
+    }
+
     await Promise.all([
       fetchSuggestedUsers(),
       hydrateServerGroups(),
@@ -9395,6 +9639,42 @@ document.addEventListener('DOMContentLoaded', () => {
       marker.setAttribute('data-count', String(stillPresent));
       marker.style.display = 'none';
       marker.textContent = 'StillPresent:' + stillPresent;
+      document.body.appendChild(marker);
+    }
+
+    if (SHOT_DM_UNHIDE_ON_MESSAGE) {
+      // The DM was hidden through the real endpoint before hydration above --
+      // hydration still loads the row (hiding only affects Messages-list
+      // rendering), but its hiddenFromInbox flag must be true here.
+      const hiddenAfterSetup = conversations.some(c => c.type === 'direct' && c.id === 'conv_' + SHOT_DM_UNHIDE_PEER_ID && c.hiddenFromInbox);
+
+      // Send another message into the hidden thread -- the fixed send route
+      // should clear hidden_from_inbox for this side as part of handling it.
+      try {
+        await fetch(`/api/messages/direct/${SHOT_DM_UNHIDE_PEER_ID}`, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ id: `shot_unhide_after_${Date.now()}`, text: SHOT_DM_UNHIDE_TEXT_AFTER_HIDE })
+        });
+      } catch (error) {
+        console.warn('Could not deliver shot dm-unhide-on-message follow-up:', error);
+      }
+
+      // Simulate closing and reopening the app so this proves the unhide was
+      // persisted server side, not just applied to this tab's in-memory list.
+      conversations.length = 0;
+      await hydrateServerDirectConversations();
+      await hydrateConversationUserState();
+
+      const visibleAfterMessage =
+        conversations.some(c => c.type === 'direct' && c.id === 'conv_' + SHOT_DM_UNHIDE_PEER_ID && !c.hiddenFromInbox);
+
+      const marker = document.createElement('div');
+      marker.setAttribute('data-testid', 'unhide-on-message-result');
+      marker.setAttribute('data-hidden-after-setup', String(hiddenAfterSetup));
+      marker.setAttribute('data-visible-after-message', String(visibleAfterMessage));
+      marker.style.display = 'none';
+      marker.textContent = 'HiddenAfterSetup:' + hiddenAfterSetup + ' VisibleAfterMessage:' + visibleAfterMessage;
       document.body.appendChild(marker);
     }
 
