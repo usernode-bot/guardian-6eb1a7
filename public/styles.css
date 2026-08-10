@@ -3984,6 +3984,122 @@ html, body {
   opacity: 0.6;
 }
 
+/* Chat composer -- dark pill restyle shared by DM, group, and channel chat
+   threads (public/app.js composerMarkup(), used at the three chat-thread
+   render sites). Scoped to .chat-composer so the channel's separate
+   "Publish post" composer -- which reuses the same .composer-container /
+   .composer-input / .attach-image-button base classes -- is untouched. */
+.composer-container.chat-composer {
+  background-color: #1a1a1a;
+  border-top: none;
+  padding: 10px 12px;
+}
+
+.chat-composer .composer-input {
+  background-color: #2c2c2e;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  color: #f2f2f2;
+  min-height: 44px;
+}
+
+.chat-composer .composer-input::placeholder {
+  color: #8e8e93;
+}
+
+.chat-composer .composer-input:focus {
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.chat-composer .attach-image-button {
+  background-color: transparent;
+  color: #8e8e93;
+}
+
+.chat-composer .attach-image-button svg {
+  display: block;
+}
+
+.chat-composer .attach-image-button:active {
+  background-color: rgba(255, 255, 255, 0.08);
+  opacity: 1;
+}
+
+.chat-composer .send-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #007aff;
+  color: #fff;
+  padding: 0;
+}
+
+.chat-composer .send-button svg {
+  display: block;
+}
+
+.chat-composer .send-button:active {
+  background-color: #0051d5;
+  opacity: 1;
+}
+
+.chat-composer .send-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.chat-composer .reply-preview-bar {
+  background-color: #2c2c2e;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.chat-composer .reply-sender {
+  color: #d0d0d0;
+}
+
+.chat-composer .reply-text {
+  color: #8e8e93;
+}
+
+.chat-composer .reply-close-button {
+  color: #8e8e93;
+}
+
+.chat-composer .reply-close-button:active {
+  color: #d0d0d0;
+}
+
+.chat-composer .pending-image-bar {
+  background-color: #2c2c2e;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.chat-composer .pending-image-thumb {
+  background-color: #3a3a3c;
+}
+
+.chat-composer .pending-image-status {
+  color: #8e8e93;
+}
+
+.chat-composer .pending-image-remove {
+  color: #8e8e93;
+}
+
+.chat-composer .pending-image-remove:active {
+  color: #d0d0d0;
+}
+
+.chat-composer .view-only-badge {
+  background-color: #2c2c2e;
+  color: #8e8e93;
+}
+
 /* Image message bubbles */
 .message-bubble.has-image {
   padding: 0;

@@ -2354,10 +2354,19 @@ document.addEventListener('DOMContentLoaded', () => {
         <span class="pending-image-status">Uploading…</span>
         <button class="pending-image-remove" aria-label="Remove image">✕</button>
       </div>
-      <button class="attach-image-button" type="button" aria-label="Add image" ${disabled}>📷</button>
+      <button class="attach-image-button" type="button" aria-label="Add image" ${disabled}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.19 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.49"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
       <input type="file" class="attach-image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display: none;" />
-      <textarea class="composer-input" placeholder="Message..." rows="1" ${disabled}></textarea>
-      <button class="send-button" aria-label="Send" ${disabled}>➤</button>
+      <textarea class="composer-input" placeholder="Message" rows="1" ${disabled}></textarea>
+      <button class="send-button" aria-label="Send" ${disabled}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M2 21l21-9L2 3v7l15 2-15 2v7z" fill="currentColor"/>
+        </svg>
+      </button>
     `;
   }
 
@@ -2664,7 +2673,7 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           ${scrollToLatestFabHTML()}
         </div>
-        <div class="composer-container">
+        <div class="composer-container chat-composer">
           ${composerMarkup({ conversationId: conversation.id })}
         </div>
       </div>
@@ -4670,7 +4679,7 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           ${scrollToLatestFabHTML()}
         </div>
-        <div class="composer-container">
+        <div class="composer-container chat-composer">
           ${actionAreaHTML}
         </div>
       </div>
@@ -8397,7 +8406,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="messages-container">
           ${messagesList}
         </div>
-        <div class="composer-container" style="${composerDisplay}">
+        <div class="composer-container chat-composer" style="${composerDisplay}">
           ${viewOnlyBadge}
           ${composerMarkup({ disabled: !channel.currentUserCanSend, conversationId: channel.id })}
         </div>

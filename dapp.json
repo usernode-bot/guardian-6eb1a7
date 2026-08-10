@@ -814,6 +814,31 @@
       "name": "Sent DM bubble in a mixed-direction thread renders with outgoing styling",
       "path": "/#/conversation/conv_staging-demo-user-13",
       "expectSelector": ".message.outgoing"
+    },
+    {
+      "name": "DM chat composer uses the dark pill restyle (regression: mic-less dark composer with paperclip + circular send button)",
+      "path": "/#/conversation/conv_staging-demo-user-5",
+      "expectSelector": ".chat-composer .composer-input"
+    },
+    {
+      "name": "DM composer send button renders as a circular icon button, not an arrow character",
+      "path": "/#/conversation/conv_staging-demo-user-5",
+      "expectSelector": ".chat-composer .send-button svg"
+    },
+    {
+      "name": "DM composer attach button renders a paperclip icon",
+      "path": "/#/conversation/conv_staging-demo-user-5",
+      "expectSelector": ".chat-composer .attach-image-button svg"
+    },
+    {
+      "name": "Group chat composer shares the same dark pill restyle as DM",
+      "path": "/#/group/group_staging_owned_1",
+      "expectSelector": ".chat-composer .send-button svg"
+    },
+    {
+      "name": "Channel's Publish post composer keeps its original light styling, unaffected by the chat composer restyle",
+      "path": "/#/channel/channel_staging_owned_1",
+      "expectSelector": ".channel-footer .composer-container:not(.chat-composer)"
     }
   ]
 }
