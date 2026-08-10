@@ -834,6 +834,16 @@
       "name": "Typing indicator renders in group chat view",
       "path": "/?shot=typing-demo#/group/group_staging_owned_1",
       "expectSelector": ".typing-indicator-bar.is-visible"
+    },
+    {
+      "name": "Message reaction picker renders above the fading context menu (regression: picker was rendering underneath the still-visible menu overlay)",
+      "path": "/?shot=message-reactions#/conversation/conv_staging-demo-user-5",
+      "expectSelector": ".message-reaction-picker"
+    },
+    {
+      "name": "Reacting to a message shows a persisted reaction chip on the bubble (regression: reactions were client-local only and never synced to other viewers)",
+      "path": "/?shot=message-reactions#/conversation/conv_staging-demo-user-5",
+      "expectSelector": ".message-reaction-chip"
     }
   ]
 }
