@@ -1429,7 +1429,7 @@ async function getChannelRole(channelId, userId) {
     : 'follower';
 }
 
-function shapeMessage(row) {
+function shapeMessage(row, reactionsByMessageId) {
   const msg = {
     id: row.id,
     senderId: row.sender_user_id,
@@ -1449,7 +1449,62 @@ function shapeMessage(row) {
     msg.replyToSenderName = row.reply_to_sender_name;
     msg.replyToPreviewText = row.reply_to_preview_text;
   }
+  const reactions = reactionsByMessageId && reactionsByMessageId[row.id];
+  if (reactions && Object.keys(reactions).length) {
+    msg.reactions = reactions;
+  }
   return msg;
+}
+
+// Batch-loads every reaction on the given message ids into
+// { [messageId]: { [emoji]: { [userId]: true } } }, matching the shape the
+// client already keeps on thread.messages[].reactions (see
+// toggleMessageReaction in app.js) so shapeMessage can attach it unchanged.
+async function getReactionsForMessages(messageIds) {
+  if (!messageIds.length) return {};
+  const result = await pool.query(
+    `SELECT message_id, user_id, emoji FROM message_reactions WHERE message_id = ANY($1)`,
+    [messageIds]
+  );
+  const map = {};
+  result.rows.forEach(row => {
+    if (!map[row.message_id]) map[row.message_id] = {};
+    if (!map[row.message_id][row.emoji]) map[row.message_id][row.emoji] = {};
+    map[row.message_id][row.emoji][row.user_id] = true;
+  });
+  return map;
+}
+
+// Toggles one (message, user, emoji) reaction on/off -- an insert-or-delete
+// rather than a single UPSERT, since "already reacted" needs to flip to "not
+// reacted" rather than just refresh a timestamp. Returns the message's full
+// updated reaction map, or null if the message doesn't belong to this
+// conversation (the caller then 404s instead of silently creating an
+// orphaned reaction row).
+async function toggleMessageReaction(conversationType, conversationId, messageId, userId, emoji) {
+  const msgRes = await pool.query(
+    `SELECT id FROM messages WHERE id = $1 AND conversation_type = $2 AND conversation_id = $3`,
+    [messageId, conversationType, conversationId]
+  );
+  if (msgRes.rowCount === 0) return null;
+  const existing = await pool.query(
+    `SELECT 1 FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+    [messageId, userId, emoji]
+  );
+  if (existing.rowCount > 0) {
+    await pool.query(
+      `DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+      [messageId, userId, emoji]
+    );
+  } else {
+    await pool.query(
+      `INSERT INTO message_reactions (message_id, user_id, emoji) VALUES ($1, $2, $3)
+       ON CONFLICT (message_id, user_id, emoji) DO NOTHING`,
+      [messageId, userId, emoji]
+    );
+  }
+  const reactionsByMessageId = await getReactionsForMessages([messageId]);
+  return reactionsByMessageId[messageId] || {};
 }
 
 const MAX_MESSAGE_TEXT_LENGTH = 4000;
@@ -1509,7 +1564,8 @@ async function listMessages(conversationType, conversationId, userId) {
      ) recent ORDER BY created_at ASC`,
     [conversationType, conversationId, userId || null]
   );
-  return result.rows.map(shapeMessage);
+  const reactionsByMessageId = await getReactionsForMessages(result.rows.map(r => r.id));
+  return result.rows.map(row => shapeMessage(row, reactionsByMessageId));
 }
 
 // ---------------------------------------------------------------------------
@@ -1793,6 +1849,38 @@ app.post('/api/messages/direct/:peerId/:messageId/delete', async (req, res) => {
   }
 });
 
+// POST /api/messages/direct/:peerId/:messageId/react - toggle one emoji
+// reaction for the caller on a DM message (long-press a bubble -> React).
+// Idempotent-toggle, same as the client's local toggleMessageReaction: react
+// once to add it, react again with the same emoji to remove it. Scoped
+// through the same conversation lookup as the GET/delete routes above, so a
+// caller can't react to a message in a thread they're not part of. The
+// updated reaction map is returned so the sender's own optimistic UI (and
+// every other viewer's next poll, via GET .../direct/:peerId) stay in sync.
+app.post('/api/messages/direct/:peerId/:messageId/react', async (req, res) => {
+  try {
+    const { peerId, messageId } = req.params;
+    const emoji = typeof req.body.emoji === 'string' ? req.body.emoji.trim().slice(0, 16) : '';
+    if (!emoji) return res.status(400).json({ error: 'Missing emoji' });
+    const convRes = await pool.query(
+      `SELECT id FROM direct_conversations
+        WHERE (user_id_a = $1 AND user_id_b = $2)
+           OR (user_id_a = $2 AND user_id_b = $1)
+           OR (user_id_a = 'user_self' AND user_id_b = $2)
+           OR (user_id_b = 'user_self' AND user_id_a = $2)`,
+      [req.user.id, peerId]
+    );
+    if (convRes.rowCount === 0) return res.status(404).json({ error: 'Conversation not found' });
+    const conversationId = convRes.rows[0].id;
+    const reactions = await toggleMessageReaction('direct', conversationId, messageId, req.user.id, emoji);
+    if (reactions === null) return res.status(404).json({ error: 'Message not found' });
+    res.json({ reactions });
+  } catch (err) {
+    console.error('[messages] direct react failed:', err);
+    res.status(500).json({ error: 'Failed to react to message' });
+  }
+});
+
 // POST /api/messages/direct/:peerId/clear - "clear chat" for the caller only:
 // hides every message currently in this DM thread, same mechanism as the
 // single-message /hide route above (bulk-inserts into message_hidden_for
@@ -1876,6 +1964,27 @@ app.post('/api/messages/group/:groupId/:messageId/delete', async (req, res) => {
   } catch (err) {
     console.error('[messages] group delete failed:', err);
     res.status(500).json({ error: 'Failed to delete message' });
+  }
+});
+
+// POST /api/messages/group/:groupId/:messageId/react - toggle one emoji
+// reaction for the caller on a group message. Any member may react, same as
+// the group's own /api/messages/group/:groupId send route (no owner/admin
+// gate). See the direct/:peerId/:messageId/react route above for the
+// idempotent-toggle semantics shared with the client.
+app.post('/api/messages/group/:groupId/:messageId/react', async (req, res) => {
+  try {
+    const { groupId, messageId } = req.params;
+    const role = await getGroupRole(groupId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Group not found' });
+    const emoji = typeof req.body.emoji === 'string' ? req.body.emoji.trim().slice(0, 16) : '';
+    if (!emoji) return res.status(400).json({ error: 'Missing emoji' });
+    const reactions = await toggleMessageReaction('group', groupId, messageId, req.user.id, emoji);
+    if (reactions === null) return res.status(404).json({ error: 'Message not found' });
+    res.json({ reactions });
+  } catch (err) {
+    console.error('[messages] group react failed:', err);
+    res.status(500).json({ error: 'Failed to react to message' });
   }
 });
 
@@ -2225,6 +2334,25 @@ async function initDatabase() {
       );
     `);
 
+    // Message-level reactions (long-press a bubble -> React). One row per
+    // (message, user, emoji) so a user can hold several emoji on the same
+    // message at once, mirroring the client's per-emoji toggle in
+    // toggleMessageReaction/togglePostReaction. Previously this only ever
+    // lived in each browser's in-memory thread.messages[].reactions, so a
+    // reaction never reached any other viewer and vanished on reload.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS message_reactions (
+        message_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        emoji TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (message_id, user_id, emoji)
+      );
+    `);
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS message_reactions_message_idx ON message_reactions (message_id)`
+    );
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS conversation_user_state (
         conversation_id TEXT NOT NULL,
@@ -2308,6 +2436,10 @@ async function initDatabase() {
     await pool.query(`COMMENT ON TABLE conversation_user_state IS 'staging:private'`);
     // Private: ties a real user_id to a specific message_id they hid.
     await pool.query(`COMMENT ON TABLE message_hidden_for IS 'staging:private'`);
+    // Private: ties a real user_id to a specific message_id (and thus a DM
+    // or private group) they reacted to, same sensitivity class as the
+    // message content itself.
+    await pool.query(`COMMENT ON TABLE message_reactions IS 'staging:private'`);
     // Private: reveals who is DMing whom, and the DM content itself.
     await pool.query(`COMMENT ON TABLE direct_conversations IS 'staging:private'`);
     await pool.query(`COMMENT ON TABLE messages IS 'staging:private'`);
