@@ -2442,10 +2442,12 @@ html, body {
 }
 
 /* Channel-specific styles */
+/* .channel-footer carries no visual styling of its own -- the inner
+   .composer-container.chat-composer is the sole source of padding,
+   background and the bottom-edge lift, exactly like DM/group where
+   .conversation-page itself has no padding. */
 .channel-footer {
-  padding: 12px;
-  border-top: 1px solid #e0e0e0;
-  background-color: #fff;
+  padding: 0;
 }
 
 .composer-container {
@@ -2467,32 +2469,25 @@ html, body {
   height: 40px;
 }
 
-.composer-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.image-button,
+/* Publish button matches .chat-composer .send-button's circular icon
+   treatment -- see the .chat-composer block below. */
 .publish-button {
-  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
   border: none;
   border-radius: 50%;
-  background-color: #f0f0f0;
+  background-color: #007AFF;
+  color: #fff;
   cursor: pointer;
-  font-size: 18px;
+  padding: 0;
   transition: background-color 0.2s;
 }
 
-.image-button:active,
-.publish-button:active {
-  background-color: #e0e0e0;
-}
-
-.publish-button {
-  background-color: #007AFF;
-  color: white;
-  padding: 8px 16px;
-  border-radius: 8px;
+.publish-button svg {
+  display: block;
 }
 
 .publish-button:active {
@@ -2557,10 +2552,6 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.channel-page .channel-footer {
-  padding-bottom: max(12px, env(safe-area-inset-bottom));
 }
 
 .post-card {
@@ -4033,9 +4024,9 @@ html, body {
 
 /* Chat composer -- dark pill restyle shared by DM, group, and channel chat
    threads (public/app.js composerMarkup(), used at the three chat-thread
-   render sites). Scoped to .chat-composer so the channel's separate
-   "Publish post" composer -- which reuses the same .composer-container /
-   .composer-input / .attach-image-button base classes -- is untouched. */
+   render sites) and, via the shared .composer-container / .composer-input /
+   .attach-image-button base classes, by the channel's own "Publish post"
+   composer once it carries this class too. */
 .composer-container.chat-composer {
   background-color: #1a1a1a;
   border-top: none;

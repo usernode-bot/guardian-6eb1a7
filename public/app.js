@@ -7169,18 +7169,27 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
         ${isOwner ? `
           <div class="channel-footer">
-            <div class="composer-container">
+            <div class="composer-container chat-composer">
               <div class="pending-image-bar" style="display: none;">
                 <img class="pending-image-thumb" alt="Selected image preview" />
                 <span class="pending-image-status">Uploading…</span>
                 <button class="pending-image-remove" aria-label="Remove image">✕</button>
               </div>
-              <textarea class="composer-input" placeholder="What's happening?" rows="1"></textarea>
-              <div class="composer-actions">
-                <button class="image-button attach-image-button" aria-label="Add image">📷</button>
+              <div class="composer-input-shell">
+                <textarea class="composer-input" placeholder="What's happening?" rows="1"></textarea>
+                <button class="attach-image-button" type="button" aria-label="Add image">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.19 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.49"
+                          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
                 <input type="file" class="attach-image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display: none;" />
-                <button class="publish-button" aria-label="Publish">Publish</button>
               </div>
+              <button class="publish-button" type="button" aria-label="Publish">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M2 21l21-9L2 3v7l15 2-15 2v7z" fill="currentColor"/>
+                </svg>
+              </button>
             </div>
           </div>
         ` : ''}

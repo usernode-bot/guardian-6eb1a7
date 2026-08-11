@@ -846,9 +846,19 @@
       "expectSelector": ".chat-composer .send-button svg"
     },
     {
-      "name": "Channel's Publish post composer keeps its original light styling, unaffected by the chat composer restyle",
+      "name": "Channel's Publish post composer now shares the dark pill restyle used by DM/group",
       "path": "/#/channel/channel_staging_owned_1",
-      "expectSelector": ".channel-footer .composer-container:not(.chat-composer)"
+      "expectSelector": ".channel-footer .composer-container.chat-composer .composer-input"
+    },
+    {
+      "name": "Channel composer paperclip icon is nested inside the input pill, next to publish",
+      "path": "/#/channel/channel_staging_owned_1",
+      "expectSelector": ".channel-footer .chat-composer .composer-input-shell .attach-image-button"
+    },
+    {
+      "name": "Channel composer publish button renders as a circular icon button, not text",
+      "path": "/#/channel/channel_staging_owned_1",
+      "expectSelector": ".channel-footer .chat-composer .publish-button svg"
     },
     {
       "name": "DM composer paperclip icon is nested inside the input pill, next to send",
