@@ -2501,7 +2501,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Render conversation screen
   // Shared composer markup for DM, group and channel threads.
-  // The attach-image control sits on the LEFT of the input field.
+  // The attach-image control sits INSIDE the input pill, pinned to its
+  // bottom-right corner next to the send button.
   function composerMarkup(options = {}) {
     const disabled = options.disabled ? 'disabled' : '';
     // The reply bar's visible state must come from THIS conversation's reply
@@ -2528,10 +2529,21 @@ document.addEventListener('DOMContentLoaded', () => {
         <span class="pending-image-status">Uploading…</span>
         <button class="pending-image-remove" aria-label="Remove image">✕</button>
       </div>
-      <button class="attach-image-button" type="button" aria-label="Add image" ${disabled}>📷</button>
-      <input type="file" class="attach-image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display: none;" />
-      <textarea class="composer-input" placeholder="Message..." rows="1" ${disabled}></textarea>
-      <button class="send-button" aria-label="Send" ${disabled}>➤</button>
+      <div class="composer-input-shell">
+        <textarea class="composer-input" placeholder="Message" rows="1" ${disabled}></textarea>
+        <button class="attach-image-button" type="button" aria-label="Add image" ${disabled}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.19 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.49"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <input type="file" class="attach-image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display: none;" />
+      </div>
+      <button class="send-button" aria-label="Send" ${disabled}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M2 21l21-9L2 3v7l15 2-15 2v7z" fill="currentColor"/>
+        </svg>
+      </button>
     `;
   }
 
@@ -2839,7 +2851,7 @@ document.addEventListener('DOMContentLoaded', () => {
           ${scrollToLatestFabHTML()}
         </div>
         <div class="typing-indicator-bar" aria-live="polite"></div>
-        <div class="composer-container">
+        <div class="composer-container chat-composer">
           ${composerMarkup({ conversationId: conversation.id })}
         </div>
       </div>
@@ -4467,12 +4479,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // renderers, so the caller says which one it is — re-rendering a group through
   // renderConversationPage() used to find nothing and bounce the user out to the
   // Messages list, losing the message they just sent.
-  // Wires the image-attach button/input pipeline (sniff -> downscale -> upload)
-  // that every composer shares - DM, group and channel alike. `actionButton`
-  // is whichever button submits the composer (Send or Publish); it's disabled
-  // while an upload is in flight so nothing can be sent half-uploaded.
-  // Returns an accessor for the currently-uploaded image plus a way to clear
-  // it after a successful send/publish.
+  // Wires the image-attach button/input pipeline (sniff -> downscale -> stage)
+  // that every composer shares - DM, group and channel alike. Picking a file
+  // only validates/downscales it and shows a local preview - it does NOT
+  // upload. The actual upload happens on demand via uploadPendingImageIfNeeded(),
+  // which the send/publish handler awaits right before composing the outgoing
+  // message/post. `actionButton` is whichever button submits the composer
+  // (Send or Publish); it's disabled while that upload is in flight so
+  // nothing can be sent half-uploaded.
   function setupImageAttachment(els) {
     const { attachButton, attachInput, pendingBar, pendingThumb, pendingStatus, pendingRemove, actionButton } = els;
 
@@ -4536,49 +4550,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const objectUrl = URL.createObjectURL(blob);
 
-        pendingImage = { blob, objectUrl, url: null, id: null, status: 'uploading' };
+        // Just stage it - no network call yet. The upload happens on send/
+        // publish, via uploadPendingImageIfNeeded() below.
+        pendingImage = { blob, objectUrl, url: null, id: null, status: 'staged', sourceFile: file, sourceType };
 
         if (pendingThumb) pendingThumb.src = objectUrl;
-        if (pendingStatus) pendingStatus.textContent = 'Uploading…';
+        if (pendingStatus) pendingStatus.textContent = 'Ready to send';
         if (pendingBar) pendingBar.style.display = 'flex';
-        if (actionButton) actionButton.disabled = true;
-        attachButton.disabled = true;
-
-        const uploadingFor = pendingImage;
-        try {
-          const stored = await window.usernode.uploadFile(blob, { visibility: 'public' });
-          // The user may have cancelled while the upload was in flight
-          if (pendingImage !== uploadingFor) return;
-
-          pendingImage.url = stored.url;
-          pendingImage.id = stored.id;
-          pendingImage.status = 'ready';
-          if (pendingStatus) pendingStatus.textContent = 'Ready to send';
-          if (actionButton) actionButton.disabled = false;
-          attachButton.disabled = false;
-        } catch (err) {
-          // Log everything the platform gave us plus exactly what we sent, so
-          // "upload failed" reports are diagnosable from the console alone
-          console.error('Image upload failed:', {
-            code: uploadErrorCode(err),
-            inferredCode: uploadErrorCode(err) ? null : inferUploadErrorCode(err),
-            name: err && err.name,
-            message: err && err.message,
-            status: err && (err.status || err.statusCode),
-            sentFilename: blob && blob.name,
-            sentContentType: blob && blob.type,
-            sentSizeBytes: blob && blob.size,
-            sourceFilename: file.name,
-            sourceContentType: file.type,
-            sniffedContentType: sourceType
-          }, err);
-          if (pendingImage === uploadingFor) {
-            clearPendingImage();
-          }
-          showToast(uploadErrorMessage(err), { type: 'error' });
-        } finally {
-          attachInput.value = '';
-        }
+        attachInput.value = '';
       });
     }
 
@@ -4588,9 +4567,64 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
+    // Uploads the staged image, if any, and returns it (with .url/.id filled
+    // in) once the upload succeeds. Awaited by the send/publish handler right
+    // before it composes the outgoing message/post, so nothing hits the
+    // network until the user actually sends. Returns null when there's
+    // nothing staged. Throws on upload failure - the caller should abort the
+    // send and leave the image staged so the user can just retry by sending
+    // again, which is why the staged state is restored (not cleared) here.
+    async function uploadPendingImageIfNeeded() {
+      if (!pendingImage) return null;
+      if (pendingImage.status === 'ready') return pendingImage;
+
+      const uploadingFor = pendingImage;
+      if (actionButton) actionButton.disabled = true;
+      if (attachButton) attachButton.disabled = true;
+      if (pendingStatus) pendingStatus.textContent = 'Uploading…';
+
+      try {
+        const stored = await window.usernode.uploadFile(uploadingFor.blob, { visibility: 'public' });
+        // The user may have removed the attachment while the upload was in flight
+        if (pendingImage !== uploadingFor) return null;
+
+        pendingImage.url = stored.url;
+        pendingImage.id = stored.id;
+        pendingImage.status = 'ready';
+        if (actionButton) actionButton.disabled = false;
+        if (attachButton) attachButton.disabled = false;
+        return pendingImage;
+      } catch (err) {
+        // Log everything the platform gave us plus exactly what we sent, so
+        // "upload failed" reports are diagnosable from the console alone
+        console.error('Image upload failed:', {
+          code: uploadErrorCode(err),
+          inferredCode: uploadErrorCode(err) ? null : inferUploadErrorCode(err),
+          name: err && err.name,
+          message: err && err.message,
+          status: err && (err.status || err.statusCode),
+          sentFilename: uploadingFor.blob && uploadingFor.blob.name,
+          sentContentType: uploadingFor.blob && uploadingFor.blob.type,
+          sentSizeBytes: uploadingFor.blob && uploadingFor.blob.size,
+          sourceFilename: uploadingFor.sourceFile && uploadingFor.sourceFile.name,
+          sourceContentType: uploadingFor.sourceFile && uploadingFor.sourceFile.type,
+          sniffedContentType: uploadingFor.sourceType
+        }, err);
+        if (pendingImage === uploadingFor) {
+          pendingImage.status = 'staged';
+          if (pendingStatus) pendingStatus.textContent = 'Ready to send';
+          if (actionButton) actionButton.disabled = false;
+          if (attachButton) attachButton.disabled = false;
+        }
+        showToast(uploadErrorMessage(err), { type: 'error' });
+        throw err;
+      }
+    }
+
     return {
       clearPendingImage,
-      getReadyImage: () => (pendingImage && pendingImage.status === 'ready' ? pendingImage : null)
+      hasPendingImage: () => !!pendingImage,
+      uploadPendingImageIfNeeded
     };
   }
 
@@ -4675,11 +4709,25 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    sendButton.addEventListener('click', () => {
+    sendButton.addEventListener('click', async () => {
       const text = composerInput.value.trim();
-      const readyImage = imageAttachment.getReadyImage();
+      const hasImage = imageAttachment.hasPendingImage();
       // An image on its own is a valid message - text is optional now
-      if (!text && !readyImage) return;
+      if (!text && !hasImage) return;
+
+      // Guard against double-submit for the whole upload+send window
+      sendButton.disabled = true;
+      let uploadedImage = null;
+      if (hasImage) {
+        try {
+          uploadedImage = await imageAttachment.uploadPendingImageIfNeeded();
+        } catch (err) {
+          // Error toast already shown; leave the photo staged so the user
+          // can just tap Send again to retry.
+          sendButton.disabled = false;
+          return;
+        }
+      }
 
       // Create new message with optional reply metadata
       const newMessage = {
@@ -4690,9 +4738,9 @@ document.addEventListener('DOMContentLoaded', () => {
         isOutgoing: true
       };
 
-      if (readyImage) {
-        newMessage.imageUrl = readyImage.url;
-        newMessage.imageId = readyImage.id;
+      if (uploadedImage) {
+        newMessage.imageUrl = uploadedImage.url;
+        newMessage.imageId = uploadedImage.id;
       }
 
       // Attach reply metadata if replying
@@ -4919,7 +4967,7 @@ document.addEventListener('DOMContentLoaded', () => {
           ${scrollToLatestFabHTML()}
         </div>
         <div class="typing-indicator-bar" aria-live="polite"></div>
-        <div class="composer-container">
+        <div class="composer-container chat-composer">
           ${actionAreaHTML}
         </div>
       </div>
@@ -7279,18 +7327,27 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
         ${isOwner ? `
           <div class="channel-footer">
-            <div class="composer-container">
+            <div class="composer-container chat-composer">
               <div class="pending-image-bar" style="display: none;">
                 <img class="pending-image-thumb" alt="Selected image preview" />
                 <span class="pending-image-status">Uploading…</span>
                 <button class="pending-image-remove" aria-label="Remove image">✕</button>
               </div>
-              <textarea class="composer-input" placeholder="What's happening?" rows="1"></textarea>
-              <div class="composer-actions">
-                <button class="image-button attach-image-button" aria-label="Add image">📷</button>
+              <div class="composer-input-shell">
+                <textarea class="composer-input" placeholder="What's happening?" rows="1"></textarea>
+                <button class="attach-image-button" type="button" aria-label="Add image">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.19 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.49"
+                          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
                 <input type="file" class="attach-image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display: none;" />
-                <button class="publish-button" aria-label="Publish">Publish</button>
               </div>
+              <button class="publish-button" type="button" aria-label="Publish">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M2 21l21-9L2 3v7l15 2-15 2v7z" fill="currentColor"/>
+                </svg>
+              </button>
             </div>
           </div>
         ` : ''}
@@ -7552,13 +7609,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
       composerInput.addEventListener('input', autoExpandTextarea);
 
-      publishButton.addEventListener('click', () => {
+      publishButton.addEventListener('click', async () => {
         const text = composerInput.value.trim();
-        const readyImage = imageAttachment.getReadyImage();
+        const hasImage = imageAttachment.hasPendingImage();
         // An image on its own is a valid post - text is optional, same as DMs/groups
-        if (!text && !readyImage) return;
+        if (!text && !hasImage) return;
 
-        publishPost(channelId, text, readyImage, () => renderChannelView(channelId));
+        // Guard against double-submit for the whole upload+publish window
+        publishButton.disabled = true;
+        let uploadedImage = null;
+        if (hasImage) {
+          try {
+            uploadedImage = await imageAttachment.uploadPendingImageIfNeeded();
+          } catch (err) {
+            // Error toast already shown; leave the photo staged so the user
+            // can just tap Publish again to retry.
+            publishButton.disabled = false;
+            return;
+          }
+        }
+
+        publishPost(channelId, text, uploadedImage, () => renderChannelView(channelId));
         composerInput.value = '';
         composerInput.style.height = '40px';
         imageAttachment.clearPendingImage();
@@ -8790,7 +8861,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="messages-container">
           ${messagesList}
         </div>
-        <div class="composer-container" style="${composerDisplay}">
+        <div class="composer-container chat-composer" style="${composerDisplay}">
           ${viewOnlyBadge}
           ${composerMarkup({ disabled: !channel.currentUserCanSend, conversationId: channel.id })}
         </div>
