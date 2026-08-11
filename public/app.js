@@ -2803,7 +2803,7 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="conversation-page" data-conversation-id="${escapeAttr(conversationId)}">
         <div class="conversation-page-header">
           <button class="back-button" aria-label="Back to messages">←</button>
-          <div class="conversation-header-info">
+          <div class="conversation-header-info" id="dm-header-info-${escapeAttr(conversationId)}">
             <div class="conversation-avatar-header">${renderCommunityAvatar(conversation.avatar, conversation.username)}</div>
             <div class="header-text">
               <div class="header-username">${escapeHtml(conversation.username)}</div>
@@ -2850,6 +2850,16 @@ document.addEventListener('DOMContentLoaded', () => {
       menuButton.addEventListener('click', (e) => {
         e.stopPropagation();
         showDMMenuDialog(conversationId, conversation);
+      });
+    }
+
+    // Tap avatar/name to open the Conversation Info screen
+    const dmHeaderInfo = document.getElementById(`dm-header-info-${conversationId}`);
+    if (dmHeaderInfo) {
+      dmHeaderInfo.style.cursor = 'pointer';
+      dmHeaderInfo.addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.location.hash = `/conversation/${conversationId}/info`;
       });
     }
 
@@ -3069,6 +3079,60 @@ document.addEventListener('DOMContentLoaded', () => {
         console.warn('Could not persist chat clear:', error);
       });
     }
+  }
+
+  // Render Conversation Info page for a DM — reached by tapping the avatar/
+  // name in the conversation header. No Share icon here: unlike groups and
+  // channels there's no invite-link deep-link scheme for a 1:1 DM. The only
+  // header action is Delete Conversation (removes it from this user's
+  // inbox only — see performDeleteDirectConversation).
+  function renderConversationInfoPage(conversationId) {
+    const conversation = conversations.find(c => c.id === conversationId);
+    if (!conversation) {
+      window.location.hash = '/messages';
+      return;
+    }
+
+    pageContainer.innerHTML = `
+      <div class="dm-info-page">
+        <div class="dm-info-header">
+          <button class="back-button" aria-label="Back to conversation">←</button>
+          <h1>Conversation Info</h1>
+          <div class="info-header-actions">
+            <button class="header-icon-button delete-dm-button" id="delete-dm-button" aria-label="Delete conversation" title="Delete conversation">🗑️</button>
+          </div>
+        </div>
+
+        <div class="dm-info-content">
+          <div class="dm-avatar-section">
+            <div class="dm-avatar-large" id="dm-avatar-large">${renderCommunityAvatar(conversation.avatar, conversation.username)}</div>
+          </div>
+
+          <div class="dm-details-section">
+            <div class="detail-item">
+              <div class="detail-label">Username</div>
+              <div class="detail-value" id="dm-username-value">${escapeHtml(conversation.username)}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.querySelector('.back-button').addEventListener('click', () => {
+      window.location.hash = `/conversation/${conversationId}`;
+    });
+
+    document.getElementById('delete-dm-button').addEventListener('click', () => {
+      showConfirmDialog('Delete Conversation', `Delete this conversation with ${escapeHtml(conversation.username)}? It will be removed from your inbox.`, async () => {
+        const success = await performDeleteDirectConversation(conversation);
+        if (success) {
+          window.location.hash = '/messages';
+          showToast('Conversation deleted', { type: 'success' });
+        } else {
+          showToast('Failed to delete conversation', { type: 'error' });
+        }
+      });
+    });
   }
 
   // Show the DM conversation's ⋮ menu with pin, mute, and clear-chat options
@@ -4931,35 +4995,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const headerInfo = document.getElementById(`group-header-info-${groupId}`);
     if (headerInfo && isMember) {
       headerInfo.style.cursor = 'pointer';
-      // Admins/owners get a quick edit shortcut on tap; everyone else is
-      // taken to the Group Info screen (view-only for them, and where
-      // Share Group lives) instead of the edit dialog directly opening.
-      const isHeaderAdmin = isCurrentUserGroupAdmin(group);
-      // Tap on group name to edit
-      const headerUsername = headerInfo.querySelector('.header-username');
-      if (headerUsername) {
-        headerUsername.addEventListener('click', (e) => {
-          e.stopPropagation();
-          if (isHeaderAdmin) {
-            showEditNameDialog(groupId, group.name);
-          } else {
-            window.location.hash = `/group/${groupId}/info`;
-          }
-        });
-      }
-      // Tap on avatar to change photo
-      const avatar = headerInfo.querySelector('.conversation-avatar-header');
-      if (avatar) {
-        avatar.style.cursor = 'pointer';
-        avatar.addEventListener('click', (e) => {
-          e.stopPropagation();
-          if (isHeaderAdmin) {
-            showAvatarPickerDialog(groupId, group);
-          } else {
-            window.location.hash = `/group/${groupId}/info`;
-          }
-        });
-      }
+      // Tapping the avatar or the name always opens the Group Info screen —
+      // editing lives there now, behind its own Edit buttons for admins.
+      headerInfo.addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.location.hash = `/group/${groupId}/info`;
+      });
     }
 
     // Add group menu button for more options (members, leave, edit description)
@@ -5979,7 +6020,10 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="group-info-header">
           <button class="back-button" aria-label="Back to group">←</button>
           <h1>Group Info</h1>
-          <div style="width: 32px;"></div>
+          <div class="info-header-actions">
+            <button class="header-icon-button share-group-button" id="share-group-button" aria-label="Share group" title="Share group">🔗</button>
+            <button class="header-icon-button leave-group-button" id="leave-group-button" aria-label="Leave group" title="Leave group">🚪</button>
+          </div>
         </div>
 
         <div class="group-info-content">
@@ -6000,9 +6044,13 @@ document.addEventListener('DOMContentLoaded', () => {
               <div class="detail-value" id="group-description-value">${group.description || 'No description'}</div>
               ${isAdmin ? `<button class="detail-edit-button" id="edit-description-button">Edit</button>` : ''}
             </div>
-          </div>
 
-          <button class="share-group-button" id="share-group-button">Share Group</button>
+            <div class="detail-item">
+              <div class="detail-label">Invite Link</div>
+              <div class="detail-value detail-value-link" id="group-invite-link-value">${escapeHtml(`${window.location.origin}/?group=${groupId}`)}</div>
+              <button class="detail-edit-button" id="copy-group-invite-link-button">Copy</button>
+            </div>
+          </div>
 
           <div class="members-section">
             <div class="section-title">Members (${group.memberCount})</div>
@@ -6012,8 +6060,6 @@ document.addEventListener('DOMContentLoaded', () => {
               ${membersList}
             </div>
           </div>
-
-          <button class="leave-group-button" id="leave-group-button">Leave Group</button>
         </div>
       </div>
     `;
@@ -6049,6 +6095,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Share Group (all members)
     document.getElementById('share-group-button').addEventListener('click', () => {
+      shareLink(group.name, `${window.location.origin}/?group=${groupId}`);
+    });
+
+    // Copy Invite Link row (same link as Share Group)
+    document.getElementById('copy-group-invite-link-button').addEventListener('click', () => {
       shareLink(group.name, `${window.location.origin}/?group=${groupId}`);
     });
 
@@ -7294,6 +7345,16 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
+    // Tap avatar/name to open the Channel Info screen — open to every viewer.
+    const channelHeaderInfo = document.getElementById(`channel-header-info-${channelId}`);
+    if (channelHeaderInfo) {
+      channelHeaderInfo.style.cursor = 'pointer';
+      channelHeaderInfo.addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.location.hash = `/channel/${channelId}/info`;
+      });
+    }
+
     // Header Follow pill — the bottom "Following" strip is gone; Unfollow still
     // lives in the ⋮ menu, so followers need no pill at all.
     const followPill = document.querySelector('.channel-follow-pill');
@@ -7690,9 +7751,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
       document.getElementById('unfollow-btn')?.addEventListener('click', () => {
         overlay.remove();
-        unfollowChannel(channelId);
-        window.location.hash = '/messages';
-        showToast('Unfollowed channel', { type: 'success' });
+        showConfirmDialog('Unfollow Channel', `Unfollow "${channel.name}"? You can follow it again later.`, () => {
+          unfollowChannel(channelId);
+          window.location.hash = '/messages';
+          showToast('Unfollowed channel', { type: 'success' });
+        });
       });
     }
 
@@ -8227,12 +8290,31 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 3000);
   }
 
-  // Render Channel Info page — avatar/name/description editing plus the
-  // Admins list, for owners and admins. Members with by role, mirroring
-  // renderGroupInfoPage, but built against the real channel shape (no
-  // `channel.members` roster exists — see isCurrentUserChannelAdmin).
-  function renderChannelInfoPage(channelId) {
-    const channel = channels.find(c => c.id === channelId);
+  // Render Channel Info page — open to every viewer (see handleNavigation's
+  // channel/ branch), with avatar/name/description editing and Add Admins
+  // still gated to the owner/admin. Members are fetched live from
+  // GET /api/channels/:channelId/followers since channel.followers on the
+  // client is only a { user_self: true } boolean, not a roster.
+  async function renderChannelInfoPage(channelId) {
+    let channel = channels.find(c => c.id === channelId);
+    if (!channel) {
+      // Not followed yet -- reached via a Discover click or a direct deep
+      // link. discoverChannels items only carry `memberCount`; normalize the
+      // fields the rest of this view expects from a real `channels` entry
+      // (mirrors the same fallback in renderChannelView).
+      const discoverChannel = discoverChannels.find(c => c.id === channelId);
+      if (discoverChannel) {
+        channel = Object.assign({
+          followers: {},
+          followerCount: discoverChannel.memberCount || 0,
+          isPublic: true,
+          posts: [],
+          creatorId: null,
+          mutedByUsers: {},
+          admins: []
+        }, discoverChannel);
+      }
+    }
     if (!channel) {
       window.location.hash = '/messages';
       return;
@@ -8240,10 +8322,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const isOwner = channel.creatorId === 'user_self';
     const isAdmin = isCurrentUserChannelAdmin(channel);
-    if (!isOwner && !isAdmin) {
-      window.location.hash = `/channel/${channelId}`;
-      return;
-    }
+    const canManage = isOwner || isAdmin;
+    const isFollowing = !!channel.followers['user_self'];
 
     // Screenshot-state: channel.admins is a local-only roster (Add Admins never
     // persists to the server), so a plain deep link to Channel Info never has
@@ -8259,23 +8339,47 @@ document.addEventListener('DOMContentLoaded', () => {
       }];
     }
 
-    const adminRows = (channel.admins || []).map(admin => `
-      <div class="channel-member-item" data-admin-id="${admin.id}">
-        <div class="member-avatar">${renderCommunityAvatar(admin.avatar, admin.username)}</div>
-        <div class="member-info">
-          <div class="member-name">${admin.username}</div>
-          <div class="member-role-badge">Admin</div>
+    let followers = [];
+    try {
+      const response = await fetch(`/api/channels/${encodeURIComponent(channelId)}/followers`, { headers: authHeaders() });
+      if (response.ok) {
+        const payload = await response.json();
+        followers = payload.followers || [];
+      }
+    } catch (error) {
+      console.warn('Could not load channel followers:', error);
+    }
+
+    const isSelfFollowerId = (id) => id === 'user_self' || (currentUser && id === currentUser.id);
+    const adminIds = new Set((channel.admins || []).map(a => a.id));
+    const memberRows = followers.map(follower => {
+      const isSelf = isSelfFollowerId(follower.id);
+      const isFollowerOwner = isSelf ? isOwner : channel.creatorId === follower.id;
+      const isFollowerAdmin = isSelf ? isAdmin : adminIds.has(follower.id);
+      const roleLabel = isFollowerOwner ? 'Owner' : isFollowerAdmin ? 'Admin' : '';
+      const displayName = isSelf ? 'You' : follower.username;
+      const showRemove = isOwner && !isSelf && !isFollowerOwner && isFollowerAdmin;
+      return `
+        <div class="channel-member-item" data-member-id="${escapeAttr(follower.id)}">
+          <div class="member-avatar">${renderCommunityAvatar(follower.avatarUrl, displayName)}</div>
+          <div class="member-info">
+            <div class="member-name">${escapeHtml(displayName)}</div>
+            ${roleLabel ? `<div class="member-role-badge">${roleLabel}</div>` : ''}
+          </div>
+          ${showRemove ? `<button class="member-admin-toggle-btn" data-admin-id="${escapeAttr(follower.id)}">Remove</button>` : ''}
         </div>
-        ${isOwner ? `<button class="member-admin-toggle-btn" data-admin-id="${admin.id}">Remove</button>` : ''}
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     pageContainer.innerHTML = `
       <div class="channel-info-page">
         <div class="channel-info-header">
           <button class="back-button" aria-label="Back to channel">←</button>
           <h1>Channel Info</h1>
-          <div style="width: 32px;"></div>
+          <div class="info-header-actions">
+            <button class="header-icon-button share-channel-button" id="share-channel-button" aria-label="Share channel" title="Share channel">🔗</button>
+            ${(!isOwner && isFollowing) ? `<button class="header-icon-button leave-channel-button" id="unfollow-channel-button" aria-label="Unfollow channel" title="Unfollow channel">👋</button>` : ''}
+          </div>
         </div>
 
         <div class="channel-info-content">
@@ -8287,34 +8391,33 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="channel-details-section">
             <div class="detail-item">
               <div class="detail-label">Channel Name</div>
-              <div class="detail-value" id="channel-name-value">${channel.name}</div>
-              <button class="detail-edit-button" id="edit-channel-name-button">Edit</button>
+              <div class="detail-value" id="channel-name-value">${escapeHtml(channel.name)}</div>
+              ${canManage ? `<button class="detail-edit-button" id="edit-channel-name-button">Edit</button>` : ''}
             </div>
 
             <div class="detail-item">
               <div class="detail-label">Description</div>
-              <div class="detail-value" id="channel-description-value">${channel.description || 'No description'}</div>
-              <button class="detail-edit-button" id="edit-channel-description-button">Edit</button>
+              <div class="detail-value" id="channel-description-value">${escapeHtml(channel.description || 'No description')}</div>
+              ${canManage ? `<button class="detail-edit-button" id="edit-channel-description-button">Edit</button>` : ''}
             </div>
 
             <div class="detail-item">
               <div class="detail-label">Visibility</div>
               <div class="view-only-badge">${channel.isPublic ? 'Public' : 'Private'}</div>
             </div>
+
+            <div class="detail-item">
+              <div class="detail-label">Invite Link</div>
+              <div class="detail-value detail-value-link" id="channel-invite-link-value">${escapeHtml(`${window.location.origin}/?channel=${channelId}`)}</div>
+              <button class="detail-edit-button" id="copy-channel-invite-link-button">Copy</button>
+            </div>
           </div>
 
           <div class="members-section">
-            <div class="section-title">Admins (${(channel.admins || []).length + 1})</div>
-            <button class="add-members-button" id="add-channel-admins-button">+ Add Admins</button>
+            <div class="section-title">Members (${channel.followerCount})</div>
+            ${canManage ? `<button class="add-members-button" id="add-channel-admins-button">+ Add Admins</button>` : ''}
             <div class="members-list" id="channel-admins-list">
-              <div class="channel-member-item">
-                <div class="member-avatar">👑</div>
-                <div class="member-info">
-                  <div class="member-name">You${isOwner ? '' : ' (Owner)'}</div>
-                  <div class="member-role-badge">Owner</div>
-                </div>
-              </div>
-              ${adminRows}
+              ${memberRows}
             </div>
           </div>
         </div>
@@ -8325,13 +8428,38 @@ document.addEventListener('DOMContentLoaded', () => {
       window.location.hash = `/channel/${channelId}`;
     });
 
-    document.getElementById('edit-channel-name-button').addEventListener('click', () => {
-      showEditChannelNameDialog(channelId, channel.name);
+    document.getElementById('share-channel-button').addEventListener('click', () => {
+      shareLink(channel.name, `${window.location.origin}/?channel=${channelId}`);
     });
 
-    document.getElementById('edit-channel-description-button').addEventListener('click', () => {
-      showEditChannelDescriptionDialog(channelId, channel.description);
+    document.getElementById('copy-channel-invite-link-button').addEventListener('click', () => {
+      shareLink(channel.name, `${window.location.origin}/?channel=${channelId}`);
     });
+
+    const unfollowButton = document.getElementById('unfollow-channel-button');
+    if (unfollowButton) {
+      unfollowButton.addEventListener('click', () => {
+        showConfirmDialog('Unfollow Channel', `Unfollow "${escapeHtml(channel.name)}"? You can follow it again later.`, () => {
+          unfollowChannel(channelId);
+          window.location.hash = '/messages';
+          showToast('Unfollowed channel', { type: 'success' });
+        });
+      });
+    }
+
+    const editChannelNameButton = document.getElementById('edit-channel-name-button');
+    if (editChannelNameButton) {
+      editChannelNameButton.addEventListener('click', () => {
+        showEditChannelNameDialog(channelId, channel.name);
+      });
+    }
+
+    const editChannelDescriptionButton = document.getElementById('edit-channel-description-button');
+    if (editChannelDescriptionButton) {
+      editChannelDescriptionButton.addEventListener('click', () => {
+        showEditChannelDescriptionDialog(channelId, channel.description);
+      });
+    }
 
     const editChannelAvatarButton = document.getElementById('edit-channel-avatar-button');
     if (editChannelAvatarButton) {
@@ -8340,9 +8468,12 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    document.getElementById('add-channel-admins-button').addEventListener('click', () => {
-      window.location.hash = `/channel/${channelId}/add-admins`;
-    });
+    const addChannelAdminsButton = document.getElementById('add-channel-admins-button');
+    if (addChannelAdminsButton) {
+      addChannelAdminsButton.addEventListener('click', () => {
+        window.location.hash = `/channel/${channelId}/add-admins`;
+      });
+    }
 
     document.querySelectorAll('#channel-admins-list .member-admin-toggle-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -8774,130 +8905,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (channel.currentUserCanSend) {
       setupComposer(channel, { rerender: () => renderChannelView(channelId) });
     }
-  }
-
-  // Render channel info modal
-  function renderChannelInfoModal(channelId) {
-    const channel = channels.find(ch => ch.id === channelId);
-    if (!channel) {
-      window.location.hash = '/messages';
-      return;
-    }
-
-    const membersList = channel.members.map(member => `
-      <div class="channel-member-item" data-member-id="${member.id}">
-        <div class="member-avatar">${member.avatar || member.username.charAt(0).toUpperCase()}</div>
-        <div class="member-info">
-          <div class="member-name">${member.username}</div>
-        </div>
-      </div>
-    `).join('');
-
-    pageContainer.innerHTML = `
-      <div class="channel-info-page">
-        <div class="channel-info-header">
-          <button class="back-button" aria-label="Back to channel">←</button>
-          <h1>Channel Info</h1>
-          <div style="width: 32px;"></div>
-        </div>
-
-        <div class="channel-info-content">
-          <div class="channel-avatar-section">
-            <div class="channel-avatar-large" id="channel-avatar-large">${channel.avatar}</div>
-          </div>
-
-          <div class="channel-details-section">
-            <div class="detail-item">
-              <div class="detail-label">Channel Name</div>
-              <div class="detail-value" id="channel-name-value">${channel.name}</div>
-            </div>
-
-            <div class="detail-item">
-              <div class="detail-label">Description</div>
-              <div class="detail-value" id="channel-description-value">${channel.description || 'No description'}</div>
-            </div>
-
-            <div class="detail-item">
-              <div class="detail-label">Visibility</div>
-              <div class="detail-value">${channel.visibility === 'public' ? '🌐 Public' : '🔒 Private'}</div>
-            </div>
-
-            <div class="detail-item">
-              <div class="detail-label">Members</div>
-              <div class="detail-value">${channel.memberCount}</div>
-            </div>
-          </div>
-
-          <div class="members-section">
-            <div class="section-title">Members (${channel.memberCount})</div>
-            <div class="members-list" id="members-list">
-              ${membersList}
-            </div>
-          </div>
-
-          <button class="leave-channel-button" id="leave-channel-button">Leave Channel</button>
-        </div>
-      </div>
-    `;
-
-    // Back button
-    document.querySelector('.back-button').addEventListener('click', () => {
-      window.location.hash = `/channel/${channelId}`;
-    });
-
-    // Leave channel
-    document.getElementById('leave-channel-button').addEventListener('click', () => {
-      showLeaveChannelDialog(channelId, channel.name);
-    });
-  }
-
-  // Show leave channel confirmation dialog
-  function showLeaveChannelDialog(channelId, channelName) {
-    const overlay = document.createElement('div');
-    overlay.className = 'dialog-overlay';
-
-    const dialog = document.createElement('div');
-    dialog.className = 'dialog';
-    dialog.innerHTML = `
-      <div class="dialog-header">
-        <h2>Leave Channel</h2>
-      </div>
-      <div class="dialog-content">
-        <p>Are you sure you want to leave <strong>${channelName}</strong>?</p>
-      </div>
-      <div class="dialog-footer">
-        <button class="button-secondary" id="cancel-leave-channel">Cancel</button>
-        <button class="button-danger" id="confirm-leave-channel">Leave</button>
-      </div>
-    `;
-
-    overlay.appendChild(dialog);
-    pageContainer.appendChild(overlay);
-
-    document.getElementById('cancel-leave-channel').addEventListener('click', () => {
-      overlay.remove();
-    });
-
-    document.getElementById('confirm-leave-channel').addEventListener('click', () => {
-      const channel = channels.find(ch => ch.id === channelId);
-      if (channel) {
-        channel.currentUserIsMember = false;
-        channel.members = channel.members.filter(m => m.id !== 'user_self');
-        channel.memberCount--;
-
-        conversations = conversations.filter(c => c.channelId !== channelId);
-
-        overlay.remove();
-        window.location.hash = '/messages';
-        showToast(`Left ${channelName}`, { type: 'success' });
-      }
-    });
-
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) {
-        overlay.remove();
-      }
-    });
   }
 
   // Render Create Channel Page
@@ -9391,14 +9398,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const priorHash = previousNavigationHash;
     previousNavigationHash = hash;
 
-    // Parse conversation routes like "conversation/conv_1"
+    // Parse conversation routes like "conversation/conv_1" and
+    // "conversation/conv_1/info"
     if (path.startsWith('conversation/')) {
-      const conversationId = path.split('/')[1];
+      const parts = path.split('/');
+      const conversationId = parts[1];
+      const action = parts[2];
       // Remove active from all nav tabs when on conversation screen
       navTabs.forEach(tab => tab.classList.remove('active'));
       // Hide bottom nav on conversation screen
       bottomNav.style.display = 'none';
-      renderConversationPage(conversationId);
+      if (action === 'info') {
+        renderConversationInfoPage(conversationId);
+      } else {
+        renderConversationPage(conversationId);
+      }
     } else if (path.startsWith('group/')) {
       const parts = path.split('/');
       const groupId = parts[1];
@@ -9444,13 +9458,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const channelId = parts[1];
       const action = parts[2];
 
-      // The info/add-admins screens are owner/admin-only. The base view route
-      // below stays open to everyone (Discover clicks and follow/mute all
-      // happen there).
+      // Channel Info is open to every viewer now (share + unfollow live
+      // there for everyone); only Add Admins stays owner/admin-only. The
+      // base view route stays open to everyone regardless (Discover clicks
+      // and follow/mute all happen there).
       const targetChannel = channels.find(c => c.id === channelId);
       const canManageChannel = isCurrentUserChannelAdmin(targetChannel);
 
-      if (action && !canManageChannel) {
+      if (action === 'add-admins' && !canManageChannel) {
         window.location.hash = `/channel/${channelId}`;
         return;
       }

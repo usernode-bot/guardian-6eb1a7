@@ -1069,6 +1069,36 @@ app.get('/api/channels/:channelId', async (req, res) => {
   }
 });
 
+// GET /api/channels/:channelId/followers - full follower roster (id/username/
+// avatar) for the Channel Info page's Members list. channel_followers only
+// stores user_id, so usernames/avatars come from a LEFT JOIN against users;
+// a follower with no matching users row (e.g. a seeded id) falls back to its
+// raw id as the display name.
+app.get('/api/channels/:channelId/followers', async (req, res) => {
+  try {
+    const chRes = await pool.query('SELECT id FROM channels WHERE id = $1', [req.params.channelId]);
+    if (chRes.rowCount === 0) return res.status(404).json({ error: 'Channel not found' });
+
+    const result = await pool.query(
+      `SELECT f.user_id, u.username, u.avatar_url FROM channel_followers f
+        LEFT JOIN users u ON u.id = f.user_id
+       WHERE f.channel_id = $1
+       ORDER BY f.followed_at ASC
+       LIMIT 200`,
+      [req.params.channelId]
+    );
+    const followers = result.rows.map((row) => ({
+      id: row.user_id,
+      username: row.username || row.user_id,
+      avatarUrl: row.avatar_url || null
+    }));
+    res.json({ followers });
+  } catch (err) {
+    console.error('[channels] followers fetch failed:', err);
+    res.status(500).json({ error: 'Failed to load followers' });
+  }
+});
+
 // POST /api/channels - Create a new channel with the creator auto-followed.
 app.post('/api/channels', async (req, res) => {
   const { name, description, avatar, avatarUrl, avatarImageId } = req.body || {};
