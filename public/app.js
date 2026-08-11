@@ -4461,12 +4461,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // renderers, so the caller says which one it is — re-rendering a group through
   // renderConversationPage() used to find nothing and bounce the user out to the
   // Messages list, losing the message they just sent.
-  // Wires the image-attach button/input pipeline (sniff -> downscale -> upload)
-  // that every composer shares - DM, group and channel alike. `actionButton`
-  // is whichever button submits the composer (Send or Publish); it's disabled
-  // while an upload is in flight so nothing can be sent half-uploaded.
-  // Returns an accessor for the currently-uploaded image plus a way to clear
-  // it after a successful send/publish.
+  // Wires the image-attach button/input pipeline (sniff -> downscale -> stage)
+  // that every composer shares - DM, group and channel alike. Picking a file
+  // only validates/downscales it and shows a local preview - it does NOT
+  // upload. The actual upload happens on demand via uploadPendingImageIfNeeded(),
+  // which the send/publish handler awaits right before composing the outgoing
+  // message/post. `actionButton` is whichever button submits the composer
+  // (Send or Publish); it's disabled while that upload is in flight so
+  // nothing can be sent half-uploaded.
   function setupImageAttachment(els) {
     const { attachButton, attachInput, pendingBar, pendingThumb, pendingStatus, pendingRemove, actionButton } = els;
 
@@ -4530,49 +4532,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const objectUrl = URL.createObjectURL(blob);
 
-        pendingImage = { blob, objectUrl, url: null, id: null, status: 'uploading' };
+        // Just stage it - no network call yet. The upload happens on send/
+        // publish, via uploadPendingImageIfNeeded() below.
+        pendingImage = { blob, objectUrl, url: null, id: null, status: 'staged', sourceFile: file, sourceType };
 
         if (pendingThumb) pendingThumb.src = objectUrl;
-        if (pendingStatus) pendingStatus.textContent = 'Uploading…';
+        if (pendingStatus) pendingStatus.textContent = 'Ready to send';
         if (pendingBar) pendingBar.style.display = 'flex';
-        if (actionButton) actionButton.disabled = true;
-        attachButton.disabled = true;
-
-        const uploadingFor = pendingImage;
-        try {
-          const stored = await window.usernode.uploadFile(blob, { visibility: 'public' });
-          // The user may have cancelled while the upload was in flight
-          if (pendingImage !== uploadingFor) return;
-
-          pendingImage.url = stored.url;
-          pendingImage.id = stored.id;
-          pendingImage.status = 'ready';
-          if (pendingStatus) pendingStatus.textContent = 'Ready to send';
-          if (actionButton) actionButton.disabled = false;
-          attachButton.disabled = false;
-        } catch (err) {
-          // Log everything the platform gave us plus exactly what we sent, so
-          // "upload failed" reports are diagnosable from the console alone
-          console.error('Image upload failed:', {
-            code: uploadErrorCode(err),
-            inferredCode: uploadErrorCode(err) ? null : inferUploadErrorCode(err),
-            name: err && err.name,
-            message: err && err.message,
-            status: err && (err.status || err.statusCode),
-            sentFilename: blob && blob.name,
-            sentContentType: blob && blob.type,
-            sentSizeBytes: blob && blob.size,
-            sourceFilename: file.name,
-            sourceContentType: file.type,
-            sniffedContentType: sourceType
-          }, err);
-          if (pendingImage === uploadingFor) {
-            clearPendingImage();
-          }
-          showToast(uploadErrorMessage(err), { type: 'error' });
-        } finally {
-          attachInput.value = '';
-        }
+        attachInput.value = '';
       });
     }
 
@@ -4582,9 +4549,64 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
+    // Uploads the staged image, if any, and returns it (with .url/.id filled
+    // in) once the upload succeeds. Awaited by the send/publish handler right
+    // before it composes the outgoing message/post, so nothing hits the
+    // network until the user actually sends. Returns null when there's
+    // nothing staged. Throws on upload failure - the caller should abort the
+    // send and leave the image staged so the user can just retry by sending
+    // again, which is why the staged state is restored (not cleared) here.
+    async function uploadPendingImageIfNeeded() {
+      if (!pendingImage) return null;
+      if (pendingImage.status === 'ready') return pendingImage;
+
+      const uploadingFor = pendingImage;
+      if (actionButton) actionButton.disabled = true;
+      if (attachButton) attachButton.disabled = true;
+      if (pendingStatus) pendingStatus.textContent = 'Uploading…';
+
+      try {
+        const stored = await window.usernode.uploadFile(uploadingFor.blob, { visibility: 'public' });
+        // The user may have removed the attachment while the upload was in flight
+        if (pendingImage !== uploadingFor) return null;
+
+        pendingImage.url = stored.url;
+        pendingImage.id = stored.id;
+        pendingImage.status = 'ready';
+        if (actionButton) actionButton.disabled = false;
+        if (attachButton) attachButton.disabled = false;
+        return pendingImage;
+      } catch (err) {
+        // Log everything the platform gave us plus exactly what we sent, so
+        // "upload failed" reports are diagnosable from the console alone
+        console.error('Image upload failed:', {
+          code: uploadErrorCode(err),
+          inferredCode: uploadErrorCode(err) ? null : inferUploadErrorCode(err),
+          name: err && err.name,
+          message: err && err.message,
+          status: err && (err.status || err.statusCode),
+          sentFilename: uploadingFor.blob && uploadingFor.blob.name,
+          sentContentType: uploadingFor.blob && uploadingFor.blob.type,
+          sentSizeBytes: uploadingFor.blob && uploadingFor.blob.size,
+          sourceFilename: uploadingFor.sourceFile && uploadingFor.sourceFile.name,
+          sourceContentType: uploadingFor.sourceFile && uploadingFor.sourceFile.type,
+          sniffedContentType: uploadingFor.sourceType
+        }, err);
+        if (pendingImage === uploadingFor) {
+          pendingImage.status = 'staged';
+          if (pendingStatus) pendingStatus.textContent = 'Ready to send';
+          if (actionButton) actionButton.disabled = false;
+          if (attachButton) attachButton.disabled = false;
+        }
+        showToast(uploadErrorMessage(err), { type: 'error' });
+        throw err;
+      }
+    }
+
     return {
       clearPendingImage,
-      getReadyImage: () => (pendingImage && pendingImage.status === 'ready' ? pendingImage : null)
+      hasPendingImage: () => !!pendingImage,
+      uploadPendingImageIfNeeded
     };
   }
 
@@ -4669,11 +4691,25 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    sendButton.addEventListener('click', () => {
+    sendButton.addEventListener('click', async () => {
       const text = composerInput.value.trim();
-      const readyImage = imageAttachment.getReadyImage();
+      const hasImage = imageAttachment.hasPendingImage();
       // An image on its own is a valid message - text is optional now
-      if (!text && !readyImage) return;
+      if (!text && !hasImage) return;
+
+      // Guard against double-submit for the whole upload+send window
+      sendButton.disabled = true;
+      let uploadedImage = null;
+      if (hasImage) {
+        try {
+          uploadedImage = await imageAttachment.uploadPendingImageIfNeeded();
+        } catch (err) {
+          // Error toast already shown; leave the photo staged so the user
+          // can just tap Send again to retry.
+          sendButton.disabled = false;
+          return;
+        }
+      }
 
       // Create new message with optional reply metadata
       const newMessage = {
@@ -4684,9 +4720,9 @@ document.addEventListener('DOMContentLoaded', () => {
         isOutgoing: true
       };
 
-      if (readyImage) {
-        newMessage.imageUrl = readyImage.url;
-        newMessage.imageId = readyImage.id;
+      if (uploadedImage) {
+        newMessage.imageUrl = uploadedImage.url;
+        newMessage.imageId = uploadedImage.id;
       }
 
       // Attach reply metadata if replying
@@ -7555,13 +7591,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
       composerInput.addEventListener('input', autoExpandTextarea);
 
-      publishButton.addEventListener('click', () => {
+      publishButton.addEventListener('click', async () => {
         const text = composerInput.value.trim();
-        const readyImage = imageAttachment.getReadyImage();
+        const hasImage = imageAttachment.hasPendingImage();
         // An image on its own is a valid post - text is optional, same as DMs/groups
-        if (!text && !readyImage) return;
+        if (!text && !hasImage) return;
 
-        publishPost(channelId, text, readyImage, () => renderChannelView(channelId));
+        // Guard against double-submit for the whole upload+publish window
+        publishButton.disabled = true;
+        let uploadedImage = null;
+        if (hasImage) {
+          try {
+            uploadedImage = await imageAttachment.uploadPendingImageIfNeeded();
+          } catch (err) {
+            // Error toast already shown; leave the photo staged so the user
+            // can just tap Publish again to retry.
+            publishButton.disabled = false;
+            return;
+          }
+        }
+
+        publishPost(channelId, text, uploadedImage, () => renderChannelView(channelId));
         composerInput.value = '';
         composerInput.style.height = '40px';
         imageAttachment.clearPendingImage();
