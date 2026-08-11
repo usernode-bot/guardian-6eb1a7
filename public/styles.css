@@ -2848,7 +2848,11 @@ html, body {
 /* Fixed-positioned (top/left set in JS) since a message bubble scrolls out
    from under an absolutely-positioned picker the way a post card can't. */
 .message-reaction-picker {
-  z-index: 30;
+  /* Above .context-menu (101) / .message-menu-overlay (100) — the picker is
+     opened from the context menu's "React" item, and the menu/overlay take
+     ~300ms to fade out after that tap, so the picker must outrank them or it
+     spends that window fully covered and unclickable underneath. */
+  z-index: 110;
   display: flex;
   gap: 2px;
   padding: 6px;

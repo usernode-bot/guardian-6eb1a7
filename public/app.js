@@ -1016,6 +1016,25 @@ document.addEventListener('DOMContentLoaded', () => {
       : null;
   }
 
+  // Server reactions are keyed by real user id (see server.js
+  // getReactionsForMessages); remap the caller's own id to 'user_self' same
+  // as every other incoming per-user map (see serverGroup.creatorId above)
+  // so reactionCount/userReacted's hardcoded 'user_self' check keeps working
+  // for reactions that arrived from the server instead of a local toggle.
+  function shapeIncomingReactions(serverReactions) {
+    if (!serverReactions) return undefined;
+    const shaped = {};
+    Object.keys(serverReactions).forEach(emoji => {
+      const remapped = {};
+      Object.keys(serverReactions[emoji]).forEach(userId => {
+        const key = (currentUser && userId === currentUser.id) ? 'user_self' : userId;
+        remapped[key] = true;
+      });
+      if (Object.keys(remapped).length > 0) shaped[emoji] = remapped;
+    });
+    return shaped;
+  }
+
   function shapeIncomingMessage(serverMsg) {
     const msg = {
       id: serverMsg.id,
@@ -1038,6 +1057,9 @@ document.addEventListener('DOMContentLoaded', () => {
         senderName: serverMsg.replyToSenderName,
         previewText: serverMsg.replyToPreviewText
       };
+    }
+    if (serverMsg.reactions && Object.keys(serverMsg.reactions).length) {
+      msg.reactions = shapeIncomingReactions(serverMsg.reactions);
     }
     return msg;
   }
@@ -1068,6 +1090,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const existing = thread.messages.find(m => m.id === serverMsg.id);
         if (existing) {
           existing.confirmed = true;
+          // Reactions are the one field on an already-known message that can
+          // still change server-side after the fact (someone else reacting,
+          // or this poll finally seeing our own toggle land) -- everything
+          // else about a sent message is immutable once delivered. Compare
+          // by value rather than reference since shapeIncomingReactions
+          // always builds a fresh object.
+          const newReactions = shapeIncomingReactions(serverMsg.reactions);
+          const newKey = JSON.stringify(newReactions || {});
+          const existingKey = JSON.stringify(existing.reactions || {});
+          if (newKey !== existingKey) {
+            existing.reactions = (newReactions && Object.keys(newReactions).length) ? newReactions : undefined;
+            changed = true;
+          }
           return;
         }
         const msg = shapeIncomingMessage(serverMsg);
@@ -3333,6 +3368,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (existing) existing.remove();
       if (messageReactionPickerHandlers) {
         document.removeEventListener('click', messageReactionPickerHandlers.onDocClick, true);
+        document.removeEventListener('touchstart', messageReactionPickerHandlers.onDocTouchStart, true);
         document.removeEventListener('keydown', messageReactionPickerHandlers.onKeyDown);
         messageReactionPickerHandlers = null;
       }
@@ -3368,12 +3404,29 @@ document.addEventListener('DOMContentLoaded', () => {
       picker.style.top = Math.max(10, top) + 'px';
       picker.style.left = Math.max(10, left) + 'px';
 
+      function commitReaction(emoji) {
+        toggleMessageReaction(conversation, messageId, emoji, threadType);
+        refreshMessageReactions(conversation, messageId);
+        closeMessageReactionPicker();
+      }
+
+      // React on touchstart, not on the click a browser only synthesises after
+      // touchend (and its own tap-delay heuristics) — a browser that decides a
+      // tap is the start of a scroll can swallow that click outright, so the
+      // tap does nothing and the picker is left sitting open. preventDefault()
+      // suppresses the trailing click so the mouse path below can't double-toggle.
+      picker.addEventListener('touchstart', (e) => {
+        const option = e.target.closest('.reaction-picker-option');
+        if (!option) return;
+        e.preventDefault();
+        e.stopPropagation();
+        commitReaction(option.dataset.emoji);
+      }, { passive: false });
+
       picker.querySelectorAll('.reaction-picker-option').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
-          toggleMessageReaction(conversation, messageId, btn.dataset.emoji);
-          refreshMessageReactions(conversation, messageId);
-          closeMessageReactionPicker();
+          commitReaction(btn.dataset.emoji);
         });
       });
 
@@ -3381,15 +3434,23 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.target.closest('.message-reaction-picker')) return;
         closeMessageReactionPicker();
       };
+      // The tap that's supposed to dismiss the picker is just as vulnerable to
+      // being swallowed as an option tap is, so also close on touchstart rather
+      // than waiting on a click a scroll-suspicious browser may never fire.
+      const onDocTouchStart = (e) => {
+        if (e.target.closest('.message-reaction-picker')) return;
+        closeMessageReactionPicker();
+      };
       const onKeyDown = (e) => {
         if (e.key === 'Escape') closeMessageReactionPicker();
       };
-      messageReactionPickerHandlers = { onDocClick, onKeyDown };
+      messageReactionPickerHandlers = { onDocClick, onDocTouchStart, onKeyDown };
       // Registered async so the click/menu-tap that opened the picker doesn't
       // immediately close it via the same event bubbling to document.
       setTimeout(() => {
         if (!messageReactionPickerHandlers) return;
         document.addEventListener('click', onDocClick, true);
+        document.addEventListener('touchstart', onDocTouchStart, true);
         document.addEventListener('keydown', onKeyDown);
       }, 0);
     }
@@ -3681,7 +3742,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const chip = e.target.closest('.message-reaction-chip');
         if (!chip) return;
         e.stopPropagation();
-        toggleMessageReaction(conversation, chip.dataset.messageId, chip.dataset.emoji);
+        toggleMessageReaction(conversation, chip.dataset.messageId, chip.dataset.emoji, threadType);
         refreshMessageReactions(conversation, chip.dataset.messageId);
       });
     }
@@ -3693,8 +3754,18 @@ document.addEventListener('DOMContentLoaded', () => {
       const firstBubble = document.querySelector('.message-bubble');
       if (firstBubble) {
         const firstMessageId = firstBubble.dataset.messageId;
-        toggleMessageReaction(conversation, firstMessageId, POST_REACTIONS[0]);
-        refreshMessageReactions(conversation, firstMessageId);
+        // This whole render function re-runs on every poll-detected change
+        // (see startThreadPolling's onChanged below), so an unconditional
+        // toggle here would flip the reaction back off on the very next
+        // re-render triggered by the toggle's own hydrate. Only toggle it
+        // on the first pass.
+        const alreadyApplied = conversation.messages.some(m =>
+          m.id === firstMessageId && m.reactions && m.reactions[POST_REACTIONS[0]] && m.reactions[POST_REACTIONS[0]]['user_self']
+        );
+        if (!alreadyApplied) {
+          toggleMessageReaction(conversation, firstMessageId, POST_REACTIONS[0], threadType);
+          refreshMessageReactions(conversation, firstMessageId);
+        }
         openMessageReactionPicker(firstMessageId, firstBubble);
       }
     }
@@ -7056,7 +7127,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Message-level reactions reuse POST_REACTIONS/reactionCount/userReacted so
   // long-pressing a chat bubble feels like the same feature as reacting to a
   // post, not a parallel system with its own emoji set.
-  function toggleMessageReaction(thread, messageId, emoji) {
+  function toggleMessageReaction(thread, messageId, emoji, threadType) {
     const msg = thread && thread.messages && thread.messages.find(m => m.id === messageId);
     if (!msg) return;
 
@@ -7072,6 +7143,39 @@ document.addEventListener('DOMContentLoaded', () => {
     if (Object.keys(msg.reactions[emoji]).length === 0) {
       delete msg.reactions[emoji];
     }
+
+    deliverMessageReaction(threadType, thread, messageId, emoji);
+  }
+
+  // Persists a message reaction toggle server-side so it appears on every
+  // other viewer's next poll (see hydrateThreadMessages) instead of staying
+  // local to this browser tab forever. Channel messages are left local-only,
+  // matching togglePostReaction/post reactions which are out of scope here.
+  function deliverMessageReaction(threadType, thread, messageId, emoji) {
+    const apiType = threadType === 'dm' ? 'direct' : threadType === 'group' ? 'group' : null;
+    if (!apiType) return;
+    const id = threadType === 'dm' ? directPeerId(thread.id) : thread.id;
+    if (!id) return;
+    fetch(`/api/messages/${apiType}/${encodeURIComponent(id)}/${encodeURIComponent(messageId)}/react`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ emoji })
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (!data) return;
+        // A poll's hydrate can be in flight at the same moment as this toggle
+        // and briefly overwrite the optimistic local state with pre-toggle
+        // server data (see hydrateThreadMessages's merge). Reconcile with
+        // what the server actually committed once this request resolves,
+        // rather than leaving that clobber to wait for the next poll tick.
+        const msg = thread.messages && thread.messages.find(m => m.id === messageId);
+        if (!msg) return;
+        const shaped = shapeIncomingReactions(data.reactions);
+        msg.reactions = (shaped && Object.keys(shaped).length) ? shaped : undefined;
+        refreshMessageReactions(thread, messageId);
+      })
+      .catch(error => console.warn(`Could not deliver ${apiType} message reaction:`, error));
   }
 
   function messageReactionChipsHTML(msg) {
