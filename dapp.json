@@ -571,6 +571,16 @@
       "expectSelector": ".forward-target-item"
     },
     {
+      "name": "Forwarding a post delivers its content into the target DM",
+      "path": "/?shot=forward-delivered#/channel/channel_staging_1",
+      "expectSelector": ".forward-attribution"
+    },
+    {
+      "name": "Forwarding a post updates the target's Messages list preview",
+      "path": "/?shot=forward-delivered-list#/channel/channel_staging_1",
+      "expectText": "↗ "
+    },
+    {
       "name": "Long-pressing a DM message reacts and opens the picker",
       "path": "/?shot=message-reactions#/conversation/conv_staging-demo-user-5",
       "expectSelector": ".message-reaction-chip"
