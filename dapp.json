@@ -436,14 +436,39 @@
       "expectSelector": ".community-card"
     },
     {
+      "name": "Discover shows a Joined badge instead of a button for a group you already belong to",
+      "path": "/#/discover",
+      "expectSelector": ".discover-joined-badge"
+    },
+    {
+      "name": "Discover community card shows a member/follower avatar preview",
+      "path": "/#/discover",
+      "expectSelector": ".community-preview-avatar"
+    },
+    {
+      "name": "Discover card shows a +N more tally when a group's members exceed the preview",
+      "path": "/#/discover",
+      "expectText": "more"
+    },
+    {
       "name": "Group detail screen loads",
       "path": "/#/group/group_staging_public_2",
       "expectText": "Staging Demo Open Circle"
     },
     {
+      "name": "Group preview screen for a non-member shows a read-only member list",
+      "path": "/#/group/group_staging_public_2",
+      "expectSelector": ".group-preview-members .group-member-item"
+    },
+    {
       "name": "Channel detail screen loads",
       "path": "/#/channel/channel_staging_2",
       "expectText": "Staging Demo Builders"
+    },
+    {
+      "name": "Channel preview screen for a non-follower shows a read-only follower list",
+      "path": "/#/channel/channel_staging_1",
+      "expectSelector": ".group-preview-members .channel-member-item"
     },
     {
       "name": "Channel view renders the post feed",

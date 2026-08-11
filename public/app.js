@@ -673,8 +673,10 @@ document.addEventListener('DOMContentLoaded', () => {
       existingConv.unreadCount = serverGroup.unreadCount;
     }
 
-    // A group you're now a member of must not linger in the Discover feed.
-    discoverGroups = discoverGroups.filter(g => g.id !== serverGroup.id);
+    // A group you're now a member of stays visible in Discover, just marked
+    // as joined instead of disappearing.
+    const discoverEntry = discoverGroups.find(g => g.id === serverGroup.id);
+    if (discoverEntry) discoverEntry.isMember = true;
 
     return shaped;
   }
@@ -723,9 +725,9 @@ document.addEventListener('DOMContentLoaded', () => {
     return groupId;
   }
 
-  // Hydrate server-backed groups: the caller's own groups, and the public groups
-  // they haven't joined (the Discover feed). Non-fatal — the hardcoded demo
-  // fixtures still render if the network or the DB is unavailable.
+  // Hydrate server-backed groups: the caller's own groups, and public groups
+  // (the Discover feed) whether or not the caller has already joined them.
+  // Non-fatal — a network or DB hiccup just leaves the lists as they were.
   async function hydrateServerGroups() {
     let changed = false;
     try {
@@ -758,8 +760,13 @@ document.addEventListener('DOMContentLoaded', () => {
       if (discoverRes.ok) {
         const payload = await discoverRes.json();
         (payload.groups || []).forEach(g => {
-          if (groups.some(existing => existing.id === g.id)) return;
-          if (discoverGroups.some(existing => existing.id === g.id)) return;
+          const existing = discoverGroups.find(entry => entry.id === g.id);
+          if (existing) {
+            existing.isMember = !!g.isMember;
+            existing.memberPreview = g.members || [];
+            existing.memberCount = g.memberCount;
+            return;
+          }
           discoverGroups.push({
             id: g.id,
             name: g.name,
@@ -769,6 +776,8 @@ document.addEventListener('DOMContentLoaded', () => {
             visibility: 'public',
             creatorId: g.creatorId,
             members: [],
+            memberPreview: g.members || [],
+            isMember: !!g.isMember,
             joinRequests: [],
             isFeatured: false,
             isNew: !!g.isNew,
@@ -839,8 +848,10 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    // A channel you now follow must not linger in the Discover feed.
-    discoverChannels = discoverChannels.filter(c => c.id !== serverChannel.id);
+    // A channel you now follow stays visible in Discover, just marked as
+    // following instead of disappearing.
+    const discoverEntry = discoverChannels.find(c => c.id === serverChannel.id);
+    if (discoverEntry) discoverEntry.isFollowing = true;
 
     return shaped;
   }
@@ -863,8 +874,14 @@ document.addEventListener('DOMContentLoaded', () => {
       if (discoverRes.ok) {
         const payload = await discoverRes.json();
         (payload.channels || []).forEach(c => {
-          if (channels.some(existing => existing.id === c.id)) return;
-          if (discoverChannels.some(existing => existing.id === c.id)) return;
+          const existing = discoverChannels.find(entry => entry.id === c.id);
+          if (existing) {
+            existing.isFollowing = !!c.isFollowing;
+            existing.isOwn = !!c.isOwn;
+            existing.followerPreview = c.followers || [];
+            existing.memberCount = c.followerCount || 0;
+            return;
+          }
           discoverChannels.push({
             id: c.id,
             name: c.name,
@@ -873,6 +890,9 @@ document.addEventListener('DOMContentLoaded', () => {
             visibility: 'public',
             memberCount: c.followerCount || 0,
             creatorId: c.creatorId,
+            isFollowing: !!c.isFollowing,
+            isOwn: !!c.isOwn,
+            followerPreview: c.followers || [],
             isFeatured: false,
             isNew: !!c.isNew,
             createdAt: c.createdAt || Date.now(),
@@ -1801,12 +1821,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Filter discover communities by tab
   function filterDiscoverCommunities(tab) {
     let filteredGroups = discoverGroups
-      .filter(g => !groups.some(jg => jg.id === g.id))
       .filter(g => g.visibility !== 'private')
       .map(g => ({ ...g, type: 'group' }));
     let filteredChans = discoverChannels
-      .filter(c => !channels.some(jc => jc.id === c.id))
-      .filter(c => c.visibility !== 'private')
       .map(c => ({ ...c, type: 'channel' }));
 
     if (tab === 'groups') {
@@ -1880,7 +1897,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     conversations.unshift(newConversation);
-    discoverGroups = discoverGroups.filter(g => g.id !== groupId);
+    discoverGroup.isMember = true;
 
     renderDiscoverPage(activeDiscoverTab);
   }
@@ -1938,6 +1955,35 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Once the viewer already belongs, Discover cards show a status badge
+  // instead of a Join/Follow button rather than hiding the card entirely.
+  function renderDiscoverActionHtml(c, buttonClass) {
+    const already = c.type === 'group' ? c.isMember : c.isFollowing;
+    const idAttr = `data-${c.type === 'group' ? 'group' : 'channel'}-id="${c.id}"`;
+    if (already) {
+      return `<span class="discover-joined-badge">✓ ${c.type === 'group' ? 'Joined' : 'Following'}</span>`;
+    }
+    return `<button class="${buttonClass}" ${idAttr}>${c.type === 'group' ? 'Join' : 'Follow'}</button>`;
+  }
+
+  // Up to 5 member/follower avatars plus a "+N more" tally, sourced from the
+  // batched preview the discover-scope API sends alongside each card.
+  function renderDiscoverPreviewHtml(c, variant) {
+    const preview = c.type === 'group' ? (c.memberPreview || []) : (c.followerPreview || []);
+    if (preview.length === 0) return '';
+    const extra = Math.max(0, (c.memberCount || 0) - preview.length);
+    const wrapperClass = variant === 'featured' ? 'featured-preview' : 'community-preview';
+    const moreClass = variant === 'featured' ? 'featured-preview-more' : 'community-preview-more';
+    return `
+      <div class="${wrapperClass}">
+        <div class="community-preview-avatars">
+          ${preview.map(p => `<span class="community-preview-avatar">${renderCommunityAvatar(p.avatarUrl, p.username)}</span>`).join('')}
+        </div>
+        ${extra > 0 ? `<span class="${moreClass}">+${extra} more</span>` : ''}
+      </div>
+    `;
+  }
+
   // Render discover page
   function renderDiscoverPage(tab = null) {
     if (tab) activeDiscoverTab = tab;
@@ -1956,10 +2002,9 @@ document.addEventListener('DOMContentLoaded', () => {
               <div class="featured-name">${c.name}</div>
               <div class="featured-type">${c.type === 'group' ? 'Group' : 'Channel'}</div>
               <div class="featured-count">${c.memberCount} ${c.type === 'group' ? 'members' : 'followers'}</div>
+              ${renderDiscoverPreviewHtml(c, 'featured')}
             </div>
-            <button class="featured-button" data-${c.type === 'group' ? 'group' : 'channel'}-id="${c.id}">
-              ${c.type === 'group' ? 'Join' : 'Follow'}
-            </button>
+            ${renderDiscoverActionHtml(c, 'featured-button')}
           </div>
         `).join('')}
       </div>
@@ -1977,8 +2022,9 @@ document.addEventListener('DOMContentLoaded', () => {
               <div class="community-name">${g.name}</div>
               <div class="community-description">${truncateText(g.description, 60)}</div>
               <div class="community-count">${g.memberCount} members</div>
+              ${renderDiscoverPreviewHtml(g, 'community')}
             </div>
-            <button class="community-button" data-group-id="${g.id}">Join</button>
+            ${renderDiscoverActionHtml(g, 'community-button')}
           </div>
         `).join('')}
       </div>
@@ -1996,8 +2042,9 @@ document.addEventListener('DOMContentLoaded', () => {
               <div class="community-name">${c.name}</div>
               <div class="community-description">${truncateText(c.description, 60)}</div>
               <div class="community-count">${c.memberCount} followers</div>
+              ${renderDiscoverPreviewHtml(c, 'community')}
             </div>
-            <button class="community-button" data-channel-id="${c.id}">Follow</button>
+            ${renderDiscoverActionHtml(c, 'community-button')}
           </div>
         `).join('')}
       </div>
@@ -2017,10 +2064,9 @@ document.addEventListener('DOMContentLoaded', () => {
               <div class="community-name">${c.name}</div>
               <div class="community-description">${truncateText(c.description, 60)}</div>
               <div class="community-count">${c.memberCount} ${c.type === 'group' ? 'members' : 'followers'}</div>
+              ${renderDiscoverPreviewHtml(c, 'community')}
             </div>
-            <button class="community-button" data-${c.type === 'group' ? 'group' : 'channel'}-id="${c.id}">
-              ${c.type === 'group' ? 'Join' : 'Follow'}
-            </button>
+            ${renderDiscoverActionHtml(c, 'community-button')}
           </div>
         `).join('')}
       </div>
@@ -4817,9 +4863,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!group) {
       group = discoverGroups.find(g => g.id === groupId);
     }
-    if (!group) {
-      // Not in local state -- reached via a Discover click or an invite link.
-      // A private group still resolves by exact id here (see the relaxed
+    if (!isMember) {
+      // Non-member preview always refetches full detail -- discoverGroups only
+      // carries the capped ~5-person preview from the batched Discover query,
+      // but this pre-join screen shows the complete member list. A private
+      // group still resolves by exact id here (see the relaxed
       // GET /api/groups/:groupId on the server) -- possessing the id is
       // itself the authorization -- it just comes back with no member list.
       try {
@@ -4827,7 +4875,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (response.ok) {
           const payload = await response.json();
           if (payload.group) {
-            group = {
+            const fetchedGroup = {
               id: payload.group.id,
               name: payload.group.name,
               description: payload.group.description || '',
@@ -4837,16 +4885,21 @@ document.addEventListener('DOMContentLoaded', () => {
               visibility: payload.group.visibility,
               creatorId: payload.group.creatorId,
               members: (payload.group.members || []).map(mapServerMember),
-              joinRequests: [],
+              joinRequests: (group && group.joinRequests) || [],
               createdAt: payload.group.createdAt,
               source: 'server'
             };
-            // Cache it locally so Join/Request to Join keep working from this
-            // screen without another round trip. This is a "known groups"
-            // cache, not the Discover listing itself -- filterDiscoverCommunities
-            // still keeps private groups out of the visible Discover feed.
-            if (!discoverGroups.some(g => g.id === group.id)) {
-              discoverGroups.push(Object.assign({ isFeatured: false, isNew: !!payload.group.isNew }, group));
+            if (group) {
+              Object.assign(group, fetchedGroup);
+            } else {
+              group = fetchedGroup;
+              // Cache it locally so Join/Request to Join keep working from this
+              // screen without another round trip. This is a "known groups"
+              // cache, not the Discover listing itself -- filterDiscoverCommunities
+              // still keeps private groups out of the visible Discover feed.
+              if (!discoverGroups.some(g => g.id === group.id)) {
+                discoverGroups.push(Object.assign({ isFeatured: false, isNew: !!payload.group.isNew }, group));
+              }
             }
           }
         }
@@ -4927,6 +4980,24 @@ document.addEventListener('DOMContentLoaded', () => {
       return messageHTML;
     }).join('');
 
+    // Non-members get a read-only member list on the pre-join preview screen
+    // instead of the composer -- there's nothing to send, just who's there.
+    const groupPreviewMembersHTML = !isMember ? `
+      <div class="group-preview-members">
+        <div class="group-preview-members-title">${group.memberCount} member${group.memberCount === 1 ? '' : 's'}</div>
+        <div class="group-preview-members-list">
+          ${(group.members || []).map(member => `
+            <div class="group-member-item" data-member-id="${escapeAttr(member.id)}">
+              <div class="member-avatar">${renderCommunityAvatar(member.avatar, member.username)}</div>
+              <div class="member-info">
+                <div class="member-name">${escapeHtml(member.username)}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : '';
+
     let actionAreaHTML;
     if (isMember) {
       actionAreaHTML = composerMarkup({ conversationId: group.id });
@@ -4960,6 +5031,7 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           ${isMember ? `<button class="menu-button" aria-label="More options">⋮</button>` : ''}
         </div>
+        ${groupPreviewMembersHTML}
         <div class="messages-area">
           <div class="messages-container">
             ${messagesList}
@@ -7257,6 +7329,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const fromPublish = !!(renderOptions && renderOptions.fromPublish);
     const fromSend = !!(renderOptions && renderOptions.fromSend);
     let channel = channels.find(c => c.id === channelId);
+    const isKnownChannel = !!channel;
 
     if (!channel) {
       // Not followed yet -- reached via a Discover click. discoverChannels
@@ -7272,6 +7345,47 @@ document.addEventListener('DOMContentLoaded', () => {
           mutedByUsers: {},
           admins: []
         }, discoverChannel);
+      }
+    }
+    if (!isKnownChannel) {
+      // Non-follower preview always refetches full detail -- discoverChannels
+      // only carries the capped ~5-person preview from the batched Discover
+      // query, but this pre-follow screen shows the complete follower list.
+      try {
+        const response = await fetch(`/api/channels/${channelId}`, { headers: authHeaders() });
+        if (response.ok) {
+          const payload = await response.json();
+          if (payload.channel) {
+            const fullFollowerPreview = payload.channel.followers || [];
+            if (channel) {
+              channel.followerPreview = fullFollowerPreview;
+              channel.followerCount = payload.channel.followerCount;
+            } else {
+              channel = {
+                id: payload.channel.id,
+                name: payload.channel.name,
+                description: payload.channel.description || '',
+                avatar: payload.channel.avatarUrl || payload.channel.avatar || generateDefaultAvatar(payload.channel.name),
+                followers: {},
+                followerCount: payload.channel.followerCount,
+                followerPreview: fullFollowerPreview,
+                posts: [],
+                creatorId: payload.channel.creatorId,
+                mutedByUsers: {},
+                admins: [],
+                isNew: !!payload.channel.isNew,
+                createdAt: payload.channel.createdAt
+              };
+              // Cache it locally so Follow keeps working from this screen
+              // without another round trip -- mirrors the group side's cache.
+              if (!discoverChannels.some(c => c.id === channel.id)) {
+                discoverChannels.push(Object.assign({ isFeatured: false }, channel));
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('Could not load channel:', error);
       }
     }
     if (!channel) {
@@ -7293,6 +7407,24 @@ document.addEventListener('DOMContentLoaded', () => {
     // a bare Discover preview has neither.
     const canShowMenu = isOwner || isAdmin || isFollowing;
 
+    // Non-followers get a read-only follower list on the pre-follow preview
+    // screen -- there's no post composer for them, just who's subscribed.
+    const channelPreviewFollowersHTML = (!isFollowing && !isOwner) ? `
+      <div class="group-preview-members">
+        <div class="group-preview-members-title">${formatFollowerCount(channel.followerCount)} follower${channel.followerCount === 1 ? '' : 's'}</div>
+        <div class="group-preview-members-list">
+          ${(channel.followerPreview || []).map(follower => `
+            <div class="channel-member-item" data-member-id="${escapeAttr(follower.id)}">
+              <div class="member-avatar">${renderCommunityAvatar(follower.avatarUrl, follower.username)}</div>
+              <div class="member-info">
+                <div class="member-name">${escapeHtml(follower.username)}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : '';
+
     // channel.posts is newest-first in storage (publishPost unshifts, and the
     // lastMessage/unread logic elsewhere reads posts[0] as "the newest") — but
     // the feed now DISPLAYS oldest-first, same chronological order as DM/group
@@ -7313,6 +7445,7 @@ document.addEventListener('DOMContentLoaded', () => {
           ${(!isFollowing && !isOwner) ? `<button class="channel-follow-pill" aria-label="Follow channel">Follow</button>` : ''}
           ${canShowMenu ? `<button class="menu-button" aria-label="More options">⋮</button>` : ''}
         </div>
+        ${channelPreviewFollowersHTML}
         <div class="messages-area">
           <div class="channel-feed messages-container">
             ${postsList || `
