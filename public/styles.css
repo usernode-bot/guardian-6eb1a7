@@ -1700,6 +1700,26 @@ html, body {
   border-radius: 10px;
 }
 
+.group-preview-members {
+  flex-shrink: 0;
+  max-height: 160px;
+  overflow-y: auto;
+  border-bottom: 1px solid #f0f0f0;
+  background-color: #fff;
+}
+
+.group-preview-members-title {
+  padding: 10px 16px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #999;
+  text-transform: uppercase;
+}
+
+.group-preview-members-list .group-member-item {
+  padding: 8px 16px;
+}
+
 .member-admin-toggle-btn {
   background: none;
   border: 1px solid #007aff;
@@ -3713,6 +3733,85 @@ html, body {
   background: #0051d5;
 }
 
+.discover-joined-badge {
+  padding: 4px 10px;
+  background: #eef6ff;
+  color: #007aff;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.featured-card .discover-joined-badge {
+  font-size: 10px;
+  padding: 3px 8px;
+}
+
+.community-preview,
+.featured-preview {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.featured-preview {
+  justify-content: center;
+  margin-top: 0;
+  margin-bottom: 4px;
+}
+
+.community-preview-avatars {
+  display: flex;
+}
+
+.community-preview-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--avatar-gradient);
+  color: white;
+  font-size: 8px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1.5px solid #fff;
+  margin-left: -6px;
+  flex-shrink: 0;
+}
+
+.community-preview-avatar:first-child {
+  margin-left: 0;
+}
+
+.community-preview-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.featured-preview .community-preview-avatar {
+  width: 13px;
+  height: 13px;
+  font-size: 6px;
+}
+
+.community-preview-more {
+  font-size: 10px;
+  color: #999;
+  white-space: nowrap;
+}
+
+.featured-preview-more {
+  font-size: 8px;
+  color: #999;
+  white-space: nowrap;
+}
 
 .empty-state {
   text-align: center;
