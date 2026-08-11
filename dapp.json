@@ -451,14 +451,39 @@
       "expectSelector": ".community-card"
     },
     {
+      "name": "Discover shows a Joined badge instead of a button for a group you already belong to",
+      "path": "/#/discover",
+      "expectSelector": ".discover-joined-badge"
+    },
+    {
+      "name": "Discover community card shows a member/follower avatar preview",
+      "path": "/#/discover",
+      "expectSelector": ".community-preview-avatar"
+    },
+    {
+      "name": "Discover card shows a +N more tally when a group's members exceed the preview",
+      "path": "/#/discover",
+      "expectText": "more"
+    },
+    {
       "name": "Group detail screen loads",
       "path": "/#/group/group_staging_public_2",
       "expectText": "Staging Demo Open Circle"
     },
     {
+      "name": "Group preview screen for a non-member shows a read-only member list",
+      "path": "/#/group/group_staging_public_2",
+      "expectSelector": ".group-preview-members .group-member-item"
+    },
+    {
       "name": "Channel detail screen loads",
       "path": "/#/channel/channel_staging_2",
       "expectText": "Staging Demo Builders"
+    },
+    {
+      "name": "Channel preview screen for a non-follower shows a read-only follower list",
+      "path": "/#/channel/channel_staging_1",
+      "expectSelector": ".group-preview-members .channel-member-item"
     },
     {
       "name": "Channel view renders the post feed",
@@ -559,6 +584,16 @@
       "name": "Forward sheet lists forward targets",
       "path": "/?shot=forward-sheet#/channel/channel_staging_1",
       "expectSelector": ".forward-target-item"
+    },
+    {
+      "name": "Forwarding a post delivers its content into the target DM",
+      "path": "/?shot=forward-delivered#/channel/channel_staging_1",
+      "expectSelector": ".forward-attribution"
+    },
+    {
+      "name": "Forwarding a post updates the target's Messages list preview",
+      "path": "/?shot=forward-delivered-list#/channel/channel_staging_1",
+      "expectText": "↗ "
     },
     {
       "name": "Long-pressing a DM message reacts and opens the picker",
@@ -854,6 +889,56 @@
       "name": "Sent DM bubble in a mixed-direction thread renders with outgoing styling",
       "path": "/#/conversation/conv_staging-demo-user-13",
       "expectSelector": ".message.outgoing"
+    },
+    {
+      "name": "DM chat composer uses the dark pill restyle (regression: mic-less dark composer with paperclip + circular send button)",
+      "path": "/#/conversation/conv_staging-demo-user-5",
+      "expectSelector": ".chat-composer .composer-input"
+    },
+    {
+      "name": "DM composer send button renders as a circular icon button, not an arrow character",
+      "path": "/#/conversation/conv_staging-demo-user-5",
+      "expectSelector": ".chat-composer .send-button svg"
+    },
+    {
+      "name": "DM composer attach button renders a paperclip icon",
+      "path": "/#/conversation/conv_staging-demo-user-5",
+      "expectSelector": ".chat-composer .attach-image-button svg"
+    },
+    {
+      "name": "Group chat composer shares the same dark pill restyle as DM",
+      "path": "/#/group/group_staging_owned_1",
+      "expectSelector": ".chat-composer .send-button svg"
+    },
+    {
+      "name": "Channel's Publish post composer now shares the dark pill restyle used by DM/group",
+      "path": "/#/channel/channel_staging_owned_1",
+      "expectSelector": ".channel-footer .composer-container.chat-composer .composer-input"
+    },
+    {
+      "name": "Channel composer paperclip icon is nested inside the input pill, next to publish",
+      "path": "/#/channel/channel_staging_owned_1",
+      "expectSelector": ".channel-footer .chat-composer .composer-input-shell .attach-image-button"
+    },
+    {
+      "name": "Channel composer publish button renders as a circular icon button, not text",
+      "path": "/#/channel/channel_staging_owned_1",
+      "expectSelector": ".channel-footer .chat-composer .publish-button svg"
+    },
+    {
+      "name": "DM composer paperclip icon is nested inside the input pill, next to send",
+      "path": "/#/conversation/conv_staging-demo-user-5",
+      "expectSelector": ".chat-composer .composer-input-shell .attach-image-button"
+    },
+    {
+      "name": "Group composer paperclip icon is nested inside the input pill, next to send",
+      "path": "/#/group/group_staging_owned_1",
+      "expectSelector": ".chat-composer .composer-input-shell .attach-image-button"
+    },
+    {
+      "name": "DM composer attach input still restricts file picker to images only",
+      "path": "/#/conversation/conv_staging-demo-user-5",
+      "expectSelector": ".chat-composer .attach-image-input[accept=\"image/png,image/jpeg,image/gif,image/webp\"]"
     },
     {
       "name": "Typing indicator renders in direct message view",

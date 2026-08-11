@@ -181,6 +181,20 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_DM_UNHIDE_PEER_ID = 'staging-demo-unhide-peer';
   const SHOT_DM_UNHIDE_TEXT_BEFORE_HIDE = 'Shot unhide check: before hide';
   const SHOT_DM_UNHIDE_TEXT_AFTER_HIDE = 'Shot unhide check: after hide';
+  // Regression check for forwardPostToTargets never calling the server: drives
+  // the real Forward sheet's Send button against an already-real DM target
+  // (staging-demo-user-8, seeded with an existing accepted conversation --
+  // see dm_staging_untouched_1), waits for the server to actually confirm the
+  // forwarded message, then renders straight into that conversation. A stale
+  // implementation (local-only push, no deliverThreadMessage call) would leave
+  // the server-confirmed history without this message, so the wait below
+  // would never see it land.
+  const SHOT_FORWARD_DELIVERED = SHOT === 'forward-delivered';
+  // Same setup as above, but lands on the Messages list instead of the
+  // conversation itself -- regression check for the other half of the bug
+  // report (the list preview never updating after a forward).
+  const SHOT_FORWARD_DELIVERED_LIST = SHOT === 'forward-delivered-list';
+  const SHOT_FORWARD_DELIVERED_PEER_ID = 'staging-demo-user-8';
 
   // The signed-in Usernode user, hydrated from /api/state at boot. Server rows
   // for this id are mapped onto the app's long-standing 'user_self' sentinel so
@@ -659,8 +673,10 @@ document.addEventListener('DOMContentLoaded', () => {
       existingConv.unreadCount = serverGroup.unreadCount;
     }
 
-    // A group you're now a member of must not linger in the Discover feed.
-    discoverGroups = discoverGroups.filter(g => g.id !== serverGroup.id);
+    // A group you're now a member of stays visible in Discover, just marked
+    // as joined instead of disappearing.
+    const discoverEntry = discoverGroups.find(g => g.id === serverGroup.id);
+    if (discoverEntry) discoverEntry.isMember = true;
 
     return shaped;
   }
@@ -709,9 +725,9 @@ document.addEventListener('DOMContentLoaded', () => {
     return groupId;
   }
 
-  // Hydrate server-backed groups: the caller's own groups, and the public groups
-  // they haven't joined (the Discover feed). Non-fatal — the hardcoded demo
-  // fixtures still render if the network or the DB is unavailable.
+  // Hydrate server-backed groups: the caller's own groups, and public groups
+  // (the Discover feed) whether or not the caller has already joined them.
+  // Non-fatal — a network or DB hiccup just leaves the lists as they were.
   async function hydrateServerGroups() {
     let changed = false;
     try {
@@ -744,8 +760,13 @@ document.addEventListener('DOMContentLoaded', () => {
       if (discoverRes.ok) {
         const payload = await discoverRes.json();
         (payload.groups || []).forEach(g => {
-          if (groups.some(existing => existing.id === g.id)) return;
-          if (discoverGroups.some(existing => existing.id === g.id)) return;
+          const existing = discoverGroups.find(entry => entry.id === g.id);
+          if (existing) {
+            existing.isMember = !!g.isMember;
+            existing.memberPreview = g.members || [];
+            existing.memberCount = g.memberCount;
+            return;
+          }
           discoverGroups.push({
             id: g.id,
             name: g.name,
@@ -755,6 +776,8 @@ document.addEventListener('DOMContentLoaded', () => {
             visibility: 'public',
             creatorId: g.creatorId,
             members: [],
+            memberPreview: g.members || [],
+            isMember: !!g.isMember,
             joinRequests: [],
             isFeatured: false,
             isNew: !!g.isNew,
@@ -825,8 +848,10 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    // A channel you now follow must not linger in the Discover feed.
-    discoverChannels = discoverChannels.filter(c => c.id !== serverChannel.id);
+    // A channel you now follow stays visible in Discover, just marked as
+    // following instead of disappearing.
+    const discoverEntry = discoverChannels.find(c => c.id === serverChannel.id);
+    if (discoverEntry) discoverEntry.isFollowing = true;
 
     return shaped;
   }
@@ -849,8 +874,14 @@ document.addEventListener('DOMContentLoaded', () => {
       if (discoverRes.ok) {
         const payload = await discoverRes.json();
         (payload.channels || []).forEach(c => {
-          if (channels.some(existing => existing.id === c.id)) return;
-          if (discoverChannels.some(existing => existing.id === c.id)) return;
+          const existing = discoverChannels.find(entry => entry.id === c.id);
+          if (existing) {
+            existing.isFollowing = !!c.isFollowing;
+            existing.isOwn = !!c.isOwn;
+            existing.followerPreview = c.followers || [];
+            existing.memberCount = c.followerCount || 0;
+            return;
+          }
           discoverChannels.push({
             id: c.id,
             name: c.name,
@@ -859,6 +890,9 @@ document.addEventListener('DOMContentLoaded', () => {
             visibility: 'public',
             memberCount: c.followerCount || 0,
             creatorId: c.creatorId,
+            isFollowing: !!c.isFollowing,
+            isOwn: !!c.isOwn,
+            followerPreview: c.followers || [],
             isFeatured: false,
             isNew: !!c.isNew,
             createdAt: c.createdAt || Date.now(),
@@ -1057,6 +1091,9 @@ document.addEventListener('DOMContentLoaded', () => {
         senderName: serverMsg.replyToSenderName,
         previewText: serverMsg.replyToPreviewText
       };
+    }
+    if (serverMsg.forwardedFrom) {
+      msg.forwardedFrom = serverMsg.forwardedFrom;
     }
     if (serverMsg.reactions && Object.keys(serverMsg.reactions).length) {
       msg.reactions = shapeIncomingReactions(serverMsg.reactions);
@@ -1379,7 +1416,8 @@ document.addEventListener('DOMContentLoaded', () => {
         text: message.text,
         imageUrl: message.imageUrl,
         imageId: message.imageId,
-        replyTo: message.replyTo
+        replyTo: message.replyTo,
+        forwardedFrom: message.forwardedFrom
       })
     }).then(res => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1783,12 +1821,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Filter discover communities by tab
   function filterDiscoverCommunities(tab) {
     let filteredGroups = discoverGroups
-      .filter(g => !groups.some(jg => jg.id === g.id))
       .filter(g => g.visibility !== 'private')
       .map(g => ({ ...g, type: 'group' }));
     let filteredChans = discoverChannels
-      .filter(c => !channels.some(jc => jc.id === c.id))
-      .filter(c => c.visibility !== 'private')
       .map(c => ({ ...c, type: 'channel' }));
 
     if (tab === 'groups') {
@@ -1862,7 +1897,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     conversations.unshift(newConversation);
-    discoverGroups = discoverGroups.filter(g => g.id !== groupId);
+    discoverGroup.isMember = true;
 
     renderDiscoverPage(activeDiscoverTab);
   }
@@ -1920,6 +1955,35 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Once the viewer already belongs, Discover cards show a status badge
+  // instead of a Join/Follow button rather than hiding the card entirely.
+  function renderDiscoverActionHtml(c, buttonClass) {
+    const already = c.type === 'group' ? c.isMember : c.isFollowing;
+    const idAttr = `data-${c.type === 'group' ? 'group' : 'channel'}-id="${c.id}"`;
+    if (already) {
+      return `<span class="discover-joined-badge">✓ ${c.type === 'group' ? 'Joined' : 'Following'}</span>`;
+    }
+    return `<button class="${buttonClass}" ${idAttr}>${c.type === 'group' ? 'Join' : 'Follow'}</button>`;
+  }
+
+  // Up to 5 member/follower avatars plus a "+N more" tally, sourced from the
+  // batched preview the discover-scope API sends alongside each card.
+  function renderDiscoverPreviewHtml(c, variant) {
+    const preview = c.type === 'group' ? (c.memberPreview || []) : (c.followerPreview || []);
+    if (preview.length === 0) return '';
+    const extra = Math.max(0, (c.memberCount || 0) - preview.length);
+    const wrapperClass = variant === 'featured' ? 'featured-preview' : 'community-preview';
+    const moreClass = variant === 'featured' ? 'featured-preview-more' : 'community-preview-more';
+    return `
+      <div class="${wrapperClass}">
+        <div class="community-preview-avatars">
+          ${preview.map(p => `<span class="community-preview-avatar">${renderCommunityAvatar(p.avatarUrl, p.username)}</span>`).join('')}
+        </div>
+        ${extra > 0 ? `<span class="${moreClass}">+${extra} more</span>` : ''}
+      </div>
+    `;
+  }
+
   // Render discover page
   function renderDiscoverPage(tab = null) {
     if (tab) activeDiscoverTab = tab;
@@ -1938,10 +2002,9 @@ document.addEventListener('DOMContentLoaded', () => {
               <div class="featured-name">${c.name}</div>
               <div class="featured-type">${c.type === 'group' ? 'Group' : 'Channel'}</div>
               <div class="featured-count">${c.memberCount} ${c.type === 'group' ? 'members' : 'followers'}</div>
+              ${renderDiscoverPreviewHtml(c, 'featured')}
             </div>
-            <button class="featured-button" data-${c.type === 'group' ? 'group' : 'channel'}-id="${c.id}">
-              ${c.type === 'group' ? 'Join' : 'Follow'}
-            </button>
+            ${renderDiscoverActionHtml(c, 'featured-button')}
           </div>
         `).join('')}
       </div>
@@ -1959,8 +2022,9 @@ document.addEventListener('DOMContentLoaded', () => {
               <div class="community-name">${g.name}</div>
               <div class="community-description">${truncateText(g.description, 60)}</div>
               <div class="community-count">${g.memberCount} members</div>
+              ${renderDiscoverPreviewHtml(g, 'community')}
             </div>
-            <button class="community-button" data-group-id="${g.id}">Join</button>
+            ${renderDiscoverActionHtml(g, 'community-button')}
           </div>
         `).join('')}
       </div>
@@ -1978,8 +2042,9 @@ document.addEventListener('DOMContentLoaded', () => {
               <div class="community-name">${c.name}</div>
               <div class="community-description">${truncateText(c.description, 60)}</div>
               <div class="community-count">${c.memberCount} followers</div>
+              ${renderDiscoverPreviewHtml(c, 'community')}
             </div>
-            <button class="community-button" data-channel-id="${c.id}">Follow</button>
+            ${renderDiscoverActionHtml(c, 'community-button')}
           </div>
         `).join('')}
       </div>
@@ -1999,10 +2064,9 @@ document.addEventListener('DOMContentLoaded', () => {
               <div class="community-name">${c.name}</div>
               <div class="community-description">${truncateText(c.description, 60)}</div>
               <div class="community-count">${c.memberCount} ${c.type === 'group' ? 'members' : 'followers'}</div>
+              ${renderDiscoverPreviewHtml(c, 'community')}
             </div>
-            <button class="community-button" data-${c.type === 'group' ? 'group' : 'channel'}-id="${c.id}">
-              ${c.type === 'group' ? 'Join' : 'Follow'}
-            </button>
+            ${renderDiscoverActionHtml(c, 'community-button')}
           </div>
         `).join('')}
       </div>
@@ -2483,7 +2547,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Render conversation screen
   // Shared composer markup for DM, group and channel threads.
-  // The attach-image control sits on the LEFT of the input field.
+  // The attach-image control sits INSIDE the input pill, pinned to its
+  // bottom-right corner next to the send button.
   function composerMarkup(options = {}) {
     const disabled = options.disabled ? 'disabled' : '';
     // The reply bar's visible state must come from THIS conversation's reply
@@ -2510,10 +2575,21 @@ document.addEventListener('DOMContentLoaded', () => {
         <span class="pending-image-status">Uploading…</span>
         <button class="pending-image-remove" aria-label="Remove image">✕</button>
       </div>
-      <button class="attach-image-button" type="button" aria-label="Add image" ${disabled}>📷</button>
-      <input type="file" class="attach-image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display: none;" />
-      <textarea class="composer-input" placeholder="Message..." rows="1" ${disabled}></textarea>
-      <button class="send-button" aria-label="Send" ${disabled}>➤</button>
+      <div class="composer-input-shell">
+        <textarea class="composer-input" placeholder="Message" rows="1" ${disabled}></textarea>
+        <button class="attach-image-button" type="button" aria-label="Add image" ${disabled}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.19 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.49"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <input type="file" class="attach-image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display: none;" />
+      </div>
+      <button class="send-button" aria-label="Send" ${disabled}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M2 21l21-9L2 3v7l15 2-15 2v7z" fill="currentColor"/>
+        </svg>
+      </button>
     `;
   }
 
@@ -2821,7 +2897,7 @@ document.addEventListener('DOMContentLoaded', () => {
           ${scrollToLatestFabHTML()}
         </div>
         <div class="typing-indicator-bar" aria-live="polite"></div>
-        <div class="composer-container">
+        <div class="composer-container chat-composer">
           ${composerMarkup({ conversationId: conversation.id })}
         </div>
       </div>
@@ -4513,12 +4589,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // renderers, so the caller says which one it is — re-rendering a group through
   // renderConversationPage() used to find nothing and bounce the user out to the
   // Messages list, losing the message they just sent.
-  // Wires the image-attach button/input pipeline (sniff -> downscale -> upload)
-  // that every composer shares - DM, group and channel alike. `actionButton`
-  // is whichever button submits the composer (Send or Publish); it's disabled
-  // while an upload is in flight so nothing can be sent half-uploaded.
-  // Returns an accessor for the currently-uploaded image plus a way to clear
-  // it after a successful send/publish.
+  // Wires the image-attach button/input pipeline (sniff -> downscale -> stage)
+  // that every composer shares - DM, group and channel alike. Picking a file
+  // only validates/downscales it and shows a local preview - it does NOT
+  // upload. The actual upload happens on demand via uploadPendingImageIfNeeded(),
+  // which the send/publish handler awaits right before composing the outgoing
+  // message/post. `actionButton` is whichever button submits the composer
+  // (Send or Publish); it's disabled while that upload is in flight so
+  // nothing can be sent half-uploaded.
   function setupImageAttachment(els) {
     const { attachButton, attachInput, pendingBar, pendingThumb, pendingStatus, pendingRemove, actionButton } = els;
 
@@ -4582,49 +4660,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const objectUrl = URL.createObjectURL(blob);
 
-        pendingImage = { blob, objectUrl, url: null, id: null, status: 'uploading' };
+        // Just stage it - no network call yet. The upload happens on send/
+        // publish, via uploadPendingImageIfNeeded() below.
+        pendingImage = { blob, objectUrl, url: null, id: null, status: 'staged', sourceFile: file, sourceType };
 
         if (pendingThumb) pendingThumb.src = objectUrl;
-        if (pendingStatus) pendingStatus.textContent = 'Uploading…';
+        if (pendingStatus) pendingStatus.textContent = 'Ready to send';
         if (pendingBar) pendingBar.style.display = 'flex';
-        if (actionButton) actionButton.disabled = true;
-        attachButton.disabled = true;
-
-        const uploadingFor = pendingImage;
-        try {
-          const stored = await window.usernode.uploadFile(blob, { visibility: 'public' });
-          // The user may have cancelled while the upload was in flight
-          if (pendingImage !== uploadingFor) return;
-
-          pendingImage.url = stored.url;
-          pendingImage.id = stored.id;
-          pendingImage.status = 'ready';
-          if (pendingStatus) pendingStatus.textContent = 'Ready to send';
-          if (actionButton) actionButton.disabled = false;
-          attachButton.disabled = false;
-        } catch (err) {
-          // Log everything the platform gave us plus exactly what we sent, so
-          // "upload failed" reports are diagnosable from the console alone
-          console.error('Image upload failed:', {
-            code: uploadErrorCode(err),
-            inferredCode: uploadErrorCode(err) ? null : inferUploadErrorCode(err),
-            name: err && err.name,
-            message: err && err.message,
-            status: err && (err.status || err.statusCode),
-            sentFilename: blob && blob.name,
-            sentContentType: blob && blob.type,
-            sentSizeBytes: blob && blob.size,
-            sourceFilename: file.name,
-            sourceContentType: file.type,
-            sniffedContentType: sourceType
-          }, err);
-          if (pendingImage === uploadingFor) {
-            clearPendingImage();
-          }
-          showToast(uploadErrorMessage(err), { type: 'error' });
-        } finally {
-          attachInput.value = '';
-        }
+        attachInput.value = '';
       });
     }
 
@@ -4634,9 +4677,64 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
+    // Uploads the staged image, if any, and returns it (with .url/.id filled
+    // in) once the upload succeeds. Awaited by the send/publish handler right
+    // before it composes the outgoing message/post, so nothing hits the
+    // network until the user actually sends. Returns null when there's
+    // nothing staged. Throws on upload failure - the caller should abort the
+    // send and leave the image staged so the user can just retry by sending
+    // again, which is why the staged state is restored (not cleared) here.
+    async function uploadPendingImageIfNeeded() {
+      if (!pendingImage) return null;
+      if (pendingImage.status === 'ready') return pendingImage;
+
+      const uploadingFor = pendingImage;
+      if (actionButton) actionButton.disabled = true;
+      if (attachButton) attachButton.disabled = true;
+      if (pendingStatus) pendingStatus.textContent = 'Uploading…';
+
+      try {
+        const stored = await window.usernode.uploadFile(uploadingFor.blob, { visibility: 'public' });
+        // The user may have removed the attachment while the upload was in flight
+        if (pendingImage !== uploadingFor) return null;
+
+        pendingImage.url = stored.url;
+        pendingImage.id = stored.id;
+        pendingImage.status = 'ready';
+        if (actionButton) actionButton.disabled = false;
+        if (attachButton) attachButton.disabled = false;
+        return pendingImage;
+      } catch (err) {
+        // Log everything the platform gave us plus exactly what we sent, so
+        // "upload failed" reports are diagnosable from the console alone
+        console.error('Image upload failed:', {
+          code: uploadErrorCode(err),
+          inferredCode: uploadErrorCode(err) ? null : inferUploadErrorCode(err),
+          name: err && err.name,
+          message: err && err.message,
+          status: err && (err.status || err.statusCode),
+          sentFilename: uploadingFor.blob && uploadingFor.blob.name,
+          sentContentType: uploadingFor.blob && uploadingFor.blob.type,
+          sentSizeBytes: uploadingFor.blob && uploadingFor.blob.size,
+          sourceFilename: uploadingFor.sourceFile && uploadingFor.sourceFile.name,
+          sourceContentType: uploadingFor.sourceFile && uploadingFor.sourceFile.type,
+          sniffedContentType: uploadingFor.sourceType
+        }, err);
+        if (pendingImage === uploadingFor) {
+          pendingImage.status = 'staged';
+          if (pendingStatus) pendingStatus.textContent = 'Ready to send';
+          if (actionButton) actionButton.disabled = false;
+          if (attachButton) attachButton.disabled = false;
+        }
+        showToast(uploadErrorMessage(err), { type: 'error' });
+        throw err;
+      }
+    }
+
     return {
       clearPendingImage,
-      getReadyImage: () => (pendingImage && pendingImage.status === 'ready' ? pendingImage : null)
+      hasPendingImage: () => !!pendingImage,
+      uploadPendingImageIfNeeded
     };
   }
 
@@ -4721,11 +4819,25 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    sendButton.addEventListener('click', () => {
+    sendButton.addEventListener('click', async () => {
       const text = composerInput.value.trim();
-      const readyImage = imageAttachment.getReadyImage();
+      const hasImage = imageAttachment.hasPendingImage();
       // An image on its own is a valid message - text is optional now
-      if (!text && !readyImage) return;
+      if (!text && !hasImage) return;
+
+      // Guard against double-submit for the whole upload+send window
+      sendButton.disabled = true;
+      let uploadedImage = null;
+      if (hasImage) {
+        try {
+          uploadedImage = await imageAttachment.uploadPendingImageIfNeeded();
+        } catch (err) {
+          // Error toast already shown; leave the photo staged so the user
+          // can just tap Send again to retry.
+          sendButton.disabled = false;
+          return;
+        }
+      }
 
       // Create new message with optional reply metadata
       const newMessage = {
@@ -4736,9 +4848,9 @@ document.addEventListener('DOMContentLoaded', () => {
         isOutgoing: true
       };
 
-      if (readyImage) {
-        newMessage.imageUrl = readyImage.url;
-        newMessage.imageId = readyImage.id;
+      if (uploadedImage) {
+        newMessage.imageUrl = uploadedImage.url;
+        newMessage.imageId = uploadedImage.id;
       }
 
       // Attach reply metadata if replying
@@ -4815,9 +4927,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!group) {
       group = discoverGroups.find(g => g.id === groupId);
     }
-    if (!group) {
-      // Not in local state -- reached via a Discover click or an invite link.
-      // A private group still resolves by exact id here (see the relaxed
+    if (!isMember) {
+      // Non-member preview always refetches full detail -- discoverGroups only
+      // carries the capped ~5-person preview from the batched Discover query,
+      // but this pre-join screen shows the complete member list. A private
+      // group still resolves by exact id here (see the relaxed
       // GET /api/groups/:groupId on the server) -- possessing the id is
       // itself the authorization -- it just comes back with no member list.
       try {
@@ -4825,7 +4939,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (response.ok) {
           const payload = await response.json();
           if (payload.group) {
-            group = {
+            const fetchedGroup = {
               id: payload.group.id,
               name: payload.group.name,
               description: payload.group.description || '',
@@ -4835,16 +4949,21 @@ document.addEventListener('DOMContentLoaded', () => {
               visibility: payload.group.visibility,
               creatorId: payload.group.creatorId,
               members: (payload.group.members || []).map(mapServerMember),
-              joinRequests: [],
+              joinRequests: (group && group.joinRequests) || [],
               createdAt: payload.group.createdAt,
               source: 'server'
             };
-            // Cache it locally so Join/Request to Join keep working from this
-            // screen without another round trip. This is a "known groups"
-            // cache, not the Discover listing itself -- filterDiscoverCommunities
-            // still keeps private groups out of the visible Discover feed.
-            if (!discoverGroups.some(g => g.id === group.id)) {
-              discoverGroups.push(Object.assign({ isFeatured: false, isNew: !!payload.group.isNew }, group));
+            if (group) {
+              Object.assign(group, fetchedGroup);
+            } else {
+              group = fetchedGroup;
+              // Cache it locally so Join/Request to Join keep working from this
+              // screen without another round trip. This is a "known groups"
+              // cache, not the Discover listing itself -- filterDiscoverCommunities
+              // still keeps private groups out of the visible Discover feed.
+              if (!discoverGroups.some(g => g.id === group.id)) {
+                discoverGroups.push(Object.assign({ isFeatured: false, isNew: !!payload.group.isNew }, group));
+              }
             }
           }
         }
@@ -4925,6 +5044,24 @@ document.addEventListener('DOMContentLoaded', () => {
       return messageHTML;
     }).join('');
 
+    // Non-members get a read-only member list on the pre-join preview screen
+    // instead of the composer -- there's nothing to send, just who's there.
+    const groupPreviewMembersHTML = !isMember ? `
+      <div class="group-preview-members">
+        <div class="group-preview-members-title">${group.memberCount} member${group.memberCount === 1 ? '' : 's'}</div>
+        <div class="group-preview-members-list">
+          ${(group.members || []).map(member => `
+            <div class="group-member-item" data-member-id="${escapeAttr(member.id)}">
+              <div class="member-avatar">${renderCommunityAvatar(member.avatar, member.username)}</div>
+              <div class="member-info">
+                <div class="member-name">${escapeHtml(member.username)}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : '';
+
     let actionAreaHTML;
     if (isMember) {
       actionAreaHTML = composerMarkup({ conversationId: group.id });
@@ -4958,6 +5095,7 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           ${isMember ? `<button class="menu-button" aria-label="More options">⋮</button>` : ''}
         </div>
+        ${groupPreviewMembersHTML}
         <div class="messages-area">
           <div class="messages-container">
             ${messagesList}
@@ -4965,7 +5103,7 @@ document.addEventListener('DOMContentLoaded', () => {
           ${scrollToLatestFabHTML()}
         </div>
         <div class="typing-indicator-bar" aria-live="polite"></div>
-        <div class="composer-container">
+        <div class="composer-container chat-composer">
           ${actionAreaHTML}
         </div>
       </div>
@@ -7242,6 +7380,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const fromPublish = !!(renderOptions && renderOptions.fromPublish);
     const fromSend = !!(renderOptions && renderOptions.fromSend);
     let channel = channels.find(c => c.id === channelId);
+    const isKnownChannel = !!channel;
 
     if (!channel) {
       // Not followed yet -- reached via a Discover click. discoverChannels
@@ -7257,6 +7396,47 @@ document.addEventListener('DOMContentLoaded', () => {
           mutedByUsers: {},
           admins: []
         }, discoverChannel);
+      }
+    }
+    if (!isKnownChannel) {
+      // Non-follower preview always refetches full detail -- discoverChannels
+      // only carries the capped ~5-person preview from the batched Discover
+      // query, but this pre-follow screen shows the complete follower list.
+      try {
+        const response = await fetch(`/api/channels/${channelId}`, { headers: authHeaders() });
+        if (response.ok) {
+          const payload = await response.json();
+          if (payload.channel) {
+            const fullFollowerPreview = payload.channel.followers || [];
+            if (channel) {
+              channel.followerPreview = fullFollowerPreview;
+              channel.followerCount = payload.channel.followerCount;
+            } else {
+              channel = {
+                id: payload.channel.id,
+                name: payload.channel.name,
+                description: payload.channel.description || '',
+                avatar: payload.channel.avatarUrl || payload.channel.avatar || generateDefaultAvatar(payload.channel.name),
+                followers: {},
+                followerCount: payload.channel.followerCount,
+                followerPreview: fullFollowerPreview,
+                posts: [],
+                creatorId: payload.channel.creatorId,
+                mutedByUsers: {},
+                admins: [],
+                isNew: !!payload.channel.isNew,
+                createdAt: payload.channel.createdAt
+              };
+              // Cache it locally so Follow keeps working from this screen
+              // without another round trip -- mirrors the group side's cache.
+              if (!discoverChannels.some(c => c.id === channel.id)) {
+                discoverChannels.push(Object.assign({ isFeatured: false }, channel));
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('Could not load channel:', error);
       }
     }
     if (!channel) {
@@ -7278,6 +7458,24 @@ document.addEventListener('DOMContentLoaded', () => {
     // a bare Discover preview has neither.
     const canShowMenu = isOwner || isAdmin || isFollowing;
 
+    // Non-followers get a read-only follower list on the pre-follow preview
+    // screen -- there's no post composer for them, just who's subscribed.
+    const channelPreviewFollowersHTML = (!isFollowing && !isOwner) ? `
+      <div class="group-preview-members">
+        <div class="group-preview-members-title">${formatFollowerCount(channel.followerCount)} follower${channel.followerCount === 1 ? '' : 's'}</div>
+        <div class="group-preview-members-list">
+          ${(channel.followerPreview || []).map(follower => `
+            <div class="channel-member-item" data-member-id="${escapeAttr(follower.id)}">
+              <div class="member-avatar">${renderCommunityAvatar(follower.avatarUrl, follower.username)}</div>
+              <div class="member-info">
+                <div class="member-name">${escapeHtml(follower.username)}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : '';
+
     // channel.posts is newest-first in storage (publishPost unshifts, and the
     // lastMessage/unread logic elsewhere reads posts[0] as "the newest") — but
     // the feed now DISPLAYS oldest-first, same chronological order as DM/group
@@ -7298,6 +7496,7 @@ document.addEventListener('DOMContentLoaded', () => {
           ${(!isFollowing && !isOwner) ? `<button class="channel-follow-pill" aria-label="Follow channel">Follow</button>` : ''}
           ${canShowMenu ? `<button class="menu-button" aria-label="More options">⋮</button>` : ''}
         </div>
+        ${channelPreviewFollowersHTML}
         <div class="messages-area">
           <div class="channel-feed messages-container">
             ${postsList || `
@@ -7312,18 +7511,27 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
         ${isOwner ? `
           <div class="channel-footer">
-            <div class="composer-container">
+            <div class="composer-container chat-composer">
               <div class="pending-image-bar" style="display: none;">
                 <img class="pending-image-thumb" alt="Selected image preview" />
                 <span class="pending-image-status">Uploading…</span>
                 <button class="pending-image-remove" aria-label="Remove image">✕</button>
               </div>
-              <textarea class="composer-input" placeholder="What's happening?" rows="1"></textarea>
-              <div class="composer-actions">
-                <button class="image-button attach-image-button" aria-label="Add image">📷</button>
+              <div class="composer-input-shell">
+                <textarea class="composer-input" placeholder="What's happening?" rows="1"></textarea>
+                <button class="attach-image-button" type="button" aria-label="Add image">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.19 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.49"
+                          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
                 <input type="file" class="attach-image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display: none;" />
-                <button class="publish-button" aria-label="Publish">Publish</button>
               </div>
+              <button class="publish-button" type="button" aria-label="Publish">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M2 21l21-9L2 3v7l15 2-15 2v7z" fill="currentColor"/>
+                </svg>
+              </button>
             </div>
           </div>
         ` : ''}
@@ -7595,13 +7803,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
       composerInput.addEventListener('input', autoExpandTextarea);
 
-      publishButton.addEventListener('click', () => {
+      publishButton.addEventListener('click', async () => {
         const text = composerInput.value.trim();
-        const readyImage = imageAttachment.getReadyImage();
+        const hasImage = imageAttachment.hasPendingImage();
         // An image on its own is a valid post - text is optional, same as DMs/groups
-        if (!text && !readyImage) return;
+        if (!text && !hasImage) return;
 
-        publishPost(channelId, text, readyImage, () => renderChannelView(channelId));
+        // Guard against double-submit for the whole upload+publish window
+        publishButton.disabled = true;
+        let uploadedImage = null;
+        if (hasImage) {
+          try {
+            uploadedImage = await imageAttachment.uploadPendingImageIfNeeded();
+          } catch (err) {
+            // Error toast already shown; leave the photo staged so the user
+            // can just tap Publish again to retry.
+            publishButton.disabled = false;
+            return;
+          }
+        }
+
+        publishPost(channelId, text, uploadedImage, () => renderChannelView(channelId));
         composerInput.value = '';
         composerInput.style.height = '40px';
         imageAttachment.clearPendingImage();
@@ -7634,7 +7856,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     // Forward moved into the ⋯ menu, so the deep link now walks the same two
     // taps a user does: open the menu, then pick Forward.
-    if (SHOT_FORWARD_SHEET) {
+    if (SHOT_FORWARD_SHEET || SHOT_FORWARD_DELIVERED || SHOT_FORWARD_DELIVERED_LIST) {
       feed?.querySelector('.post-card .post-menu-button')?.click();
       document.getElementById('forward-post-btn')?.click();
     }
@@ -7942,7 +8164,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Deliver one post to every selected target. Each forwarded message carries
   // `forwardedFrom` so the DM/group renderers can show the attribution line.
-  // Returns the number of chats written to, for the toast.
+  // Like setupComposer's real send, each message is both pushed optimistically
+  // AND handed to deliverThreadMessage so it's actually persisted server-side --
+  // otherwise the target's list preview gets reverted by the next hydrate poll
+  // (nothing server-side ever advances) and the message never reaches the other
+  // participant or survives a reload. Returns the number of chats written to,
+  // for the toast.
   function forwardPostToTargets(channel, post, targets, note) {
     const baseTimestamp = Date.now();
     const trimmedNote = (note || '').trim();
@@ -7963,28 +8190,34 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!conversation) return;
         if (!conversation.messages) conversation.messages = [];
 
-        conversation.messages.push({
+        const forwardedMessage = {
           id: `msg_fwd_${timestamp}_${index}`,
           text: post.text,
           timestamp,
           isOutgoing: true,
           forwardedFrom
-        });
+        };
+        conversation.messages.push(forwardedMessage);
+        deliverThreadMessage('direct', directPeerId(conversation.id), forwardedMessage);
 
+        let lastMessage = forwardedMessage;
         if (trimmedNote) {
-          conversation.messages.push({
+          const noteMessage = {
             id: `msg_fwd_note_${timestamp}_${index}`,
             text: trimmedNote,
             timestamp: timestamp + 1,
             isOutgoing: true
-          });
+          };
+          conversation.messages.push(noteMessage);
+          deliverThreadMessage('direct', directPeerId(conversation.id), noteMessage);
+          lastMessage = noteMessage;
         }
 
         updateThreadLastMessage(
           conversation,
           false,
           '↗ ' + (trimmedNote || post.text).substring(0, 100),
-          trimmedNote ? timestamp + 1 : timestamp
+          lastMessage.timestamp
         );
         delivered++;
         return;
@@ -7994,30 +8227,36 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!group) return;
       if (!group.messages) group.messages = [];
 
-      group.messages.push({
+      const forwardedMessage = {
         id: `msg_fwd_${timestamp}_${index}`,
         senderId: 'user_self',
         text: post.text,
         timestamp,
         isOutgoing: true,
         forwardedFrom
-      });
+      };
+      group.messages.push(forwardedMessage);
+      deliverThreadMessage('group', group.id, forwardedMessage);
 
+      let lastMessage = forwardedMessage;
       if (trimmedNote) {
-        group.messages.push({
+        const noteMessage = {
           id: `msg_fwd_note_${timestamp}_${index}`,
           senderId: 'user_self',
           text: trimmedNote,
           timestamp: timestamp + 1,
           isOutgoing: true
-        });
+        };
+        group.messages.push(noteMessage);
+        deliverThreadMessage('group', group.id, noteMessage);
+        lastMessage = noteMessage;
       }
 
       updateThreadLastMessage(
         group,
         true,
         '↗ ' + (trimmedNote || post.text).substring(0, 100),
-        trimmedNote ? timestamp + 1 : timestamp
+        lastMessage.timestamp
       );
       delivered++;
     });
@@ -8159,6 +8398,39 @@ document.addEventListener('DOMContentLoaded', () => {
         const rows = targetsList.querySelectorAll('.forward-target-item:not(.selected)');
         if (rows[0]) rows[0].click();
       }
+    }
+
+    // Screenshot-state: actually select and send to a real DM target, then
+    // wait for the server to confirm the forwarded message landed before
+    // rendering the final state a test can assert on. Two deep links share
+    // this setup but land on different screens: SHOT_FORWARD_DELIVERED checks
+    // the message content/attribution inside the conversation itself,
+    // SHOT_FORWARD_DELIVERED_LIST checks the Messages list preview.
+    if (SHOT_FORWARD_DELIVERED || SHOT_FORWARD_DELIVERED_LIST) {
+      (async () => {
+        const targetId = 'conv_' + SHOT_FORWARD_DELIVERED_PEER_ID;
+        const target = allTargets.find(t => t.kind === 'dm' && t.id === targetId);
+        if (!target) return;
+        selected.set(`dm:${targetId}`, target);
+        renderTargets();
+        updateSendButton();
+        sendButton.click();
+
+        const conversation = conversations.find(c => c.id === targetId);
+        if (!conversation) return;
+        for (let attempt = 0; attempt < 20; attempt++) {
+          await hydrateThreadMessages('direct', SHOT_FORWARD_DELIVERED_PEER_ID, conversation);
+          if (conversation.messages.some(m => m.forwardedFrom && m.confirmed === true)) break;
+          await new Promise(resolve => setTimeout(resolve, 150));
+        }
+
+        if (SHOT_FORWARD_DELIVERED_LIST) {
+          await hydrateServerDirectConversations();
+          renderMessagesPage();
+        } else {
+          await renderConversationPage(targetId);
+        }
+      })();
     }
   }
 
@@ -8853,7 +9125,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="messages-container">
           ${messagesList}
         </div>
-        <div class="composer-container" style="${composerDisplay}">
+        <div class="composer-container chat-composer" style="${composerDisplay}">
           ${viewOnlyBadge}
           ${composerMarkup({ disabled: !channel.currentUserCanSend, conversationId: channel.id })}
         </div>

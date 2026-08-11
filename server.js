@@ -344,6 +344,7 @@ function shapeGroup(row, memberRows) {
       ? Number(row.member_count)
       : members.length,
     members,
+    isMember: row.is_member === undefined ? undefined : !!row.is_member,
     isNew: row.is_new === undefined ? undefined : !!row.is_new,
     lastMessage: row.last_text !== undefined ? (row.last_text || null) : undefined,
     lastMessageSenderUsername: row.last_sender_username || null,
@@ -388,28 +389,47 @@ app.get('/api/groups', async (req, res) => {
       const result = await pool.query(
         `SELECT g.*,
                 (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS member_count,
-                (g.created_at > now() - interval '7 days') AS is_new
+                (g.created_at > now() - interval '7 days') AS is_new,
+                EXISTS (
+                  SELECT 1 FROM group_members m
+                   WHERE m.group_id = g.id AND m.user_id = $1
+                ) AS is_member
            FROM groups g
           WHERE g.visibility = 'public'
-            AND NOT EXISTS (
-              SELECT 1 FROM group_members m
-               WHERE m.group_id = g.id AND m.user_id = $1
-            )
           ORDER BY g.created_at DESC
           LIMIT 100`,
         [req.user.id]
       );
-      return res.json({ groups: result.rows.map((row) => shapeGroup(row, [])) });
+      if (result.rowCount === 0) return res.json({ groups: [] });
+
+      const ids = result.rows.map((r) => r.id);
+      const memberRes = await pool.query(
+        `SELECT gm.group_id, gm.user_id, gm.username, gm.role, u.avatar_url FROM group_members gm
+          LEFT JOIN users u ON u.id = gm.user_id
+          WHERE gm.group_id = ANY($1::text[])
+          ORDER BY CASE gm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, gm.joined_at`,
+        [ids]
+      );
+      const byGroup = new Map();
+      memberRes.rows.forEach((m) => {
+        if (!byGroup.has(m.group_id)) byGroup.set(m.group_id, []);
+        byGroup.get(m.group_id).push(m);
+      });
+      const PREVIEW_LIMIT = 5;
+      return res.json({
+        groups: result.rows.map((row) => shapeGroup(row, (byGroup.get(row.id) || []).slice(0, PREVIEW_LIMIT)))
+      });
     }
 
     const result = await pool.query(
       `SELECT g.*,
               (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS member_count,
-              lm.text AS last_text, lm.sender_username AS last_sender_username, lm.created_at AS last_at,
+              CASE WHEN lm.forwarded_from_channel_id IS NOT NULL THEN '↗ ' || lm.text ELSE lm.text END AS last_text,
+              lm.sender_username AS last_sender_username, lm.created_at AS last_at,
               COALESCE(unread.count, 0) AS unread_count
          FROM groups g
          LEFT JOIN LATERAL (
-           SELECT text, sender_username, created_at FROM messages
+           SELECT text, sender_username, created_at, forwarded_from_channel_id FROM messages
             WHERE conversation_type = 'group' AND conversation_id = g.id
             ORDER BY created_at DESC LIMIT 1
          ) lm ON true
@@ -976,7 +996,7 @@ function generateChannelId() {
 }
 
 // Shape a channel row the way the frontend already consumes channels.
-function shapeChannel(row, followerCount, isFollowing) {
+function shapeChannel(row, followerCount, isFollowing, followerPreview, isOwn) {
   return {
     id: row.id,
     name: row.name,
@@ -989,6 +1009,12 @@ function shapeChannel(row, followerCount, isFollowing) {
     createdAt: new Date(row.created_at).getTime(),
     followerCount: followerCount !== undefined && followerCount !== null ? Number(followerCount) : 0,
     isFollowing: !!isFollowing,
+    isOwn: !!isOwn,
+    followers: (followerPreview || []).map((f) => ({
+      id: f.user_id,
+      username: f.username || f.user_id,
+      avatarUrl: f.avatar_url || null
+    })),
     isNew: row.is_new === undefined ? undefined : !!row.is_new
   };
 }
@@ -1005,7 +1031,15 @@ async function loadChannelWithFollowerCount(channelId, userId) {
     );
     isFollowing = followRes.rowCount > 0;
   }
-  return shapeChannel(chRes.rows[0], countRes.rows[0].count, isFollowing);
+  const followerRes = await pool.query(
+    `SELECT cf.user_id, u.username, u.avatar_url FROM channel_followers cf
+      LEFT JOIN users u ON u.id = cf.user_id
+      WHERE cf.channel_id = $1
+      ORDER BY cf.followed_at`,
+    [channelId]
+  );
+  const isOwn = !!userId && (chRes.rows[0].creator_user_id === userId || chRes.rows[0].creator_user_id === 'user_self');
+  return shapeChannel(chRes.rows[0], countRes.rows[0].count, isFollowing, followerRes.rows, isOwn);
 }
 
 // GET /api/channels?scope=mine|discover - list the caller's followed/owned
@@ -1017,19 +1051,42 @@ app.get('/api/channels', async (req, res) => {
       const result = await pool.query(
         `SELECT c.*,
                 (SELECT COUNT(*) FROM channel_followers f WHERE f.channel_id = c.id) AS follower_count,
-                (c.created_at > now() - interval '7 days') AS is_new
+                (c.created_at > now() - interval '7 days') AS is_new,
+                EXISTS (
+                  SELECT 1 FROM channel_followers f
+                   WHERE f.channel_id = c.id AND (f.user_id = $1 OR f.user_id = 'user_self')
+                ) AS is_following,
+                (c.creator_user_id = $1 OR c.creator_user_id = 'user_self') AS is_own
            FROM channels c
-          WHERE c.creator_user_id != $1
-            AND c.creator_user_id != 'user_self'
-            AND NOT EXISTS (
-              SELECT 1 FROM channel_followers f
-               WHERE f.channel_id = c.id AND f.user_id = $1
-            )
           ORDER BY c.created_at DESC
           LIMIT 100`,
         [req.user.id]
       );
-      return res.json({ channels: result.rows.map((row) => shapeChannel(row, row.follower_count, false)) });
+      if (result.rowCount === 0) return res.json({ channels: [] });
+
+      const ids = result.rows.map((r) => r.id);
+      const followerRes = await pool.query(
+        `SELECT cf.channel_id, cf.user_id, u.username, u.avatar_url FROM channel_followers cf
+          LEFT JOIN users u ON u.id = cf.user_id
+          WHERE cf.channel_id = ANY($1::text[])
+          ORDER BY cf.followed_at`,
+        [ids]
+      );
+      const byChannel = new Map();
+      followerRes.rows.forEach((f) => {
+        if (!byChannel.has(f.channel_id)) byChannel.set(f.channel_id, []);
+        byChannel.get(f.channel_id).push(f);
+      });
+      const PREVIEW_LIMIT = 5;
+      return res.json({
+        channels: result.rows.map((row) => shapeChannel(
+          row,
+          row.follower_count,
+          row.is_following,
+          (byChannel.get(row.id) || []).slice(0, PREVIEW_LIMIT),
+          row.is_own
+        ))
+      });
     }
 
     const result = await pool.query(
@@ -1479,6 +1536,14 @@ function shapeMessage(row, reactionsByMessageId) {
     msg.replyToSenderName = row.reply_to_sender_name;
     msg.replyToPreviewText = row.reply_to_preview_text;
   }
+  if (row.forwarded_from_channel_id) {
+    msg.forwardedFrom = {
+      channelId: row.forwarded_from_channel_id,
+      channelName: row.forwarded_from_channel_name || '',
+      channelAvatar: row.forwarded_from_channel_avatar || '',
+      postId: row.forwarded_from_post_id || null
+    };
+  }
   const reactions = reactionsByMessageId && reactionsByMessageId[row.id];
   if (reactions && Object.keys(reactions).length) {
     msg.reactions = reactions;
@@ -1556,13 +1621,15 @@ async function insertMessage(conversationType, conversationId, sender, body, kin
   const imageUrl = typeof (body && body.imageUrl) === 'string' ? body.imageUrl : null;
   const imageId = typeof (body && body.imageId) === 'string' ? body.imageId : null;
   const replyTo = body && body.replyTo && typeof body.replyTo === 'object' ? body.replyTo : null;
+  const forwardedFrom = body && body.forwardedFrom && typeof body.forwardedFrom === 'object' ? body.forwardedFrom : null;
   const messageKind = kind === 'system' ? 'system' : 'text';
 
   await pool.query(
     `INSERT INTO messages
        (id, conversation_type, conversation_id, sender_user_id, sender_username,
-        text, image_url, image_id, reply_to_message_id, reply_to_sender_name, reply_to_preview_text, kind)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        text, image_url, image_id, reply_to_message_id, reply_to_sender_name, reply_to_preview_text, kind,
+        forwarded_from_channel_id, forwarded_from_channel_name, forwarded_from_channel_avatar, forwarded_from_post_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
      ON CONFLICT (id) DO NOTHING`,
     [
       id, conversationType, conversationId, sender.id, sender.username || sender.id,
@@ -1570,7 +1637,11 @@ async function insertMessage(conversationType, conversationId, sender, body, kin
       replyTo ? String(replyTo.messageId || '').slice(0, 100) || null : null,
       replyTo ? String(replyTo.senderName || '').slice(0, 80) : null,
       replyTo ? String(replyTo.previewText || '').slice(0, 200) : null,
-      messageKind
+      messageKind,
+      forwardedFrom ? String(forwardedFrom.channelId || '').slice(0, 100) || null : null,
+      forwardedFrom ? String(forwardedFrom.channelName || '').slice(0, 200) : null,
+      forwardedFrom ? String(forwardedFrom.channelAvatar || '').slice(0, 4000) : null,
+      forwardedFrom ? String(forwardedFrom.postId || '').slice(0, 100) || null : null
     ]
   );
   const row = await pool.query('SELECT * FROM messages WHERE id = $1', [id]);
@@ -1620,7 +1691,8 @@ app.get('/api/direct-conversations', async (req, res) => {
       `SELECT dc.id, dc.user_id_a, dc.user_id_b, dc.status, dc.requested_by_user_id,
               ua.username AS a_username,
               u.username AS peer_username, u.usernode_pubkey AS peer_pubkey,
-              lm.text AS last_text, lm.sender_user_id AS last_sender_id, lm.created_at AS last_at,
+              CASE WHEN lm.forwarded_from_channel_id IS NOT NULL THEN '↗ ' || lm.text ELSE lm.text END AS last_text,
+              lm.sender_user_id AS last_sender_id, lm.created_at AS last_at,
               cus.pinned AS pinned, cus.hidden_from_inbox AS hidden_from_inbox,
               COALESCE(unread.count, 0) AS unread_count
          FROM direct_conversations dc
@@ -1632,7 +1704,7 @@ app.get('/api/direct-conversations', async (req, res) => {
                 THEN dc.user_id_b ELSE dc.user_id_a END
          )
          LEFT JOIN LATERAL (
-           SELECT text, sender_user_id, created_at FROM messages
+           SELECT text, sender_user_id, created_at, forwarded_from_channel_id FROM messages
             WHERE conversation_type = 'direct' AND conversation_id = dc.id
             ORDER BY created_at DESC LIMIT 1
          ) lm ON true
@@ -2350,6 +2422,12 @@ async function initDatabase() {
     // removal, leaving) -- never settable from the public POST /api/messages/*
     // body, only from internal insertMessage(..., { kind: 'system' }) calls.
     await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'text'`);
+    // Forward attribution: which channel/post a message was forwarded from,
+    // if any -- set once at insert time (see insertMessage), never mutated.
+    await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS forwarded_from_channel_id TEXT`);
+    await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS forwarded_from_channel_name TEXT`);
+    await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS forwarded_from_channel_avatar TEXT`);
+    await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS forwarded_from_post_id TEXT`);
 
     // "Delete for me" on a DM message: the sender or recipient can hide any
     // message from their own view without affecting the other participant's
@@ -2668,9 +2746,15 @@ async function seedStagingData() {
       avatar: 'SP',
       visibility: 'public',
       owner: { id: 'staging-demo-user-1', username: 'staging-demo-owner' },
+      // 7 total members (owner + 6) so the Discover card's ~5-person member
+      // preview has real "+N more" overflow to exercise in staging.
       members: [
         { id: 'staging-demo-user-2', username: 'staging-demo-ana' },
-        { id: 'staging-demo-user-3', username: 'staging-demo-budi' }
+        { id: 'staging-demo-user-3', username: 'staging-demo-budi' },
+        { id: 'staging-demo-user-5', username: 'staging-demo-dedi' },
+        { id: 'staging-demo-user-6', username: 'staging-demo-eko' },
+        { id: 'staging-demo-user-7', username: 'staging-demo-fajar' },
+        { id: 'staging-demo-user-8', username: 'staging-demo-gita' }
       ]
     },
     {
@@ -2728,9 +2812,15 @@ async function seedStagingData() {
       description: 'Staging demo channel — public announcements feed.',
       avatar: 'SA',
       owner: { id: 'staging-demo-user-1', username: 'staging-demo-owner' },
+      // 7 total followers (owner + 6) so the Discover card's ~5-person
+      // follower preview has real "+N more" overflow to exercise in staging.
       followers: [
         { id: 'staging-demo-user-2', username: 'staging-demo-ana' },
-        { id: 'staging-demo-user-3', username: 'staging-demo-budi' }
+        { id: 'staging-demo-user-3', username: 'staging-demo-budi' },
+        { id: 'staging-demo-user-5', username: 'staging-demo-dedi' },
+        { id: 'staging-demo-user-6', username: 'staging-demo-eko' },
+        { id: 'staging-demo-user-7', username: 'staging-demo-fajar' },
+        { id: 'staging-demo-user-8', username: 'staging-demo-gita' }
       ]
     },
     {
