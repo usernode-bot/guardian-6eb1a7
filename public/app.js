@@ -181,6 +181,20 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_DM_UNHIDE_PEER_ID = 'staging-demo-unhide-peer';
   const SHOT_DM_UNHIDE_TEXT_BEFORE_HIDE = 'Shot unhide check: before hide';
   const SHOT_DM_UNHIDE_TEXT_AFTER_HIDE = 'Shot unhide check: after hide';
+  // Regression check for forwardPostToTargets never calling the server: drives
+  // the real Forward sheet's Send button against an already-real DM target
+  // (staging-demo-user-8, seeded with an existing accepted conversation --
+  // see dm_staging_untouched_1), waits for the server to actually confirm the
+  // forwarded message, then renders straight into that conversation. A stale
+  // implementation (local-only push, no deliverThreadMessage call) would leave
+  // the server-confirmed history without this message, so the wait below
+  // would never see it land.
+  const SHOT_FORWARD_DELIVERED = SHOT === 'forward-delivered';
+  // Same setup as above, but lands on the Messages list instead of the
+  // conversation itself -- regression check for the other half of the bug
+  // report (the list preview never updating after a forward).
+  const SHOT_FORWARD_DELIVERED_LIST = SHOT === 'forward-delivered-list';
+  const SHOT_FORWARD_DELIVERED_PEER_ID = 'staging-demo-user-8';
 
   // The signed-in Usernode user, hydrated from /api/state at boot. Server rows
   // for this id are mapped onto the app's long-standing 'user_self' sentinel so
@@ -1058,6 +1072,9 @@ document.addEventListener('DOMContentLoaded', () => {
         previewText: serverMsg.replyToPreviewText
       };
     }
+    if (serverMsg.forwardedFrom) {
+      msg.forwardedFrom = serverMsg.forwardedFrom;
+    }
     if (serverMsg.reactions && Object.keys(serverMsg.reactions).length) {
       msg.reactions = shapeIncomingReactions(serverMsg.reactions);
     }
@@ -1379,7 +1396,8 @@ document.addEventListener('DOMContentLoaded', () => {
         text: message.text,
         imageUrl: message.imageUrl,
         imageId: message.imageId,
-        replyTo: message.replyTo
+        replyTo: message.replyTo,
+        forwardedFrom: message.forwardedFrom
       })
     }).then(res => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -7573,7 +7591,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     // Forward moved into the ⋯ menu, so the deep link now walks the same two
     // taps a user does: open the menu, then pick Forward.
-    if (SHOT_FORWARD_SHEET) {
+    if (SHOT_FORWARD_SHEET || SHOT_FORWARD_DELIVERED || SHOT_FORWARD_DELIVERED_LIST) {
       feed?.querySelector('.post-card .post-menu-button')?.click();
       document.getElementById('forward-post-btn')?.click();
     }
@@ -7879,7 +7897,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Deliver one post to every selected target. Each forwarded message carries
   // `forwardedFrom` so the DM/group renderers can show the attribution line.
-  // Returns the number of chats written to, for the toast.
+  // Like setupComposer's real send, each message is both pushed optimistically
+  // AND handed to deliverThreadMessage so it's actually persisted server-side --
+  // otherwise the target's list preview gets reverted by the next hydrate poll
+  // (nothing server-side ever advances) and the message never reaches the other
+  // participant or survives a reload. Returns the number of chats written to,
+  // for the toast.
   function forwardPostToTargets(channel, post, targets, note) {
     const baseTimestamp = Date.now();
     const trimmedNote = (note || '').trim();
@@ -7900,28 +7923,34 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!conversation) return;
         if (!conversation.messages) conversation.messages = [];
 
-        conversation.messages.push({
+        const forwardedMessage = {
           id: `msg_fwd_${timestamp}_${index}`,
           text: post.text,
           timestamp,
           isOutgoing: true,
           forwardedFrom
-        });
+        };
+        conversation.messages.push(forwardedMessage);
+        deliverThreadMessage('direct', directPeerId(conversation.id), forwardedMessage);
 
+        let lastMessage = forwardedMessage;
         if (trimmedNote) {
-          conversation.messages.push({
+          const noteMessage = {
             id: `msg_fwd_note_${timestamp}_${index}`,
             text: trimmedNote,
             timestamp: timestamp + 1,
             isOutgoing: true
-          });
+          };
+          conversation.messages.push(noteMessage);
+          deliverThreadMessage('direct', directPeerId(conversation.id), noteMessage);
+          lastMessage = noteMessage;
         }
 
         updateThreadLastMessage(
           conversation,
           false,
           '↗ ' + (trimmedNote || post.text).substring(0, 100),
-          trimmedNote ? timestamp + 1 : timestamp
+          lastMessage.timestamp
         );
         delivered++;
         return;
@@ -7931,30 +7960,36 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!group) return;
       if (!group.messages) group.messages = [];
 
-      group.messages.push({
+      const forwardedMessage = {
         id: `msg_fwd_${timestamp}_${index}`,
         senderId: 'user_self',
         text: post.text,
         timestamp,
         isOutgoing: true,
         forwardedFrom
-      });
+      };
+      group.messages.push(forwardedMessage);
+      deliverThreadMessage('group', group.id, forwardedMessage);
 
+      let lastMessage = forwardedMessage;
       if (trimmedNote) {
-        group.messages.push({
+        const noteMessage = {
           id: `msg_fwd_note_${timestamp}_${index}`,
           senderId: 'user_self',
           text: trimmedNote,
           timestamp: timestamp + 1,
           isOutgoing: true
-        });
+        };
+        group.messages.push(noteMessage);
+        deliverThreadMessage('group', group.id, noteMessage);
+        lastMessage = noteMessage;
       }
 
       updateThreadLastMessage(
         group,
         true,
         '↗ ' + (trimmedNote || post.text).substring(0, 100),
-        trimmedNote ? timestamp + 1 : timestamp
+        lastMessage.timestamp
       );
       delivered++;
     });
@@ -8096,6 +8131,39 @@ document.addEventListener('DOMContentLoaded', () => {
         const rows = targetsList.querySelectorAll('.forward-target-item:not(.selected)');
         if (rows[0]) rows[0].click();
       }
+    }
+
+    // Screenshot-state: actually select and send to a real DM target, then
+    // wait for the server to confirm the forwarded message landed before
+    // rendering the final state a test can assert on. Two deep links share
+    // this setup but land on different screens: SHOT_FORWARD_DELIVERED checks
+    // the message content/attribution inside the conversation itself,
+    // SHOT_FORWARD_DELIVERED_LIST checks the Messages list preview.
+    if (SHOT_FORWARD_DELIVERED || SHOT_FORWARD_DELIVERED_LIST) {
+      (async () => {
+        const targetId = 'conv_' + SHOT_FORWARD_DELIVERED_PEER_ID;
+        const target = allTargets.find(t => t.kind === 'dm' && t.id === targetId);
+        if (!target) return;
+        selected.set(`dm:${targetId}`, target);
+        renderTargets();
+        updateSendButton();
+        sendButton.click();
+
+        const conversation = conversations.find(c => c.id === targetId);
+        if (!conversation) return;
+        for (let attempt = 0; attempt < 20; attempt++) {
+          await hydrateThreadMessages('direct', SHOT_FORWARD_DELIVERED_PEER_ID, conversation);
+          if (conversation.messages.some(m => m.forwardedFrom && m.confirmed === true)) break;
+          await new Promise(resolve => setTimeout(resolve, 150));
+        }
+
+        if (SHOT_FORWARD_DELIVERED_LIST) {
+          await hydrateServerDirectConversations();
+          renderMessagesPage();
+        } else {
+          await renderConversationPage(targetId);
+        }
+      })();
     }
   }
 

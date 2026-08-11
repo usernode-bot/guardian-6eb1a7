@@ -405,11 +405,12 @@ app.get('/api/groups', async (req, res) => {
     const result = await pool.query(
       `SELECT g.*,
               (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS member_count,
-              lm.text AS last_text, lm.sender_username AS last_sender_username, lm.created_at AS last_at,
+              CASE WHEN lm.forwarded_from_channel_id IS NOT NULL THEN '↗ ' || lm.text ELSE lm.text END AS last_text,
+              lm.sender_username AS last_sender_username, lm.created_at AS last_at,
               COALESCE(unread.count, 0) AS unread_count
          FROM groups g
          LEFT JOIN LATERAL (
-           SELECT text, sender_username, created_at FROM messages
+           SELECT text, sender_username, created_at, forwarded_from_channel_id FROM messages
             WHERE conversation_type = 'group' AND conversation_id = g.id
             ORDER BY created_at DESC LIMIT 1
          ) lm ON true
@@ -1449,6 +1450,14 @@ function shapeMessage(row, reactionsByMessageId) {
     msg.replyToSenderName = row.reply_to_sender_name;
     msg.replyToPreviewText = row.reply_to_preview_text;
   }
+  if (row.forwarded_from_channel_id) {
+    msg.forwardedFrom = {
+      channelId: row.forwarded_from_channel_id,
+      channelName: row.forwarded_from_channel_name || '',
+      channelAvatar: row.forwarded_from_channel_avatar || '',
+      postId: row.forwarded_from_post_id || null
+    };
+  }
   const reactions = reactionsByMessageId && reactionsByMessageId[row.id];
   if (reactions && Object.keys(reactions).length) {
     msg.reactions = reactions;
@@ -1526,13 +1535,15 @@ async function insertMessage(conversationType, conversationId, sender, body, kin
   const imageUrl = typeof (body && body.imageUrl) === 'string' ? body.imageUrl : null;
   const imageId = typeof (body && body.imageId) === 'string' ? body.imageId : null;
   const replyTo = body && body.replyTo && typeof body.replyTo === 'object' ? body.replyTo : null;
+  const forwardedFrom = body && body.forwardedFrom && typeof body.forwardedFrom === 'object' ? body.forwardedFrom : null;
   const messageKind = kind === 'system' ? 'system' : 'text';
 
   await pool.query(
     `INSERT INTO messages
        (id, conversation_type, conversation_id, sender_user_id, sender_username,
-        text, image_url, image_id, reply_to_message_id, reply_to_sender_name, reply_to_preview_text, kind)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        text, image_url, image_id, reply_to_message_id, reply_to_sender_name, reply_to_preview_text, kind,
+        forwarded_from_channel_id, forwarded_from_channel_name, forwarded_from_channel_avatar, forwarded_from_post_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
      ON CONFLICT (id) DO NOTHING`,
     [
       id, conversationType, conversationId, sender.id, sender.username || sender.id,
@@ -1540,7 +1551,11 @@ async function insertMessage(conversationType, conversationId, sender, body, kin
       replyTo ? String(replyTo.messageId || '').slice(0, 100) || null : null,
       replyTo ? String(replyTo.senderName || '').slice(0, 80) : null,
       replyTo ? String(replyTo.previewText || '').slice(0, 200) : null,
-      messageKind
+      messageKind,
+      forwardedFrom ? String(forwardedFrom.channelId || '').slice(0, 100) || null : null,
+      forwardedFrom ? String(forwardedFrom.channelName || '').slice(0, 200) : null,
+      forwardedFrom ? String(forwardedFrom.channelAvatar || '').slice(0, 4000) : null,
+      forwardedFrom ? String(forwardedFrom.postId || '').slice(0, 100) || null : null
     ]
   );
   const row = await pool.query('SELECT * FROM messages WHERE id = $1', [id]);
@@ -1590,7 +1605,8 @@ app.get('/api/direct-conversations', async (req, res) => {
       `SELECT dc.id, dc.user_id_a, dc.user_id_b, dc.status, dc.requested_by_user_id,
               ua.username AS a_username,
               u.username AS peer_username, u.usernode_pubkey AS peer_pubkey,
-              lm.text AS last_text, lm.sender_user_id AS last_sender_id, lm.created_at AS last_at,
+              CASE WHEN lm.forwarded_from_channel_id IS NOT NULL THEN '↗ ' || lm.text ELSE lm.text END AS last_text,
+              lm.sender_user_id AS last_sender_id, lm.created_at AS last_at,
               cus.pinned AS pinned, cus.hidden_from_inbox AS hidden_from_inbox,
               COALESCE(unread.count, 0) AS unread_count
          FROM direct_conversations dc
@@ -1602,7 +1618,7 @@ app.get('/api/direct-conversations', async (req, res) => {
                 THEN dc.user_id_b ELSE dc.user_id_a END
          )
          LEFT JOIN LATERAL (
-           SELECT text, sender_user_id, created_at FROM messages
+           SELECT text, sender_user_id, created_at, forwarded_from_channel_id FROM messages
             WHERE conversation_type = 'direct' AND conversation_id = dc.id
             ORDER BY created_at DESC LIMIT 1
          ) lm ON true
@@ -2320,6 +2336,12 @@ async function initDatabase() {
     // removal, leaving) -- never settable from the public POST /api/messages/*
     // body, only from internal insertMessage(..., { kind: 'system' }) calls.
     await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'text'`);
+    // Forward attribution: which channel/post a message was forwarded from,
+    // if any -- set once at insert time (see insertMessage), never mutated.
+    await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS forwarded_from_channel_id TEXT`);
+    await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS forwarded_from_channel_name TEXT`);
+    await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS forwarded_from_channel_avatar TEXT`);
+    await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS forwarded_from_post_id TEXT`);
 
     // "Delete for me" on a DM message: the sender or recipient can hide any
     // message from their own view without affecting the other participant's
