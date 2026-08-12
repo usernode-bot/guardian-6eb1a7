@@ -367,21 +367,33 @@ html, body {
 .info-header-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 14px;
   flex-shrink: 0;
 }
 
 .header-icon-button {
-  background: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background-color: #1c1c1e;
+  color: #fff;
   border: none;
-  font-size: 20px;
+  border-radius: 50%;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 0;
   line-height: 1;
 }
 
+.header-icon-button svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+}
+
 .header-icon-button:active {
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
 .pending-request-banner {
@@ -1549,13 +1561,13 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: var(--avatar-lg);
-  height: var(--avatar-lg);
+  width: 140px;
+  height: 140px;
   border-radius: 50%;
   background: var(--avatar-gradient);
   color: #fff;
   font-weight: 600;
-  font-size: 36px;
+  font-size: 48px;
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -1625,13 +1637,13 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: var(--avatar-lg);
-  height: var(--avatar-lg);
+  width: 140px;
+  height: 140px;
   border-radius: 50%;
   background: var(--avatar-gradient);
   color: #fff;
   font-weight: 600;
-  font-size: 36px;
+  font-size: 48px;
   flex-shrink: 0;
 }
 
@@ -1880,34 +1892,6 @@ html, body {
 .join-request-actions .button-secondary {
   padding: 8px 14px;
   font-size: 13px;
-}
-
-.leave-group-button {
-  background: none;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-  padding: 4px 8px;
-  color: #ff3b30;
-  line-height: 1;
-}
-
-.leave-group-button:active {
-  opacity: 0.6;
-}
-
-.share-group-button {
-  background: none;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-  padding: 4px 8px;
-  color: #007aff;
-  line-height: 1;
-}
-
-.share-group-button:active {
-  opacity: 0.6;
 }
 
 .detail-value-link {
@@ -3489,8 +3473,8 @@ html, body {
 }
 
 .channel-avatar-large {
-  width: var(--avatar-lg);
-  height: var(--avatar-lg);
+  width: 140px;
+  height: 140px;
   border-radius: 50%;
   background: var(--avatar-gradient);
   display: flex;
@@ -3498,7 +3482,7 @@ html, body {
   justify-content: center;
   color: white;
   font-weight: 600;
-  font-size: 36px;
+  font-size: 48px;
   margin: 0 auto;
   overflow: hidden;
 }
@@ -3553,34 +3537,6 @@ html, body {
   font-weight: 600;
   text-align: center;
   margin-bottom: 8px;
-}
-
-.leave-channel-button {
-  background: none;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-  padding: 4px 8px;
-  color: #ff3b30;
-  line-height: 1;
-}
-
-.leave-channel-button:active {
-  opacity: 0.6;
-}
-
-.share-channel-button {
-  background: none;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-  padding: 4px 8px;
-  color: #007aff;
-  line-height: 1;
-}
-
-.share-channel-button:active {
-  opacity: 0.6;
 }
 
 .channel-member-item {
