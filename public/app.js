@@ -2,6 +2,19 @@
 document.addEventListener('DOMContentLoaded', () => {
   console.log('Guardian app loaded');
 
+  // Splash screen stays up through the initial auth/data load below and is
+  // dismissed once handleNavigation() renders the real UI. The fallback
+  // timeout guards against a hung network request leaving it up forever.
+  const splashScreen = document.getElementById('splash-screen');
+  let splashHidden = false;
+  function hideSplashScreen() {
+    if (splashHidden || !splashScreen) return;
+    splashHidden = true;
+    splashScreen.classList.add('splash-hidden');
+    setTimeout(() => splashScreen.remove(), 400);
+  }
+  setTimeout(hideSplashScreen, 8000);
+
   // Get token from URL or localStorage
   const urlParams = new URLSearchParams(window.location.search);
   const token = urlParams.get('token');
@@ -10123,5 +10136,6 @@ document.addEventListener('DOMContentLoaded', () => {
       setReplyState(SHOT_REPLY_LEAK_SOURCE_CONVERSATION_ID, 'shot_reply_leak_src_msg', 'staging-demo-dedi', 'Message from a different conversation');
     }
     handleNavigation();
+    hideSplashScreen();
   })();
 });
