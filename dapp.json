@@ -156,6 +156,26 @@
       "expectSelector": ".delete-dm-button"
     },
     {
+      "name": "Conversation Info page displays the peer's bio",
+      "path": "/#/conversation/conv_staging-demo-user-5/info",
+      "expectText": "Building cool things on Usernode"
+    },
+    {
+      "name": "Conversation Info page falls back to \"No bio\" for a peer with no bio set",
+      "path": "/#/conversation/conv_staging-demo-user-9/info",
+      "expectText": "No bio"
+    },
+    {
+      "name": "Conversation Info page displays the peer's Usernode wallet address, shortened",
+      "path": "/#/conversation/conv_staging-demo-user-5/info",
+      "expectText": "0x8b2e...7d09"
+    },
+    {
+      "name": "Tapping the Usernode Address copies it and shows a confirmation toast, no separate Copy button (regression: share/copy icons appeared to do nothing when tapped)",
+      "path": "/?shot=dm-copy-address#/conversation/conv_staging-demo-user-5/info",
+      "expectText": "Address copied"
+    },
+    {
       "name": "Conversation list preview updates after clearing a DM chat",
       "path": "/?shot=dm-cleared",
       "expectText": "No messages yet"
@@ -399,6 +419,11 @@
       "name": "Group Info page shows an Invite Link row",
       "path": "/#/group/group_staging_owned_1/info",
       "expectText": "Invite Link"
+    },
+    {
+      "name": "Tapping Share Group copies the invite link and shows a confirmation toast, no separate Copy button (regression: share icon appeared to do nothing when tapped)",
+      "path": "/?shot=group-copy-link#/group/group_staging_owned_1/info",
+      "expectText": "Link copied"
     },
     {
       "name": "Shared group link routes to the group's info via ?group= query",
@@ -804,6 +829,11 @@
       "name": "Channel Info page shows an Invite Link row",
       "path": "/#/channel/channel_staging_owned_1/info",
       "expectText": "Invite Link"
+    },
+    {
+      "name": "Tapping Share Channel copies the invite link and shows a confirmation toast, no separate Copy button (regression: share icon appeared to do nothing when tapped)",
+      "path": "/?shot=channel-copy-link#/channel/channel_staging_owned_1/info",
+      "expectText": "Link copied"
     },
     {
       "name": "Add Admins page loads for a channel owner",

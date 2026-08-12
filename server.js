@@ -157,6 +157,37 @@ app.get('/api/users/suggested', async (req, res) => {
   }
 });
 
+// GET /api/users/:userId/profile - a peer's public profile (username, bio,
+// wallet address, avatar). Same "not sensitive" directory data as shapeUser
+// above, plus the self-authored bio -- used by the DM Info screen to show
+// who you're talking to.
+app.get('/api/users/:userId/profile', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, username, usernode_pubkey, bio, avatar_url, avatar_image_id
+         FROM users WHERE id = $1`,
+      [req.params.userId]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json({
+      profile: {
+        id: row.id,
+        username: row.username,
+        bio: row.bio || '',
+        avatarUrl: row.avatar_url || null,
+        avatarImageId: row.avatar_image_id || null,
+        walletAddress: row.usernode_pubkey || null
+      }
+    });
+  } catch (err) {
+    console.error('[users] peer profile fetch failed:', err);
+    res.status(500).json({ error: 'Failed to load user profile' });
+  }
+});
+
 // GET /api/users/search?q= - search the directory by username or wallet address.
 app.get('/api/users/search', async (req, res) => {
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
@@ -3043,7 +3074,8 @@ async function seedStagingUsers() {
     { id: 'staging-demo-user-2', username: 'staging-demo-ana', pubkey: '0x3e5c7d9f1b3a5c7e9f1b3d5a7c9e1f3b5d7a9c1e', offset: '1 hour', avatarUrl: 'https://picsum.photos/seed/staging-demo-ana/200' },
     { id: 'staging-demo-user-3', username: 'staging-demo-budi', pubkey: '0x7a9c1e3f5b7d9a1c3e5f7b9d1a3c5e7f9b1d3a5c', offset: '90 minutes', avatarUrl: 'https://picsum.photos/seed/staging-demo-budi/200' },
     { id: 'staging-demo-user-4', username: 'staging-demo-citra', pubkey: '0x1f3a9c2e7b5d44680a9f0c1e2d3b4a5968f7e6d5', offset: '5 minutes' },
-    { id: 'staging-demo-user-5', username: 'staging-demo-dedi', pubkey: '0x8b2e4f6a1c9d3e5b7a0f2c4e6d8b9a1f3e5c7d09', offset: '2 hours' },
+    // Has a bio set -- fixture for the DM Info page's peer bio/address display.
+    { id: 'staging-demo-user-5', username: 'staging-demo-dedi', pubkey: '0x8b2e4f6a1c9d3e5b7a0f2c4e6d8b9a1f3e5c7d09', offset: '2 hours', bio: 'Building cool things on Usernode' },
     // Regression fixture peer for SHOT_PERSIST_REMOVAL -- a real group/channel/DM
     // the shot creates and then leaves/unfollows/hides, to prove the removal
     // survives a simulated app restart. Needs a `users` row of its own so the
@@ -3079,10 +3111,10 @@ async function seedStagingUsers() {
   try {
     for (const seed of seeds) {
       await pool.query(
-        `INSERT INTO users (id, username, usernode_pubkey, last_seen_at, avatar_url)
-         VALUES ($1, $2, $3, now() - $4::interval, $5)
+        `INSERT INTO users (id, username, usernode_pubkey, last_seen_at, avatar_url, bio)
+         VALUES ($1, $2, $3, now() - $4::interval, $5, $6)
          ON CONFLICT (id) DO NOTHING`,
-        [seed.id, seed.username, seed.pubkey, seed.offset, seed.avatarUrl || null]
+        [seed.id, seed.username, seed.pubkey, seed.offset, seed.avatarUrl || null, seed.bio || '']
       );
     }
     console.log('Staging demo users seeded');

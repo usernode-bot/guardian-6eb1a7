@@ -195,6 +195,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // report (the list preview never updating after a forward).
   const SHOT_FORWARD_DELIVERED_LIST = SHOT === 'forward-delivered-list';
   const SHOT_FORWARD_DELIVERED_PEER_ID = 'staging-demo-user-8';
+  // Auto-clicks the tap-to-copy target on load so the resulting "copied" toast
+  // can be asserted statically -- regression coverage for the share/invite-link
+  // buttons that used to silently no-op (navigator.share() rejecting inside the
+  // platform iframe with no visible feedback).
+  const SHOT_DM_COPY_ADDRESS = SHOT === 'dm-copy-address';
+  const SHOT_GROUP_COPY_LINK = SHOT === 'group-copy-link';
+  const SHOT_CHANNEL_COPY_LINK = SHOT === 'channel-copy-link';
 
   // The signed-in Usernode user, hydrated from /api/state at boot. Server rows
   // for this id are mapped onto the app's long-standing 'user_self' sentinel so
@@ -3168,12 +3175,29 @@ document.addEventListener('DOMContentLoaded', () => {
   // channels there's no invite-link deep-link scheme for a 1:1 DM. The only
   // header action is Delete Conversation (removes it from this user's
   // inbox only — see performDeleteDirectConversation).
-  function renderConversationInfoPage(conversationId) {
+  async function renderConversationInfoPage(conversationId) {
     const conversation = conversations.find(c => c.id === conversationId);
     if (!conversation) {
       window.location.hash = '/messages';
       return;
     }
+
+    let peerBio = '';
+    let peerWalletAddress = null;
+    const peerId = directPeerId(conversationId);
+    if (peerId) {
+      try {
+        const response = await fetch(`/api/users/${encodeURIComponent(peerId)}/profile`, { headers: authHeaders() });
+        if (response.ok) {
+          const payload = await response.json();
+          peerBio = (payload.profile && payload.profile.bio) || '';
+          peerWalletAddress = (payload.profile && payload.profile.walletAddress) || null;
+        }
+      } catch (error) {
+        console.warn('Could not load peer profile:', error);
+      }
+    }
+    const shortPeerAddress = formatShortAddress(peerWalletAddress);
 
     pageContainer.innerHTML = `
       <div class="dm-info-page">
@@ -3195,6 +3219,17 @@ document.addEventListener('DOMContentLoaded', () => {
               <div class="detail-label">Username</div>
               <div class="detail-value" id="dm-username-value">${escapeHtml(conversation.username)}</div>
             </div>
+
+            <div class="detail-item">
+              <div class="detail-label">Bio</div>
+              <div class="detail-value" id="dm-bio-value">${escapeHtml(peerBio || 'No bio')}</div>
+            </div>
+
+            ${shortPeerAddress ? `
+            <div class="detail-item">
+              <div class="detail-label">Usernode Address</div>
+              <div class="detail-value detail-value-link" id="dm-wallet-address-value" role="button" tabindex="0" title="Tap to copy">${escapeHtml(shortPeerAddress)}</div>
+            </div>` : ''}
           </div>
         </div>
       </div>
@@ -3215,6 +3250,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
     });
+
+    const walletAddressValue = document.getElementById('dm-wallet-address-value');
+    if (walletAddressValue) {
+      walletAddressValue.addEventListener('click', () => {
+        copyTextToClipboard(peerWalletAddress, 'Address copied');
+      });
+      if (SHOT_DM_COPY_ADDRESS) walletAddressValue.click();
+    }
   }
 
   // Show the DM conversation's ⋮ menu with pin, mute, and clear-chat options
@@ -6191,8 +6234,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             <div class="detail-item">
               <div class="detail-label">Invite Link</div>
-              <div class="detail-value detail-value-link" id="group-invite-link-value">${escapeHtml(`${window.location.origin}/?group=${groupId}`)}</div>
-              <button class="detail-edit-button" id="copy-group-invite-link-button">Copy</button>
+              <div class="detail-value detail-value-link" id="group-invite-link-value" role="button" tabindex="0" title="Tap to copy">${escapeHtml(`${window.location.origin}/?group=${groupId}`)}</div>
             </div>
           </div>
 
@@ -6238,12 +6280,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Share Group (all members)
-    document.getElementById('share-group-button').addEventListener('click', () => {
+    const shareGroupButton = document.getElementById('share-group-button');
+    shareGroupButton.addEventListener('click', () => {
       shareLink(group.name, `${window.location.origin}/?group=${groupId}`);
     });
+    if (SHOT_GROUP_COPY_LINK) shareGroupButton.click();
 
-    // Copy Invite Link row (same link as Share Group)
-    document.getElementById('copy-group-invite-link-button').addEventListener('click', () => {
+    // Tap Invite Link row to copy it (same link as Share Group)
+    document.getElementById('group-invite-link-value').addEventListener('click', () => {
       shareLink(group.name, `${window.location.origin}/?group=${groupId}`);
     });
 
@@ -8511,12 +8555,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Share a link via the native share sheet, falling back to clipboard, then
-  // a copy-friendly textarea, then a plain prompt if nothing else works.
-  function shareLink(title, link) {
+  // Copy text straight to the clipboard and confirm with a toast -- no
+  // intermediate "Copy" button/label, no native share sheet (the platform
+  // iframe doesn't grant it permission, so navigator.share() used to just
+  // reject silently and nothing visible happened on tap).
+  function copyTextToClipboard(text, successMessage) {
     const copyFallback = () => {
       const textarea = document.createElement('textarea');
-      textarea.value = link;
+      textarea.value = text;
       textarea.style.position = 'fixed';
       textarea.style.opacity = '0';
       document.body.appendChild(textarea);
@@ -8532,23 +8578,25 @@ document.addEventListener('DOMContentLoaded', () => {
       document.body.removeChild(textarea);
 
       if (copied) {
-        showToast('Link copied to clipboard', { type: 'success' });
+        showToast(successMessage, { type: 'success' });
       } else {
-        window.prompt('Copy this link to share:', link);
+        window.prompt('Copy this to share:', text);
       }
     };
 
-    if (navigator.share) {
-      navigator.share({ title, url: link }).catch(err => console.log('Share cancelled or failed'));
-    } else if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(link).then(() => {
-        showToast('Link copied to clipboard', { type: 'success' });
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        showToast(successMessage, { type: 'success' });
       }).catch(() => {
         copyFallback();
       });
     } else {
       copyFallback();
     }
+  }
+
+  function shareLink(title, link) {
+    copyTextToClipboard(link, 'Link copied');
   }
 
   // Show toast notification
@@ -8686,8 +8734,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             <div class="detail-item">
               <div class="detail-label">Invite Link</div>
-              <div class="detail-value detail-value-link" id="channel-invite-link-value">${escapeHtml(`${window.location.origin}/?channel=${channelId}`)}</div>
-              <button class="detail-edit-button" id="copy-channel-invite-link-button">Copy</button>
+              <div class="detail-value detail-value-link" id="channel-invite-link-value" role="button" tabindex="0" title="Tap to copy">${escapeHtml(`${window.location.origin}/?channel=${channelId}`)}</div>
             </div>
           </div>
 
@@ -8706,11 +8753,13 @@ document.addEventListener('DOMContentLoaded', () => {
       window.location.hash = `/channel/${channelId}`;
     });
 
-    document.getElementById('share-channel-button').addEventListener('click', () => {
+    const shareChannelButton = document.getElementById('share-channel-button');
+    shareChannelButton.addEventListener('click', () => {
       shareLink(channel.name, `${window.location.origin}/?channel=${channelId}`);
     });
+    if (SHOT_CHANNEL_COPY_LINK) shareChannelButton.click();
 
-    document.getElementById('copy-channel-invite-link-button').addEventListener('click', () => {
+    document.getElementById('channel-invite-link-value').addEventListener('click', () => {
       shareLink(channel.name, `${window.location.origin}/?channel=${channelId}`);
     });
 
