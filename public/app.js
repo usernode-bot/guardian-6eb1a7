@@ -195,6 +195,24 @@ document.addEventListener('DOMContentLoaded', () => {
   // report (the list preview never updating after a forward).
   const SHOT_FORWARD_DELIVERED_LIST = SHOT === 'forward-delivered-list';
   const SHOT_FORWARD_DELIVERED_PEER_ID = 'staging-demo-user-8';
+  // Regression check for channel post delete not persisting server-side:
+  // publish a fixed-id post to the current tester's own owned staging
+  // channel, then immediately delete it through the real endpoint (not just
+  // the client-only mutation), so a later plain reload of the same channel
+  // proves the delete survived server-side, not just this tab's in-memory
+  // state (see deletePost / the channel-post-delete-check marker below).
+  const SHOT_CHANNEL_POST_DELETE = SHOT === 'channel-post-delete';
+  const SHOT_CHANNEL_POST_DELETE_CHANNEL_ID = 'channel_staging_owned_1';
+  const SHOT_CHANNEL_POST_DELETE_ID = 'shot_channel_post_delete_fixed';
+  const SHOT_CHANNEL_POST_DELETE_TEXT = 'Shot channel post delete check';
+  // Regression check for a freshly-published channel post never updating the
+  // Messages list preview: publish a real post to the current tester's own
+  // owned staging channel BEFORE the initial hydrateServerChannels() call
+  // below, so the Messages list's server-backed preview/timestamp pick it up
+  // on first paint, same as SHOT_DC_PREVIEW does for DMs.
+  const SHOT_CHANNEL_PREVIEW = SHOT === 'channel-preview';
+  const SHOT_CHANNEL_PREVIEW_CHANNEL_ID = 'channel_staging_owned_1';
+  const SHOT_CHANNEL_PREVIEW_TEXT = 'Shot channel preview check';
 
   // The signed-in Usernode user, hydrated from /api/state at boot. Server rows
   // for this id are mapped onto the app's long-standing 'user_self' sentinel so
@@ -829,12 +847,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const lastPost = shaped.posts[0];
-    const existingConv = conversations.find(c => c.type === 'channel' && c.channelId === serverChannel.id);
+    let existingConv = conversations.find(c => c.type === 'channel' && c.channelId === serverChannel.id);
     if (existingConv) {
       existingConv.name = shaped.name;
       existingConv.avatar = shaped.avatar;
     } else if (shaped.followers['user_self']) {
-      conversations.unshift({
+      existingConv = {
         id: 'conv_channel_' + serverChannel.id,
         type: 'channel',
         channelId: serverChannel.id,
@@ -842,10 +860,29 @@ document.addEventListener('DOMContentLoaded', () => {
         avatar: shaped.avatar,
         lastMessage: lastPost ? truncateText(messagePreviewText(lastPost), 100) : 'No posts yet',
         timestamp: lastPost ? lastPost.timestamp : shaped.createdAt,
+        // See the matching field in hydrateServerDirectConversations/
+        // addServerGroupToState: only ever set from server-provided
+        // lastMessageAt values, never a locally-stamped Date.now(), so the
+        // gate below can't get stuck comparing across two different clocks.
+        serverLastMessageAt: 0,
         unreadCount: 0,
         archived: false,
         pinned: false
-      });
+      };
+      conversations.unshift(existingConv);
+    }
+
+    // Prefer the server's real last post over whatever's already showing --
+    // without this, a channel's Messages-list preview/sort order only ever
+    // reflected the very first post (or none), since this branch used to run
+    // solely on first-add. Gated on serverLastMessageAt (server clock only,
+    // matching the group/DM equivalents) so a local optimistic post from
+    // publishPost never gets clobbered backwards by a stale poll response.
+    if (existingConv && serverChannel.lastMessage !== undefined && serverChannel.lastMessage !== null
+        && (serverChannel.lastMessageAt || 0) >= (existingConv.serverLastMessageAt || 0)) {
+      existingConv.lastMessage = truncateText(serverChannel.lastMessage, 100);
+      existingConv.timestamp = serverChannel.lastMessageAt || existingConv.timestamp;
+      existingConv.serverLastMessageAt = serverChannel.lastMessageAt || existingConv.serverLastMessageAt;
     }
 
     // A channel you now follow stays visible in Discover, just marked as
@@ -858,8 +895,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Hydrate server-backed channels: the caller's own/followed channels, and
   // the public channels they haven't followed yet (the Discover feed).
-  // Non-fatal -- a network or DB hiccup just leaves the lists empty.
+  // Non-fatal -- a network or DB hiccup just leaves the lists empty. Returns
+  // whether any followed channel's preview changed, so the Messages-list
+  // poll (see startMessagesListPolling) knows a new post needs a re-render --
+  // mirrors hydrateServerGroups/hydrateServerDirectConversations.
   async function hydrateServerChannels() {
+    let changed = false;
     try {
       const [mineRes, discoverRes] = await Promise.all([
         fetch('/api/channels?scope=mine', { headers: authHeaders() }),
@@ -868,7 +909,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (mineRes.ok) {
         const payload = await mineRes.json();
-        (payload.channels || []).forEach(c => addServerChannelToState(c));
+        (payload.channels || []).forEach(c => {
+          try {
+            const before = conversations.find(cv => cv.type === 'channel' && cv.channelId === c.id);
+            const prevLastMessage = before ? before.lastMessage : undefined;
+            const prevTimestamp = before ? before.timestamp : undefined;
+            addServerChannelToState(c);
+            const after = conversations.find(cv => cv.type === 'channel' && cv.channelId === c.id);
+            if (!before || (after && (after.lastMessage !== prevLastMessage || after.timestamp !== prevTimestamp))) {
+              changed = true;
+            }
+          } catch (error) {
+            console.error('Failed to hydrate channel ' + c.id + ':', error);
+          }
+        });
       }
 
       if (discoverRes.ok) {
@@ -903,6 +957,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
       console.warn('Could not load server channels:', error);
     }
+    return changed;
   }
 
   // Hydrate the inbox with real DM conversations the caller has actually sent
@@ -1342,8 +1397,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Keep the Messages list / Requests tab live too -- without this, a newly
   // received DM (or an incoming request) only shows up after the user leaves
-  // and re-opens the Messages screen, since nothing else refetches those two
-  // endpoints while this screen is just sitting open.
+  // and re-opens the Messages screen, since nothing else refetches those
+  // endpoints while this screen is just sitting open. Channels are included
+  // here too -- previously only direct conversations/requests/groups were
+  // re-polled, so a new channel post never updated the channel row's preview
+  // text/timestamp/order while a follower just sat on the Messages screen.
   let messagesListPollTimer = null;
   const MESSAGES_LIST_POLL_INTERVAL_MS = 7000;
 
@@ -1359,21 +1417,23 @@ document.addEventListener('DOMContentLoaded', () => {
     stopMessagesListPolling();
     if (sessionExpired) return;
     activeScreenResync = async () => {
-      const [conversationsChanged, requestsChanged, groupsChanged] = await Promise.all([
+      const [conversationsChanged, requestsChanged, groupsChanged, channelsChanged] = await Promise.all([
         hydrateServerDirectConversations(),
         hydrateMessageRequests(),
-        hydrateServerGroups()
+        hydrateServerGroups(),
+        hydrateServerChannels()
       ]);
-      if (conversationsChanged || requestsChanged || groupsChanged) renderMessagesPage();
+      if (conversationsChanged || requestsChanged || groupsChanged || channelsChanged) renderMessagesPage();
     };
     activeScreenResync();
     messagesListPollTimer = setInterval(async () => {
-      const [conversationsChanged, requestsChanged, groupsChanged] = await Promise.all([
+      const [conversationsChanged, requestsChanged, groupsChanged, channelsChanged] = await Promise.all([
         hydrateServerDirectConversations(),
         hydrateMessageRequests(),
-        hydrateServerGroups()
+        hydrateServerGroups(),
+        hydrateServerChannels()
       ]);
-      if (conversationsChanged || requestsChanged || groupsChanged) renderMessagesPage();
+      if (conversationsChanged || requestsChanged || groupsChanged || channelsChanged) renderMessagesPage();
     }, MESSAGES_LIST_POLL_INTERVAL_MS);
   }
 
@@ -7115,7 +7175,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (conv) persistConversationState(conv.id, { muted: isMuted });
   }
 
-  // Delete a post (owner only)
+  // Delete a post (owner only) -- hard delete, persisted server-side so the
+  // post is actually gone for every follower's client, not just this tab.
+  // Without the authFetch call below, the post only ever left local state:
+  // the next poll tick (hydrateChannelPosts, see startThreadPolling in
+  // renderChannelView) would re-fetch from the server, still find the
+  // "deleted" post there, and re-add it right back since it was no longer
+  // in channel.posts to be recognized as already-known -- so it silently
+  // reappeared within one poll interval, and other followers never saw the
+  // deletion at all.
   function deletePost(channelId, postId) {
     const channel = channels.find(c => c.id === channelId);
     if (!channel || channel.creatorId !== 'user_self') return;
@@ -7135,6 +7203,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
     }
+
+    authFetch(`/api/messages/channel/${encodeURIComponent(channelId)}/${encodeURIComponent(postId)}/delete`, {
+      method: 'POST',
+      headers: authHeaders()
+    }).catch(error => {
+      console.warn('Could not persist post delete:', error);
+    });
   }
 
   // Delete a channel (owner only)
@@ -7805,6 +7880,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (SHOT_POST_EDIT) {
       feed?.querySelector('.post-card .post-menu-button')?.click();
       document.getElementById('edit-post-btn')?.click();
+    }
+
+    // Regression marker for the channel-post delete persistence check --
+    // always computed when viewing the owned staging fixture channel, NOT
+    // gated on SHOT_CHANNEL_POST_DELETE, so the *plain* reload test (no shot
+    // param) can assert on it too, proving the delete survived server-side
+    // rather than only living in this tab's in-memory state (see deletePost).
+    if (channelId === SHOT_CHANNEL_POST_DELETE_CHANNEL_ID) {
+      const stillPresent = !!document.querySelector(`[data-post-id="${SHOT_CHANNEL_POST_DELETE_ID}"]`);
+      const marker = document.querySelector('[data-testid="channel-post-delete-check"]') || document.body.appendChild(document.createElement('div'));
+      marker.setAttribute('data-testid', 'channel-post-delete-check');
+      marker.setAttribute('data-hidden', stillPresent ? 'false' : 'true');
+      marker.style.display = 'none';
     }
 
     // Poll for new posts while this channel stays open -- owners AND
@@ -9868,6 +9956,24 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
+    if (SHOT_CHANNEL_PREVIEW) {
+      // Screenshot-state: publish a real post to the current tester's owned
+      // staging channel BEFORE hydrateServerChannels() below -- so the
+      // Messages list's server-backed preview/timestamp pick it up on first
+      // paint, same as SHOT_DC_PREVIEW does for DMs. Must run sequentially
+      // ahead of the Promise.all, not inside it, since hydrateServerChannels()
+      // is one of that array's parallel entries and would otherwise race this.
+      try {
+        await fetch(`/api/messages/channel/${SHOT_CHANNEL_PREVIEW_CHANNEL_ID}`, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ id: `shot_channel_preview_${Date.now()}`, text: SHOT_CHANNEL_PREVIEW_TEXT })
+        });
+      } catch (error) {
+        console.warn('Could not deliver shot channel-preview post:', error);
+      }
+    }
+
     await Promise.all([
       fetchSuggestedUsers(),
       hydrateServerGroups(),
@@ -9947,6 +10053,21 @@ document.addEventListener('DOMContentLoaded', () => {
             });
           } catch (error) {
             console.warn('Could not deliver/delete shot dm-delete message:', error);
+          }
+        }
+        if (SHOT_CHANNEL_POST_DELETE) {
+          try {
+            await fetch(`/api/messages/channel/${SHOT_CHANNEL_POST_DELETE_CHANNEL_ID}`, {
+              method: 'POST',
+              headers: authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ id: SHOT_CHANNEL_POST_DELETE_ID, text: SHOT_CHANNEL_POST_DELETE_TEXT })
+            });
+            await fetch(`/api/messages/channel/${SHOT_CHANNEL_POST_DELETE_CHANNEL_ID}/${SHOT_CHANNEL_POST_DELETE_ID}/delete`, {
+              method: 'POST',
+              headers: authHeaders()
+            });
+          } catch (error) {
+            console.warn('Could not deliver/delete shot channel-post-delete message:', error);
           }
         }
         await Promise.all([

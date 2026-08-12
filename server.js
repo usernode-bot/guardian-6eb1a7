@@ -1015,7 +1015,9 @@ function shapeChannel(row, followerCount, isFollowing, followerPreview, isOwn) {
       username: f.username || f.user_id,
       avatarUrl: f.avatar_url || null
     })),
-    isNew: row.is_new === undefined ? undefined : !!row.is_new
+    isNew: row.is_new === undefined ? undefined : !!row.is_new,
+    lastMessage: row.last_text !== undefined ? (row.last_text || null) : undefined,
+    lastMessageAt: row.last_at ? new Date(row.last_at).getTime() : null
   };
 }
 
@@ -1095,8 +1097,14 @@ app.get('/api/channels', async (req, res) => {
               EXISTS (
                 SELECT 1 FROM channel_followers f
                  WHERE f.channel_id = c.id AND (f.user_id = $1 OR f.user_id = 'user_self')
-              ) AS is_following
+              ) AS is_following,
+              lm.text AS last_text, lm.created_at AS last_at
          FROM channels c
+         LEFT JOIN LATERAL (
+           SELECT text, created_at FROM messages
+            WHERE conversation_type = 'channel' AND conversation_id = c.id
+            ORDER BY created_at DESC LIMIT 1
+         ) lm ON true
         WHERE c.creator_user_id = $1
            OR c.creator_user_id = 'user_self'
            OR EXISTS (

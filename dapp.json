@@ -246,6 +246,11 @@
       "expectText": "Shot dc preview check"
     },
     {
+      "name": "Messages list shows a freshly-published channel post's real preview text, not stale (regression: channel posts never refreshed without a manual reload)",
+      "path": "/?shot=channel-preview",
+      "expectText": "Shot channel preview check"
+    },
+    {
       "name": "DM to a peer id sorting below the caller's persists after a reload",
       "path": "/?shot=dm-reload-lo#/conversation/conv_0000-reload-order-lo",
       "expectText": "Shot reload order check"
@@ -274,6 +279,16 @@
       "name": "Deleted DM message stays gone for everyone after a plain reload (regression: delete was client-only and reappeared on reload)",
       "path": "/#/conversation/conv_staging-demo-delete-peer",
       "expectSelector": "[data-testid=\"dm-delete-check\"][data-hidden=\"true\"]"
+    },
+    {
+      "name": "Deleting a channel post removes it from the feed (regression: delete only updated local state, never called the server)",
+      "path": "/?shot=channel-post-delete#/channel/channel_staging_owned_1",
+      "expectSelector": "[data-testid=\"channel-post-delete-check\"][data-hidden=\"true\"]"
+    },
+    {
+      "name": "Deleted channel post stays gone for followers after a plain reload (regression: delete was client-only and reappeared on reload)",
+      "path": "/#/channel/channel_staging_owned_1",
+      "expectSelector": "[data-testid=\"channel-post-delete-check\"][data-hidden=\"true\"]"
     },
     {
       "name": "Messaging a fixture peer with an existing pending request doesn't create a duplicate conversation (regression: sentinel-matching bug)",
