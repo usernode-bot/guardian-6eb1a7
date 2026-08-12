@@ -929,6 +929,26 @@
       "name": "Reacting to a message shows a persisted reaction chip on the bubble (regression: reactions were client-local only and never synced to other viewers)",
       "path": "/?shot=message-reactions#/conversation/conv_staging-demo-user-5",
       "expectSelector": ".message-reaction-chip"
+    },
+    {
+      "name": "Group chat shows the pinned messages banner for its seeded pinned message",
+      "path": "/#/group/group_staging_owned_1",
+      "expectSelector": ".pinned-messages-banner"
+    },
+    {
+      "name": "Pinned messages banner shows a pinned count in the group chat",
+      "path": "/#/group/group_staging_owned_1",
+      "expectText": "1 pinned message"
+    },
+    {
+      "name": "Channel shows the pinned messages banner for its seeded pinned post",
+      "path": "/#/channel/channel_staging_owned_1",
+      "expectSelector": ".pinned-messages-banner"
+    },
+    {
+      "name": "Pinned messages banner shows a pinned count in the channel",
+      "path": "/#/channel/channel_staging_owned_1",
+      "expectText": "1 pinned message"
     }
   ]
 }

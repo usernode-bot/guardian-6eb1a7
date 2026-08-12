@@ -2209,6 +2209,123 @@ html, body {
   max-height: none !important;
 }
 
+/* Pinned Messages banner (group chat / channel) */
+.pinned-messages-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background-color: #eaf3ff;
+  border-bottom: 1px solid #d8e9ff;
+  cursor: pointer;
+}
+
+.pinned-messages-banner:active {
+  background-color: #ddeaff;
+}
+
+.pinned-banner-icon {
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+.pinned-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.pinned-banner-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: #007aff;
+  line-height: 1.3;
+}
+
+.pinned-banner-preview {
+  font-size: 12px;
+  color: #667;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pinned-banner-chevron {
+  font-size: 18px;
+  color: #007aff;
+  flex-shrink: 0;
+}
+
+/* Pinned Messages sheet */
+.pinned-messages-sheet-dialog {
+  max-height: 70vh;
+}
+
+.pinned-messages-list-container {
+  padding: 0 !important;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.pinned-sheet-item {
+  display: flex;
+  align-items: flex-start;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f0f0;
+  background-color: #fff;
+  gap: 12px;
+}
+
+.pinned-sheet-item:last-child {
+  border-bottom: none;
+}
+
+.pinned-sheet-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.pinned-sheet-item-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.pinned-sheet-item-sender {
+  font-weight: 500;
+  color: #222;
+  font-size: 14px;
+}
+
+.pinned-sheet-item-time {
+  font-size: 11px;
+  color: #999;
+  flex-shrink: 0;
+}
+
+.pinned-sheet-item-text {
+  font-size: 13px;
+  color: #444;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.pinned-sheet-unpin-btn {
+  background: none;
+  border: none;
+  color: #007aff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.pinned-sheet-unpin-btn:active {
+  opacity: 0.6;
+}
+
 /* User Search Modal (Create screen wallet/username search) */
 .user-search-modal-dialog {
   max-height: 80vh;

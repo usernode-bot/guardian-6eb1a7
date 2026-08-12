@@ -1486,7 +1486,7 @@ async function getChannelRole(channelId, userId) {
     : 'follower';
 }
 
-function shapeMessage(row, reactionsByMessageId) {
+function shapeMessage(row, reactionsByMessageId, pinsByMessageId) {
   const msg = {
     id: row.id,
     senderId: row.sender_user_id,
@@ -1518,6 +1518,12 @@ function shapeMessage(row, reactionsByMessageId) {
   if (reactions && Object.keys(reactions).length) {
     msg.reactions = reactions;
   }
+  const pin = pinsByMessageId && pinsByMessageId[row.id];
+  if (pin) {
+    msg.isPinned = true;
+    msg.pinnedAt = pin.pinnedAt;
+    msg.pinnedByUsername = pin.pinnedByUsername;
+  }
   return msg;
 }
 
@@ -1536,6 +1542,26 @@ async function getReactionsForMessages(messageIds) {
     if (!map[row.message_id]) map[row.message_id] = {};
     if (!map[row.message_id][row.emoji]) map[row.message_id][row.emoji] = {};
     map[row.message_id][row.emoji][row.user_id] = true;
+  });
+  return map;
+}
+
+// Batch-loads pin state for the given message ids into
+// { [messageId]: { pinnedAt, pinnedByUsername } }, mirroring
+// getReactionsForMessages above so shapeMessage can attach both the same way.
+async function getPinsForMessages(conversationType, conversationId, messageIds) {
+  if (!messageIds.length) return {};
+  const result = await pool.query(
+    `SELECT message_id, pinned_at, pinned_by_username FROM pinned_messages
+      WHERE conversation_type = $1 AND conversation_id = $2 AND message_id = ANY($3)`,
+    [conversationType, conversationId, messageIds]
+  );
+  const map = {};
+  result.rows.forEach(row => {
+    map[row.message_id] = {
+      pinnedAt: new Date(row.pinned_at).getTime(),
+      pinnedByUsername: row.pinned_by_username
+    };
   });
   return map;
 }
@@ -1570,6 +1596,37 @@ async function toggleMessageReaction(conversationType, conversationId, messageId
   }
   const reactionsByMessageId = await getReactionsForMessages([messageId]);
   return reactionsByMessageId[messageId] || {};
+}
+
+// Pins a message (upsert, idempotent -- pinning an already-pinned message is
+// a no-op rather than an error) or unpins it (plain delete). Returns null if
+// the message doesn't belong to this conversation, so the caller 404s
+// instead of silently creating an orphaned pin row.
+async function setMessagePinned(conversationType, conversationId, messageId, pinned, pinnedBy) {
+  const msgRes = await pool.query(
+    `SELECT id FROM messages WHERE id = $1 AND conversation_type = $2 AND conversation_id = $3`,
+    [messageId, conversationType, conversationId]
+  );
+  if (msgRes.rowCount === 0) return null;
+
+  if (pinned) {
+    await pool.query(
+      `INSERT INTO pinned_messages (conversation_type, conversation_id, message_id, pinned_by_user_id, pinned_by_username)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (conversation_type, conversation_id, message_id) DO NOTHING`,
+      [conversationType, conversationId, messageId, pinnedBy.id, pinnedBy.username || pinnedBy.id]
+    );
+  } else {
+    await pool.query(
+      `DELETE FROM pinned_messages WHERE conversation_type = $1 AND conversation_id = $2 AND message_id = $3`,
+      [conversationType, conversationId, messageId]
+    );
+  }
+  const pinsByMessageId = await getPinsForMessages(conversationType, conversationId, [messageId]);
+  const pin = pinsByMessageId[messageId];
+  return pin
+    ? { messageId, isPinned: true, pinnedAt: pin.pinnedAt, pinnedByUsername: pin.pinnedByUsername }
+    : { messageId, isPinned: false, pinnedAt: null, pinnedByUsername: null };
 }
 
 const MAX_MESSAGE_TEXT_LENGTH = 4000;
@@ -1636,7 +1693,8 @@ async function listMessages(conversationType, conversationId, userId) {
     [conversationType, conversationId, userId || null]
   );
   const reactionsByMessageId = await getReactionsForMessages(result.rows.map(r => r.id));
-  return result.rows.map(row => shapeMessage(row, reactionsByMessageId));
+  const pinsByMessageId = await getPinsForMessages(conversationType, conversationId, result.rows.map(r => r.id));
+  return result.rows.map(row => shapeMessage(row, reactionsByMessageId, pinsByMessageId));
 }
 
 // ---------------------------------------------------------------------------
@@ -2032,10 +2090,49 @@ app.post('/api/messages/group/:groupId/:messageId/delete', async (req, res) => {
       return res.status(403).json({ error: 'You can only delete your own messages' });
     }
     await pool.query(`DELETE FROM messages WHERE id = $1`, [messageId]);
+    await pool.query(`DELETE FROM pinned_messages WHERE message_id = $1`, [messageId]);
     res.json({ id: messageId, deleted: true });
   } catch (err) {
     console.error('[messages] group delete failed:', err);
     res.status(500).json({ error: 'Failed to delete message' });
+  }
+});
+
+// POST/DELETE /api/messages/group/:groupId/:messageId/pin - owners and
+// admins can pin/unpin a message so it surfaces in the group's "Pinned
+// Messages" banner/sheet. Regular members get 403 -- mirrors the
+// owner-or-admin gate on the delete route above.
+app.post('/api/messages/group/:groupId/:messageId/pin', async (req, res) => {
+  try {
+    const { groupId, messageId } = req.params;
+    const role = await getGroupRole(groupId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Group not found' });
+    if (role !== 'owner' && role !== 'admin') {
+      return res.status(403).json({ error: 'Only owners and admins can pin messages' });
+    }
+    const result = await setMessagePinned('group', groupId, messageId, true, req.user);
+    if (result === null) return res.status(404).json({ error: 'Message not found' });
+    res.json(result);
+  } catch (err) {
+    console.error('[messages] group pin failed:', err);
+    res.status(500).json({ error: 'Failed to pin message' });
+  }
+});
+
+app.delete('/api/messages/group/:groupId/:messageId/pin', async (req, res) => {
+  try {
+    const { groupId, messageId } = req.params;
+    const role = await getGroupRole(groupId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Group not found' });
+    if (role !== 'owner' && role !== 'admin') {
+      return res.status(403).json({ error: 'Only owners and admins can unpin messages' });
+    }
+    const result = await setMessagePinned('group', groupId, messageId, false, req.user);
+    if (result === null) return res.status(404).json({ error: 'Message not found' });
+    res.json(result);
+  } catch (err) {
+    console.error('[messages] group unpin failed:', err);
+    res.status(500).json({ error: 'Failed to unpin message' });
   }
 });
 
@@ -2226,10 +2323,43 @@ app.post('/api/messages/channel/:channelId/:messageId/delete', async (req, res) 
       return res.status(403).json({ error: 'You can only delete your own messages' });
     }
     await pool.query(`DELETE FROM messages WHERE id = $1`, [messageId]);
+    await pool.query(`DELETE FROM pinned_messages WHERE message_id = $1`, [messageId]);
     res.json({ id: messageId, deleted: true });
   } catch (err) {
     console.error('[messages] channel delete failed:', err);
     res.status(500).json({ error: 'Failed to delete message' });
+  }
+});
+
+// POST/DELETE /api/messages/channel/:channelId/:messageId/pin - owner only
+// (channels have no admin role -- see getChannelRole above).
+app.post('/api/messages/channel/:channelId/:messageId/pin', async (req, res) => {
+  try {
+    const { channelId, messageId } = req.params;
+    const role = await getChannelRole(channelId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Channel not found' });
+    if (role !== 'owner') return res.status(403).json({ error: 'Only the channel owner can pin posts' });
+    const result = await setMessagePinned('channel', channelId, messageId, true, req.user);
+    if (result === null) return res.status(404).json({ error: 'Message not found' });
+    res.json(result);
+  } catch (err) {
+    console.error('[messages] channel pin failed:', err);
+    res.status(500).json({ error: 'Failed to pin post' });
+  }
+});
+
+app.delete('/api/messages/channel/:channelId/:messageId/pin', async (req, res) => {
+  try {
+    const { channelId, messageId } = req.params;
+    const role = await getChannelRole(channelId, req.user.id);
+    if (role === null) return res.status(404).json({ error: 'Channel not found' });
+    if (role !== 'owner') return res.status(403).json({ error: 'Only the channel owner can unpin posts' });
+    const result = await setMessagePinned('channel', channelId, messageId, false, req.user);
+    if (result === null) return res.status(404).json({ error: 'Message not found' });
+    res.json(result);
+  } catch (err) {
+    console.error('[messages] channel unpin failed:', err);
+    res.status(500).json({ error: 'Failed to unpin post' });
   }
 });
 
@@ -2431,6 +2561,29 @@ async function initDatabase() {
       `CREATE INDEX IF NOT EXISTS message_reactions_message_idx ON message_reactions (message_id)`
     );
 
+    // Per-message pin state for group chats and channels (owner/admin-only
+    // "pinned messages" feature) -- deliberately separate from
+    // conversation_user_state.pinned above, which pins a whole CONVERSATION
+    // to the top of the Messages inbox and has nothing to do with this.
+    // A pin is an event with an actor and a timestamp, not just a boolean on
+    // messages, hence its own table rather than a column.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS pinned_messages (
+        id BIGSERIAL PRIMARY KEY,
+        conversation_type TEXT NOT NULL CHECK (conversation_type IN ('group', 'channel')),
+        conversation_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        pinned_by_user_id TEXT NOT NULL,
+        pinned_by_username TEXT NOT NULL,
+        pinned_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (conversation_type, conversation_id, message_id)
+      );
+    `);
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS pinned_messages_conversation_idx
+         ON pinned_messages (conversation_type, conversation_id, pinned_at DESC)`
+    );
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS conversation_user_state (
         conversation_id TEXT NOT NULL,
@@ -2518,6 +2671,9 @@ async function initDatabase() {
     // or private group) they reacted to, same sensitivity class as the
     // message content itself.
     await pool.query(`COMMENT ON TABLE message_reactions IS 'staging:private'`);
+    // Private: ties a real user_id (who pinned) to a specific message_id in a
+    // group/channel, same sensitivity class as message_reactions above.
+    await pool.query(`COMMENT ON TABLE pinned_messages IS 'staging:private'`);
     // Private: reveals who is DMing whom, and the DM content itself.
     await pool.query(`COMMENT ON TABLE direct_conversations IS 'staging:private'`);
     await pool.query(`COMMENT ON TABLE messages IS 'staging:private'`);
@@ -2872,6 +3028,16 @@ async function seedStagingData() {
     });
     await insertMessage('channel', 'channel_staging_2', citra, { id: 'msg_staging_ch2_1', text: 'First staging demo builder update.' });
 
+    // Pin the channel's welcome post so the "N pinned messages" banner and
+    // sheet have real content on the shared, multi-message channel fixture
+    // (not just the single-pin owned fixture below).
+    await pool.query(
+      `INSERT INTO pinned_messages (conversation_type, conversation_id, message_id, pinned_by_user_id, pinned_by_username)
+       VALUES ('channel', 'channel_staging_1', 'msg_staging_ch1_1', $1, $2)
+       ON CONFLICT (conversation_type, conversation_id, message_id) DO NOTHING`,
+      [owner.id, owner.username]
+    );
+
     console.log('Staging demo message history seeded');
   } catch (err) {
     console.error('Staging message seed error:', err);
@@ -2950,6 +3116,22 @@ async function seedStagingOwnedEntities(currentUser) {
     if (channelHasMessages.rowCount === 0) {
       await insertMessage('channel', channelId, me, { id: `msg_${channelId}_1`, text: 'This channel is owned by you, for testing owner-only actions.' });
     }
+
+    // Pin each fixture's first message so the "Pinned Messages" banner/sheet
+    // have real, owner-attributable content the first time either owned
+    // fixture is opened, with no manual pinning required.
+    await pool.query(
+      `INSERT INTO pinned_messages (conversation_type, conversation_id, message_id, pinned_by_user_id, pinned_by_username)
+       VALUES ('group', $1, $2, $3, $4)
+       ON CONFLICT (conversation_type, conversation_id, message_id) DO NOTHING`,
+      [groupId, `msg_${groupId}_1`, me.id, me.username]
+    );
+    await pool.query(
+      `INSERT INTO pinned_messages (conversation_type, conversation_id, message_id, pinned_by_user_id, pinned_by_username)
+       VALUES ('channel', $1, $2, $3, $4)
+       ON CONFLICT (conversation_type, conversation_id, message_id) DO NOTHING`,
+      [channelId, `msg_${channelId}_1`, me.id, me.username]
+    );
 
     // Pin/unread state is per-user real data (conversation_user_state), keyed
     // by the CLIENT-synthesized conversation id and the real caller's own id
