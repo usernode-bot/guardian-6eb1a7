@@ -3113,7 +3113,12 @@ async function seedStagingUsers() {
       await pool.query(
         `INSERT INTO users (id, username, usernode_pubkey, last_seen_at, avatar_url, bio)
          VALUES ($1, $2, $3, now() - $4::interval, $5, $6)
-         ON CONFLICT (id) DO NOTHING`,
+         ON CONFLICT (id) DO UPDATE SET
+           username = EXCLUDED.username,
+           usernode_pubkey = EXCLUDED.usernode_pubkey,
+           last_seen_at = EXCLUDED.last_seen_at,
+           avatar_url = EXCLUDED.avatar_url,
+           bio = EXCLUDED.bio`,
         [seed.id, seed.username, seed.pubkey, seed.offset, seed.avatarUrl || null, seed.bio || '']
       );
     }
