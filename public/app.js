@@ -5000,7 +5000,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const isPrivate = group.visibility === 'private';
     const hasPendingRequest = !isMember && isPrivate && (group.joinRequests || []).some(r => r.userId === 'user_self');
     group.messages = group.messages || [];
-    await hydrateThreadMessages('group', groupId, group);
+    // GET /api/messages/group/:groupId 404s for non-members (message history is
+    // membership-gated server-side, unlike channel posts) -- a non-member
+    // preview would otherwise always fire this fetch just to have it fail.
+    if (isMember) await hydrateThreadMessages('group', groupId, group);
     padForShotLongThread(group.messages, true, (ts, n) => ({
       id: `shot-pad-group-${n}`, senderId: 'staging-demo-user-2', senderName: 'staging-demo-ana',
       text: `Filler message ${n}`, timestamp: ts, isOutgoing: false
