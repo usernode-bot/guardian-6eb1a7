@@ -18,6 +18,13 @@ const SERVER_BOOT_ID = Date.now().toString(36) + '-' + crypto.randomBytes(4).toS
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
+// Without this listener, an error on an idle pooled client (e.g. the backend
+// dropping a connection) is an unhandled EventEmitter 'error' and crashes the
+// whole process — taking down every route, not just the one that happened to
+// be running. Log and let the pool recover instead.
+pool.on('error', (err) => {
+  console.error('[pg pool] unexpected error on idle client', err);
+});
 
 function decodeUser(req) {
   const token = req.query.token || req.headers['x-usernode-token'];

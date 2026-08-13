@@ -792,7 +792,6 @@ document.addEventListener('DOMContentLoaded', () => {
             memberPreview: g.members || [],
             isMember: !!g.isMember,
             joinRequests: [],
-            isFeatured: false,
             isNew: !!g.isNew,
             createdAt: g.createdAt || Date.now(),
             source: 'server'
@@ -906,7 +905,6 @@ document.addEventListener('DOMContentLoaded', () => {
             isFollowing: !!c.isFollowing,
             isOwn: !!c.isOwn,
             followerPreview: c.followers || [],
-            isFeatured: false,
             isNew: !!c.isNew,
             createdAt: c.createdAt || Date.now(),
             source: 'server'
@@ -2004,8 +2002,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const filtered = filterDiscoverCommunities(activeDiscoverTab);
     const allCommunities = [...filtered.groups, ...filtered.channels];
 
-    // Featured
-    const featured = allCommunities.filter(c => c.isFeatured);
+    // Featured -- highlight the most-followed communities across both types.
+    // (There's no server-side "featured" flag; every isFeatured assignment in
+    // this file was hardcoded to false, so this carousel could never render.)
+    const featured = [...allCommunities].sort((a, b) => b.memberCount - a.memberCount).slice(0, 3);
     const featuredHtml = featured.length > 0 ? `
       <div class="featured-carousel">
         ${featured.map(c => `
@@ -5011,7 +5011,7 @@ document.addEventListener('DOMContentLoaded', () => {
               // cache, not the Discover listing itself -- filterDiscoverCommunities
               // still keeps private groups out of the visible Discover feed.
               if (!discoverGroups.some(g => g.id === group.id)) {
-                discoverGroups.push(Object.assign({ isFeatured: false, isNew: !!payload.group.isNew }, group));
+                discoverGroups.push(Object.assign({ isNew: !!payload.group.isNew }, group));
               }
             }
           }
@@ -7182,8 +7182,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // INDEPENDENTLY — a user can hold ❤️ and 🎉 on the same post at once — so the
   // heart button and the emoji picker never clobber each other's state.
   // Available to every viewer, follower or owner alike: no permission gate.
-  function togglePostReaction(channelId, postId, emoji) {
-    const channel = channels.find(c => c.id === channelId);
+  // Takes the resolved `channel` object itself, not a channelId to re-look-up --
+  // a non-follower's preview channel is an ephemeral object renderChannelView
+  // builds locally and never stores in `channels`/`discoverChannels`, so
+  // re-deriving it by id here would miss (see showPostMenu for the same fix).
+  function togglePostReaction(channel, postId, emoji) {
     if (!channel) return;
 
     const post = channel.posts.find(p => p.id === postId);
@@ -7322,8 +7325,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Patch ONE card's reaction UI in place. A full renderChannelView() here would
   // rebuild the page and throw away scroll position on every tap, so reactions
   // deliberately never re-render the feed.
-  function refreshPostReactions(channelId, postId) {
-    const channel = channels.find(c => c.id === channelId);
+  // Same channel-object-not-channelId reasoning as togglePostReaction above.
+  function refreshPostReactions(channel, postId) {
     if (!channel) return;
     const post = channel.posts.find(p => p.id === postId);
     if (!post) return;
@@ -7484,7 +7487,7 @@ document.addEventListener('DOMContentLoaded', () => {
               // Cache it locally so Follow keeps working from this screen
               // without another round trip -- mirrors the group side's cache.
               if (!discoverChannels.some(c => c.id === channel.id)) {
-                discoverChannels.push(Object.assign({ isFeatured: false }, channel));
+                discoverChannels.push(channel);
               }
             }
           }
@@ -7670,9 +7673,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Commit one emoji from the picker. Shared by the touch and the mouse paths
     // so both do exactly the same thing in the same order.
     function commitPickerReaction(postId, emoji) {
-      togglePostReaction(channelId, postId, emoji);
+      togglePostReaction(channel, postId, emoji);
       closeReactionPicker();
-      refreshPostReactions(channelId, postId);
+      refreshPostReactions(channel, postId);
     }
 
     function openReactionPicker(postId) {
@@ -7734,8 +7737,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const chip = e.target.closest('.post-reaction-chip');
         if (chip) {
           e.stopPropagation();
-          togglePostReaction(channelId, chip.dataset.postId, chip.dataset.emoji);
-          refreshPostReactions(channelId, chip.dataset.postId);
+          togglePostReaction(channel, chip.dataset.postId, chip.dataset.emoji);
+          refreshPostReactions(channel, chip.dataset.postId);
           return;
         }
 
@@ -7750,7 +7753,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (menuBtn) {
           e.stopPropagation();
           closeReactionPicker();
-          showPostMenu(channelId, menuBtn.dataset.postId, isOwner);
+          showPostMenu(channel, menuBtn.dataset.postId, isOwner);
           return;
         }
 
@@ -7877,7 +7880,7 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         }
 
-        publishPost(channelId, text, uploadedImage, () => renderChannelView(channelId));
+        publishPost(channelId, text, uploadedImage, () => renderChannelView(channelId, { fromSend: true }));
         composerInput.value = '';
         composerInput.style.height = '40px';
         imageAttachment.clearPendingImage();
@@ -7903,8 +7906,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const firstCard = feed?.querySelector('.post-card');
       if (firstCard) {
         const postId = firstCard.dataset.postId;
-        togglePostReaction(channelId, postId, POST_REACTIONS[0]);
-        refreshPostReactions(channelId, postId);
+        togglePostReaction(channel, postId, POST_REACTIONS[0]);
+        refreshPostReactions(channel, postId);
         openReactionPicker(postId);
       }
     }
@@ -8048,8 +8051,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Show post menu
-  function showPostMenu(channelId, postId, isOwner) {
-    const channel = channels.find(c => c.id === channelId);
+  // Takes the resolved `channel` object itself, not a channelId to re-look-up --
+  // a non-follower's preview channel is an ephemeral object renderChannelView
+  // builds locally (see its discoverChannels fallback) and never stores in
+  // `channels` or `discoverChannels`, so re-deriving it by id here would miss.
+  function showPostMenu(channel, postId, isOwner) {
     const post = channel && channel.posts.find(p => p.id === postId);
     if (!post) return;
 
@@ -8092,7 +8098,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('forward-post-btn').addEventListener('click', () => {
       overlay.remove();
-      showForwardSheet(channelId, postId);
+      showForwardSheet(channel, postId);
     });
 
     document.getElementById('copy-post-btn').addEventListener('click', () => {
@@ -8113,7 +8119,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (editBtn) {
       editBtn.addEventListener('click', () => {
         overlay.remove();
-        showEditPostDialog(channelId, postId);
+        showEditPostDialog(channel.id, postId);
       });
     }
 
@@ -8121,8 +8127,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (deleteBtn) {
       deleteBtn.addEventListener('click', () => {
         overlay.remove();
-        deletePost(channelId, postId);
-        renderChannelView(channelId);
+        deletePost(channel.id, postId);
+        renderChannelView(channel.id);
         showToast('Post deleted', { type: 'success' });
       });
     }
@@ -8320,8 +8326,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // "Forward to" sheet — pick any number of DMs and joined groups, optionally add
   // a note, then Send. Stays on the channel so the user can keep reading.
-  function showForwardSheet(channelId, postId) {
-    const channel = channels.find(c => c.id === channelId);
+  // Takes the resolved `channel` object itself, same reasoning as showPostMenu
+  // (which is this sheet's only caller) -- a non-follower's preview channel
+  // isn't in `channels` or `discoverChannels` to re-look-up by id.
+  function showForwardSheet(channel, postId) {
     const post = channel && channel.posts.find(p => p.id === postId);
     if (!post) return;
 
