@@ -1768,7 +1768,7 @@ app.get('/api/direct-conversations', async (req, res) => {
     const conversations = [];
     for (const row of result.rows) {
       const isSelfA = row.user_id_a === req.user.id || row.user_id_a === 'user_self'
-        || (row.a_username && row.a_username.toLowerCase() === req.user.username.toLowerCase());
+        || (row.a_username && req.user.username && row.a_username.toLowerCase() === req.user.username.toLowerCase());
       const peerId = isSelfA ? row.user_id_b : row.user_id_a;
       // The peer may not have a `users` row yet (they've never loaded the app
       // in this environment) -- that must NOT hide an otherwise valid,

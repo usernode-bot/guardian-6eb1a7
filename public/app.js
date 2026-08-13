@@ -5028,7 +5028,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const isPrivate = group.visibility === 'private';
     const hasPendingRequest = !isMember && isPrivate && (group.joinRequests || []).some(r => r.userId === 'user_self');
     group.messages = group.messages || [];
-    await hydrateThreadMessages('group', groupId, group);
+    // Non-members can't read message history (GET /api/messages/group/:id is
+    // members-only and 404s) -- a pre-join preview has no thread to hydrate anyway.
+    if (isMember) {
+      await hydrateThreadMessages('group', groupId, group);
+    }
     padForShotLongThread(group.messages, true, (ts, n) => ({
       id: `shot-pad-group-${n}`, senderId: 'staging-demo-user-2', senderName: 'staging-demo-ana',
       text: `Filler message ${n}`, timestamp: ts, isOutgoing: false
@@ -8585,9 +8589,26 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
+      // In some embedded/headless contexts (no clipboard-write permission
+      // granted to this iframe, page not focused, etc.) writeText's promise
+      // never settles instead of rejecting -- without a timeout, a single
+      // tap here would hang forever rather than falling back to the
+      // execCommand path below.
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        copyFallback();
+      }, 800);
       navigator.clipboard.writeText(text).then(() => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
         showToast(successMessage, { type: 'success' });
       }).catch(() => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
         copyFallback();
       });
     } else {
