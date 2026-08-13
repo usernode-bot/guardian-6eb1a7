@@ -2858,6 +2858,27 @@ async function mergeDuplicateDirectConversationsByUsername() {
   }
 }
 
+// Deterministic placeholder image for staging seed data, as an inline SVG data
+// URI. Staging seeds previously hotlinked picsum.photos, which is an external
+// CDN outside our control -- check runs hitting it directly saw intermittent
+// 404s/connection failures on page load, failing every check sharing that
+// navigation. Generating the image locally removes that external dependency
+// entirely so seeded avatars/banners always load.
+function stagingPlaceholderImage(seed, width = 200, height = 200) {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  const hue = hash % 360;
+  const initials = seed.replace(/[^a-zA-Z0-9]/g, ' ').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase() || 'S';
+  const fontSize = Math.round(Math.min(width, height) / 2.5);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+    `<rect width="100%" height="100%" fill="hsl(${hue},55%,55%)"/>` +
+    `<text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" font-family="sans-serif" font-size="${fontSize}" fill="#ffffff">${initials}</text>` +
+    `</svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
 // Staging seed. Both group tables are staging:private (schema-only copy), so
 // without this a staging preview has no groups to discover or join at all.
 // Strictly a no-op in production.
@@ -3012,7 +3033,7 @@ async function seedStagingData() {
     await insertMessage('group', 'group_staging_public_1', ana, { id: 'msg_staging_gp1_2', text: 'Glad to be here 👋' });
     await insertMessage('group', 'group_staging_public_1', budi, {
       id: 'msg_staging_gp1_3', text: 'Staging demo photo',
-      imageUrl: 'https://picsum.photos/seed/staging-demo-group/400/300', imageId: 'staging-demo-image-group'
+      imageUrl: stagingPlaceholderImage('staging-demo-group', 400, 300), imageId: 'staging-demo-image-group'
     });
 
     await insertMessage('group', 'group_staging_public_2', ana, { id: 'msg_staging_gp2_1', text: 'This is the second staging demo group.' });
@@ -3024,7 +3045,7 @@ async function seedStagingData() {
     await insertMessage('channel', 'channel_staging_1', owner, { id: 'msg_staging_ch1_1', text: 'Welcome to the staging demo announcements channel.' });
     await insertMessage('channel', 'channel_staging_1', owner, {
       id: 'msg_staging_ch1_2', text: 'Staging demo photo',
-      imageUrl: 'https://picsum.photos/seed/staging-demo-channel/400/300', imageId: 'staging-demo-image-channel'
+      imageUrl: stagingPlaceholderImage('staging-demo-channel', 400, 300), imageId: 'staging-demo-image-channel'
     });
     await insertMessage('channel', 'channel_staging_2', citra, { id: 'msg_staging_ch2_1', text: 'First staging demo builder update.' });
 
@@ -3065,9 +3086,9 @@ async function seedStagingOwnedEntities(currentUser) {
   try {
     await pool.query(
       `INSERT INTO groups (id, name, description, avatar, avatar_url, visibility, creator_user_id, creator_username)
-       VALUES ($1, 'Staging Demo Owned Group', 'Staging demo group — owned by whoever is currently testing, for owner-only UI checks.', 'SO', 'https://picsum.photos/seed/group-staging-owned-1/200', 'public', $2, $3)
+       VALUES ($1, 'Staging Demo Owned Group', 'Staging demo group — owned by whoever is currently testing, for owner-only UI checks.', 'SO', $4, 'public', $2, $3)
        ON CONFLICT (id) DO UPDATE SET creator_user_id = EXCLUDED.creator_user_id, creator_username = EXCLUDED.creator_username, avatar_url = EXCLUDED.avatar_url`,
-      [groupId, me.id, me.username]
+      [groupId, me.id, me.username, stagingPlaceholderImage('group-staging-owned-1', 200, 200)]
     );
     await pool.query(
       `INSERT INTO group_members (group_id, user_id, username, role, invited_by_user_id)
@@ -3089,15 +3110,15 @@ async function seedStagingOwnedEntities(currentUser) {
       await insertMessage('group', groupId, me, { id: `msg_${groupId}_1`, text: 'This group is owned by you, for testing owner-only actions.' });
       await insertMessage('group', groupId, helper, {
         id: `msg_${groupId}_2`, text: 'Staging demo photo',
-        imageUrl: 'https://picsum.photos/seed/staging-demo-owned-group/400/300', imageId: 'staging-demo-image-owned-group'
+        imageUrl: stagingPlaceholderImage('staging-demo-owned-group', 400, 300), imageId: 'staging-demo-image-owned-group'
       });
     }
 
     await pool.query(
       `INSERT INTO channels (id, name, description, avatar, avatar_url, creator_user_id, creator_username)
-       VALUES ($1, 'Staging Demo Owned Channel', 'Staging demo channel — owned by whoever is currently testing, for owner-only UI checks.', 'SC', 'https://picsum.photos/seed/channel-staging-owned-1/200', $2, $3)
+       VALUES ($1, 'Staging Demo Owned Channel', 'Staging demo channel — owned by whoever is currently testing, for owner-only UI checks.', 'SC', $4, $2, $3)
        ON CONFLICT (id) DO UPDATE SET creator_user_id = EXCLUDED.creator_user_id, creator_username = EXCLUDED.creator_username, avatar_url = EXCLUDED.avatar_url`,
-      [channelId, me.id, me.username]
+      [channelId, me.id, me.username, stagingPlaceholderImage('channel-staging-owned-1', 200, 200)]
     );
     await pool.query(
       `INSERT INTO channel_followers (channel_id, user_id) VALUES ($1, $2)
@@ -3192,8 +3213,8 @@ async function seedStagingUsers() {
     // Referenced throughout groups/channels/DM seed data below as owner/member
     // fixtures, but never had their own `users` row -- avatar_url join in
     // loadGroupWithMembers/GET /api/groups silently returned null for them.
-    { id: 'staging-demo-user-2', username: 'staging-demo-ana', pubkey: '0x3e5c7d9f1b3a5c7e9f1b3d5a7c9e1f3b5d7a9c1e', offset: '1 hour', avatarUrl: 'https://picsum.photos/seed/staging-demo-ana/200' },
-    { id: 'staging-demo-user-3', username: 'staging-demo-budi', pubkey: '0x7a9c1e3f5b7d9a1c3e5f7b9d1a3c5e7f9b1d3a5c', offset: '90 minutes', avatarUrl: 'https://picsum.photos/seed/staging-demo-budi/200' },
+    { id: 'staging-demo-user-2', username: 'staging-demo-ana', pubkey: '0x3e5c7d9f1b3a5c7e9f1b3d5a7c9e1f3b5d7a9c1e', offset: '1 hour', avatarUrl: stagingPlaceholderImage('staging-demo-ana', 200, 200) },
+    { id: 'staging-demo-user-3', username: 'staging-demo-budi', pubkey: '0x7a9c1e3f5b7d9a1c3e5f7b9d1a3c5e7f9b1d3a5c', offset: '90 minutes', avatarUrl: stagingPlaceholderImage('staging-demo-budi', 200, 200) },
     { id: 'staging-demo-user-4', username: 'staging-demo-citra', pubkey: '0x1f3a9c2e7b5d44680a9f0c1e2d3b4a5968f7e6d5', offset: '5 minutes' },
     { id: 'staging-demo-user-5', username: 'staging-demo-dedi', pubkey: '0x8b2e4f6a1c9d3e5b7a0f2c4e6d8b9a1f3e5c7d09', offset: '2 hours' },
     // Regression fixture peer for SHOT_PERSIST_REMOVAL -- a real group/channel/DM
@@ -3291,9 +3312,10 @@ async function seedStagingDirectConversations() {
     await pool.query(
       `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, image_url, image_id, created_at)
        VALUES ('msg_staging_accepted_4', 'direct', 'dm_staging_accepted_1', 'staging-demo-user-5', 'staging-demo-dedi',
-               'Staging demo photo', 'https://picsum.photos/seed/staging-demo-accepted-dm/400/300', 'staging-demo-image-accepted-dm',
+               'Staging demo photo', $1, 'staging-demo-image-accepted-dm',
                now() - '21 hours'::interval)
-       ON CONFLICT (id) DO NOTHING`
+       ON CONFLICT (id) DO NOTHING`,
+      [stagingPlaceholderImage('staging-demo-accepted-dm', 400, 300)]
     );
 
     // Untouched conversation with NO conversation_user_state row at all --
