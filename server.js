@@ -1682,9 +1682,13 @@ app.get('/api/direct-conversations', async (req, res) => {
                 THEN dc.user_id_b ELSE dc.user_id_a END
          )
          LEFT JOIN LATERAL (
-           SELECT text, sender_user_id, created_at, forwarded_from_channel_id FROM messages
-            WHERE conversation_type = 'direct' AND conversation_id = dc.id
-            ORDER BY created_at DESC LIMIT 1
+           SELECT text, sender_user_id, created_at, forwarded_from_channel_id FROM messages m
+            WHERE m.conversation_type = 'direct' AND m.conversation_id = dc.id
+              AND NOT EXISTS (
+                SELECT 1 FROM message_hidden_for mhf
+                 WHERE mhf.message_id = m.id AND mhf.user_id = $1
+              )
+            ORDER BY m.created_at DESC LIMIT 1
          ) lm ON true
          LEFT JOIN conversation_user_state cus
            ON cus.conversation_id = 'conv_' || (

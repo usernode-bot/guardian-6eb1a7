@@ -916,7 +916,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const prevTimestamp = before ? before.timestamp : undefined;
             addServerChannelToState(c);
             const after = conversations.find(cv => cv.type === 'channel' && cv.channelId === c.id);
-            if (!before || (after && (after.lastMessage !== prevLastMessage || after.timestamp !== prevTimestamp))) {
+            // Owned-but-unfollowed channels (e.g. after unfollowing your own
+            // channel) never get a conversation row -- addServerChannelToState
+            // only creates one for followers -- so `!before` alone stayed true
+            // forever for them and this hydrate reported "changed" on every
+            // single poll, driving the Messages-list poll into an unthrottled
+            // loop. Only a row that actually just appeared (or real data on an
+            // existing row) counts as a change.
+            if ((!before && after) || (after && (after.lastMessage !== prevLastMessage || after.timestamp !== prevTimestamp))) {
               changed = true;
             }
           } catch (error) {
@@ -1879,6 +1886,23 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Filter discover communities by tab
+  // How many of the tab's largest communities show up in the featured
+  // carousel (regression: isFeatured was always hardcoded false everywhere
+  // it's set, so the carousel could never render -- feature it off the same
+  // memberCount every other Discover sort already uses instead of adding new
+  // persisted state).
+  const FEATURED_COUNT = 3;
+
+  function markFeatured(list) {
+    const featuredIds = new Set(
+      [...list]
+        .sort((a, b) => (b.memberCount || 0) - (a.memberCount || 0))
+        .slice(0, FEATURED_COUNT)
+        .map(c => c.id)
+    );
+    return list.map(c => ({ ...c, isFeatured: featuredIds.has(c.id) }));
+  }
+
   function filterDiscoverCommunities(tab) {
     let filteredGroups = discoverGroups
       .filter(g => g.visibility !== 'private')
@@ -1887,11 +1911,15 @@ document.addEventListener('DOMContentLoaded', () => {
       .map(c => ({ ...c, type: 'channel' }));
 
     if (tab === 'groups') {
-      return { groups: filteredGroups, channels: [] };
+      return { groups: markFeatured(filteredGroups), channels: [] };
     } else if (tab === 'channels') {
-      return { groups: [], channels: filteredChans };
+      return { groups: [], channels: markFeatured(filteredChans) };
     } else {
-      return { groups: filteredGroups, channels: filteredChans };
+      const combined = markFeatured([...filteredGroups, ...filteredChans]);
+      return {
+        groups: combined.filter(c => c.type === 'group'),
+        channels: combined.filter(c => c.type === 'channel')
+      };
     }
   }
 
@@ -3187,7 +3215,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const conv = conversations.find(c => c.id === conversationId);
     if (!conv) return;
 
-    conv.messages.forEach(msg => {
+    // The Messages list only hydrates previews, not full history -- a DM
+    // whose thread was never opened has no .messages yet.
+    (conv.messages || []).forEach(msg => {
       if (!msg.hiddenFor) msg.hiddenFor = {};
       msg.hiddenFor.user_self = true;
     });
@@ -4975,7 +5005,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const isPrivate = group.visibility === 'private';
     const hasPendingRequest = !isMember && isPrivate && (group.joinRequests || []).some(r => r.userId === 'user_self');
     group.messages = group.messages || [];
-    await hydrateThreadMessages('group', groupId, group);
+    // Non-members previewing from Discover hit the member-only GET
+    // /api/messages/group/:groupId, which 404s (regression: logged a console
+    // error and broke the "Group detail screen loads" check for every public
+    // group's pre-join preview) -- history is only fetchable once joined.
+    if (isMember) await hydrateThreadMessages('group', groupId, group);
     padForShotLongThread(group.messages, true, (ts, n) => ({
       id: `shot-pad-group-${n}`, senderId: 'staging-demo-user-2', senderName: 'staging-demo-ana',
       text: `Filler message ${n}`, timestamp: ts, isOutgoing: false
@@ -7133,13 +7167,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }).catch(error => console.warn('Could not deliver channel unfollow:', error));
   }
 
+  // A post-reaction viewer isn't necessarily a follower yet (Discover preview),
+  // so `channels` (the followed list) alone isn't enough -- fall back to the
+  // not-yet-followed cache renderChannelView populates.
+  function findAnyChannel(channelId) {
+    return channels.find(c => c.id === channelId) || discoverChannels.find(c => c.id === channelId);
+  }
+
   // Toggle one emoji reaction on a post for the current user. Each emoji toggles
   // INDEPENDENTLY — a user can hold ❤️ and 🎉 on the same post at once — so the
   // heart button and the emoji picker never clobber each other's state.
   // Available to every viewer, follower or owner alike: no permission gate.
   function togglePostReaction(channelId, postId, emoji) {
-    const channel = channels.find(c => c.id === channelId);
-    if (!channel) return;
+    const channel = findAnyChannel(channelId);
+    if (!channel || !channel.posts) return;
 
     const post = channel.posts.find(p => p.id === postId);
     if (!post) return;
@@ -7293,8 +7334,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // rebuild the page and throw away scroll position on every tap, so reactions
   // deliberately never re-render the feed.
   function refreshPostReactions(channelId, postId) {
-    const channel = channels.find(c => c.id === channelId);
-    if (!channel) return;
+    const channel = findAnyChannel(channelId);
+    if (!channel || !channel.posts) return;
     const post = channel.posts.find(p => p.id === postId);
     if (!post) return;
 
@@ -7412,14 +7453,19 @@ document.addEventListener('DOMContentLoaded', () => {
       // this view (and postCardHTML) expect from a real `channels` entry.
       const discoverChannel = discoverChannels.find(c => c.id === channelId);
       if (discoverChannel) {
-        channel = Object.assign({
-          followers: {},
-          followerCount: discoverChannel.memberCount || 0,
-          posts: [],
-          creatorId: null,
-          mutedByUsers: {},
-          admins: []
-        }, discoverChannel);
+        // Fill in defaults IN PLACE and keep this as the very object stored in
+        // discoverChannels (regression: Object.assign(defaults, discoverChannel)
+        // used to build a disconnected copy, so the .posts array hydrated below
+        // was never reachable from togglePostReaction/refreshPostReactions --
+        // reacting to a post in a not-yet-followed preview channel silently
+        // did nothing, since those look the channel up via findAnyChannel().
+        if (discoverChannel.followers === undefined) discoverChannel.followers = {};
+        if (discoverChannel.followerCount === undefined) discoverChannel.followerCount = discoverChannel.memberCount || 0;
+        if (discoverChannel.posts === undefined) discoverChannel.posts = [];
+        if (discoverChannel.creatorId === undefined) discoverChannel.creatorId = null;
+        if (discoverChannel.mutedByUsers === undefined) discoverChannel.mutedByUsers = {};
+        if (discoverChannel.admins === undefined) discoverChannel.admins = [];
+        channel = discoverChannel;
       }
     }
     if (!isKnownChannel) {
@@ -7453,8 +7499,11 @@ document.addEventListener('DOMContentLoaded', () => {
               };
               // Cache it locally so Follow keeps working from this screen
               // without another round trip -- mirrors the group side's cache.
+              // Push the SAME object used for rendering (not a copy), so
+              // findAnyChannel() sees the live .posts array once hydrated.
+              channel.isFeatured = false;
               if (!discoverChannels.some(c => c.id === channel.id)) {
-                discoverChannels.push(Object.assign({ isFeatured: false }, channel));
+                discoverChannels.push(channel);
               }
             }
           }
@@ -8020,7 +8069,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Show post menu
   function showPostMenu(channelId, postId, isOwner) {
-    const channel = channels.find(c => c.id === channelId);
+    // Forward/Copy text are open to every viewer, including a not-yet-followed
+    // Discover preview -- that channel only lives in discoverChannels.
+    const channel = findAnyChannel(channelId);
     const post = channel && channel.posts.find(p => p.id === postId);
     if (!post) return;
 
@@ -8292,7 +8343,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // "Forward to" sheet — pick any number of DMs and joined groups, optionally add
   // a note, then Send. Stays on the channel so the user can keep reading.
   function showForwardSheet(channelId, postId) {
-    const channel = channels.find(c => c.id === channelId);
+    // Same not-yet-followed preview case as showPostMenu above.
+    const channel = findAnyChannel(channelId);
     const post = channel && channel.posts.find(p => p.id === postId);
     if (!post) return;
 
