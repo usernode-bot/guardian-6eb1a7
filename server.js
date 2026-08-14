@@ -3304,6 +3304,39 @@ async function seedStagingDirectConversations() {
        ON CONFLICT (id) DO NOTHING`
     );
 
+    // Reload-order regression fixtures (SHOT_DM_RELOAD_LO/HI in app.js) --
+    // seeded here rather than relying solely on the shot-flag's own live
+    // POST to have already landed by the time the plain-reload check runs.
+    // The "insert" check and the "plain reload" check are separate dapp.json
+    // entries with no ordering/timing guarantee between them, and the
+    // reload check's render gate requires the peer to already be present in
+    // GET /api/direct-conversations -- so without a seeded row, a reload
+    // that happens to run before the insert check's fetch lands finds no
+    // conversation yet and bounces to /messages.
+    await pool.query(
+      `INSERT INTO direct_conversations (id, user_id_a, user_id_b, status, requested_by_user_id, created_at)
+       VALUES ('dm_staging_reload_lo_1', '0000-reload-order-lo', 'user_self', 'accepted', '0000-reload-order-lo', now() - '5 minutes'::interval)
+       ON CONFLICT (user_id_a, user_id_b) DO NOTHING`
+    );
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+       VALUES ('msg_staging_reload_lo_1', 'direct', 'dm_staging_reload_lo_1', '0000-reload-order-lo', 'staging-demo-zero',
+               'Shot reload order check', now() - '5 minutes'::interval)
+       ON CONFLICT (id) DO NOTHING`
+    );
+
+    await pool.query(
+      `INSERT INTO direct_conversations (id, user_id_a, user_id_b, status, requested_by_user_id, created_at)
+       VALUES ('dm_staging_reload_hi_1', 'user_self', 'zzzz-reload-order-hi', 'accepted', 'zzzz-reload-order-hi', now() - '5 minutes'::interval)
+       ON CONFLICT (user_id_a, user_id_b) DO NOTHING`
+    );
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+       VALUES ('msg_staging_reload_hi_1', 'direct', 'dm_staging_reload_hi_1', 'zzzz-reload-order-hi', 'staging-demo-zulu',
+               'Shot reload order check', now() - '5 minutes'::interval)
+       ON CONFLICT (id) DO NOTHING`
+    );
+
     console.log('Staging demo direct conversations seeded');
   } catch (err) {
     console.error('Staging direct conversation seed error:', err);
