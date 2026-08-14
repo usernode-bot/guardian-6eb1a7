@@ -5000,7 +5000,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const isPrivate = group.visibility === 'private';
     const hasPendingRequest = !isMember && isPrivate && (group.joinRequests || []).some(r => r.userId === 'user_self');
     group.messages = group.messages || [];
-    await hydrateThreadMessages('group', groupId, group);
+    // Non-members can't read a group's history (server 404s the fetch by
+    // design -- see GET /api/messages/group/:groupId) -- skip it here so the
+    // pre-join preview doesn't surface an inevitable failed-request console
+    // error for a request whose result would be discarded anyway.
+    if (isMember) {
+      await hydrateThreadMessages('group', groupId, group);
+    }
     padForShotLongThread(group.messages, true, (ts, n) => ({
       id: `shot-pad-group-${n}`, senderId: 'staging-demo-user-2', senderName: 'staging-demo-ana',
       text: `Filler message ${n}`, timestamp: ts, isOutgoing: false
