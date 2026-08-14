@@ -1098,6 +1098,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (serverMsg.reactions && Object.keys(serverMsg.reactions).length) {
       msg.reactions = shapeIncomingReactions(serverMsg.reactions);
     }
+    if (serverMsg.isPinned) {
+      msg.isPinned = true;
+      msg.pinnedAt = serverMsg.pinnedAt;
+      msg.pinnedByUsername = serverMsg.pinnedByUsername;
+    }
     return msg;
   }
 
@@ -1140,6 +1145,22 @@ document.addEventListener('DOMContentLoaded', () => {
             existing.reactions = (newReactions && Object.keys(newReactions).length) ? newReactions : undefined;
             changed = true;
           }
+          // Pin state can also change after a message is already known
+          // locally (an owner/admin pinning or unpinning it from another
+          // client) -- reconcile the same way reactions are reconciled above.
+          const newIsPinned = !!serverMsg.isPinned;
+          if (!!existing.isPinned !== newIsPinned || existing.pinnedAt !== serverMsg.pinnedAt) {
+            if (newIsPinned) {
+              existing.isPinned = true;
+              existing.pinnedAt = serverMsg.pinnedAt;
+              existing.pinnedByUsername = serverMsg.pinnedByUsername;
+            } else {
+              existing.isPinned = undefined;
+              existing.pinnedAt = undefined;
+              existing.pinnedByUsername = undefined;
+            }
+            changed = true;
+          }
           return;
         }
         const msg = shapeIncomingMessage(serverMsg);
@@ -1177,6 +1198,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const existing = channel.posts.find(p => p.id === serverMsg.id);
         if (existing) {
           existing.confirmed = true;
+          // Same pin reconciliation as hydrateThreadMessages above -- an
+          // owner pinning/unpinning a post from another client needs to show
+          // up here without a full re-fetch of the post itself.
+          const newIsPinned = !!serverMsg.isPinned;
+          if (!!existing.isPinned !== newIsPinned || existing.pinnedAt !== serverMsg.pinnedAt) {
+            existing.isPinned = newIsPinned;
+            existing.pinnedAt = serverMsg.pinnedAt || undefined;
+            existing.pinnedByUsername = serverMsg.pinnedByUsername;
+            changed = true;
+          }
           return;
         }
         const post = {
@@ -1186,7 +1217,9 @@ document.addEventListener('DOMContentLoaded', () => {
           text: serverMsg.text || '',
           timestamp: serverMsg.timestamp,
           reactions: {},
-          isPinned: false,
+          isPinned: !!serverMsg.isPinned,
+          pinnedAt: serverMsg.pinnedAt || undefined,
+          pinnedByUsername: serverMsg.pinnedByUsername,
           confirmed: true
         };
         if (serverMsg.imageUrl) {
@@ -1481,6 +1514,53 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderPinBadge(msg) {
     if (!msg.isPinned) return '';
     return `<div class="message-pin-badge"><span class="message-pin-icon">📌</span>Pinned</div>`;
+  }
+
+  // "N pinned messages" banner shown at the top of a group chat or channel
+  // feed once at least one message/post is pinned -- tapping it opens
+  // showPinnedMessagesSheet with the full list. `items` is a group's
+  // `.messages` or a channel's `.posts`. Returns '' (renders nothing) when
+  // nothing is pinned, same convention as groupPreviewMembersHTML.
+  function pinnedBannerHTML(items) {
+    const pinned = (items || []).filter(item => item.isPinned);
+    if (!pinned.length) return '';
+    const mostRecent = pinned.slice().sort((a, b) => (b.pinnedAt || 0) - (a.pinnedAt || 0))[0];
+    return `
+      <div class="pinned-messages-banner" role="button" tabindex="0" aria-label="View pinned messages">
+        <span class="pinned-banner-icon" aria-hidden="true">📌</span>
+        <div class="pinned-banner-text">
+          <div class="pinned-banner-count">${pinned.length} pinned message${pinned.length === 1 ? '' : 's'}</div>
+          <div class="pinned-banner-preview">${escapeHtml(truncateText(messagePreviewText(mostRecent), 60))}</div>
+        </div>
+        <span class="pinned-banner-chevron" aria-hidden="true">›</span>
+      </div>
+    `;
+  }
+
+  // Re-renders the pinned banner in place after a pin/unpin toggle so the
+  // count/preview stays correct without a full page re-render (same
+  // in-place philosophy as refreshPostReactions). `thread` is a group or
+  // channel object; threadType is 'group' or 'channel'.
+  function refreshPinnedBanner(thread, threadType) {
+    const items = threadType === 'channel' ? thread.posts : thread.messages;
+    const container = pageContainer.querySelector('.conversation-page');
+    if (!container) return;
+    const existingBanner = container.querySelector('.pinned-messages-banner');
+    const html = pinnedBannerHTML(items);
+    if (existingBanner) {
+      if (html) {
+        existingBanner.outerHTML = html;
+      } else {
+        existingBanner.remove();
+      }
+    } else if (html) {
+      const anchor = container.querySelector('.messages-area');
+      if (anchor) anchor.insertAdjacentHTML('beforebegin', html);
+    }
+    const banner = container.querySelector('.pinned-messages-banner');
+    if (banner) {
+      banner.onclick = () => showPinnedMessagesSheet(thread.id, threadType);
+    }
   }
 
   // Truncate text to 50 characters with ellipsis
@@ -3578,7 +3658,7 @@ document.addEventListener('DOMContentLoaded', () => {
             : menuTargetMessage.isOutgoing === true
       );
       const visibleMenuItems = MENU_ITEMS.filter(item => item.action !== 'delete' || canDeleteMenuTarget)
-        .filter(item => item.action !== 'pin' || threadType === 'channel');
+        .filter(item => item.action !== 'pin' || (threadType === 'group' && isCurrentUserGroupAdmin(conversation)));
 
       const contextMenu = document.createElement('div');
       contextMenu.className = 'context-menu';
@@ -3699,11 +3779,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
           }
 
-          // Handle pin action - toggle pin state and update the badge in place
+          // Handle pin action - toggle pin state, update the badge in place,
+          // and persist to the server so it surfaces in the pinned banner/sheet
+          // and for every other viewer (only reachable for group owners/admins
+          // -- see the visibleMenuItems filter above).
           if (action === 'pin') {
             const targetMessage = conversation.messages.find(m => m.id === messageId);
             if (targetMessage) {
-              targetMessage.isPinned = !targetMessage.isPinned;
+              const nextPinned = !targetMessage.isPinned;
+              targetMessage.isPinned = nextPinned;
               const parent = bubbleElement.parentNode;
               const existingBadge = parent.querySelector('.message-pin-badge');
               if (targetMessage.isPinned) {
@@ -3716,6 +3800,7 @@ document.addEventListener('DOMContentLoaded', () => {
               } else if (existingBadge) {
                 existingBadge.remove();
               }
+              deliverMessagePin(conversation, messageId, nextPinned);
             }
           }
 
@@ -4915,7 +5000,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const isPrivate = group.visibility === 'private';
     const hasPendingRequest = !isMember && isPrivate && (group.joinRequests || []).some(r => r.userId === 'user_self');
     group.messages = group.messages || [];
-    await hydrateThreadMessages('group', groupId, group);
+    // Non-members can't read a group's history (server 404s the fetch by
+    // design -- see GET /api/messages/group/:groupId) -- skip it here so the
+    // pre-join preview doesn't surface an inevitable failed-request console
+    // error for a request whose result would be discarded anyway.
+    if (isMember) {
+      await hydrateThreadMessages('group', groupId, group);
+    }
     padForShotLongThread(group.messages, true, (ts, n) => ({
       id: `shot-pad-group-${n}`, senderId: 'staging-demo-user-2', senderName: 'staging-demo-ana',
       text: `Filler message ${n}`, timestamp: ts, isOutgoing: false
@@ -5032,6 +5123,7 @@ document.addEventListener('DOMContentLoaded', () => {
           ${isMember ? `<button class="menu-button" aria-label="More options">⋮</button>` : ''}
         </div>
         ${groupPreviewMembersHTML}
+        ${isMember ? pinnedBannerHTML(messages) : ''}
         <div class="messages-area">
           <div class="messages-container">
             ${messagesList}
@@ -5063,6 +5155,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelector('.back-button').addEventListener('click', () => {
       window.location.hash = groupChannelBackTarget;
     });
+
+    const pinnedBanner = document.querySelector('.pinned-messages-banner');
+    if (pinnedBanner) {
+      pinnedBanner.addEventListener('click', () => showPinnedMessagesSheet(groupId, 'group'));
+    }
 
     // Add interactive header controls for group management. Not applicable
     // for a non-member preview — there's no Group Info/edit surface to jump to.
@@ -5332,6 +5429,108 @@ document.addEventListener('DOMContentLoaded', () => {
       if (e.target === overlay) {
         overlay.remove();
       }
+    });
+  }
+
+  // Bottom sheet listing every pinned message/post in a group or channel --
+  // original sender avatar/name/timestamp, full text, and (for owners/admins)
+  // an Unpin control. `threadId` is a group or channel id; `threadType` is
+  // 'group' or 'channel'.
+  function showPinnedMessagesSheet(threadId, threadType) {
+    const thread = threadType === 'channel' ? channels.find(c => c.id === threadId) : groups.find(g => g.id === threadId);
+    if (!thread) return;
+    const items = threadType === 'channel' ? thread.posts : thread.messages;
+    const pinned = (items || []).filter(item => item.isPinned).slice().sort((a, b) => (b.pinnedAt || 0) - (a.pinnedAt || 0));
+
+    const canUnpin = threadType === 'channel'
+      ? thread.creatorId === 'user_self'
+      : isCurrentUserGroupAdmin(thread);
+
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog pinned-messages-sheet-dialog';
+
+    const rowsHTML = pinned.map(item => {
+      const senderName = threadType === 'channel' ? thread.name : (item.isOutgoing ? 'You' : item.senderName);
+      const senderAvatar = threadType === 'channel'
+        ? thread.avatar
+        : (item.isOutgoing ? null : (thread.members.find(m => m.id === item.senderId) || {}).avatar);
+      return `
+        <div class="pinned-sheet-item" data-item-id="${escapeAttr(item.id)}">
+          <div class="member-avatar">${renderCommunityAvatar(senderAvatar, senderName)}</div>
+          <div class="pinned-sheet-item-body">
+            <div class="pinned-sheet-item-head">
+              <span class="pinned-sheet-item-sender">${escapeHtml(senderName)}</span>
+              <span class="pinned-sheet-item-time">${formatTimestamp(item.timestamp)}</span>
+            </div>
+            <div class="pinned-sheet-item-text">${escapeHtml(messagePreviewText(item))}</div>
+          </div>
+          ${canUnpin ? `<button class="pinned-sheet-unpin-btn" data-item-id="${escapeAttr(item.id)}">Unpin</button>` : ''}
+        </div>
+      `;
+    }).join('');
+
+    dialog.innerHTML = `
+      <div class="dialog-header">
+        <h2>Pinned Messages (${pinned.length})</h2>
+        <button class="close-dialog-button">✕</button>
+      </div>
+      <div class="dialog-content pinned-messages-list-container">
+        ${rowsHTML || `<div class="empty-state">No pinned messages</div>`}
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    pageContainer.appendChild(overlay);
+
+    const closeBtn = dialog.querySelector('.close-dialog-button');
+    closeBtn.addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+
+    dialog.querySelectorAll('.pinned-sheet-unpin-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const itemId = btn.dataset.itemId;
+        if (threadType === 'channel') {
+          const post = thread.posts.find(p => p.id === itemId);
+          if (post) post.isPinned = false;
+          deliverPostPin(threadId, itemId, false);
+        } else {
+          const msg = thread.messages.find(m => m.id === itemId);
+          if (msg) msg.isPinned = false;
+          deliverMessagePin(thread, itemId, false);
+        }
+        overlay.remove();
+        showToast('Unpinned', { type: 'success' });
+        if (threadType === 'channel') {
+          renderChannelView(threadId);
+        } else {
+          renderGroupConversationPage(threadId);
+        }
+      });
+    });
+
+    // Tapping a row (anywhere but the Unpin button) jumps to that message in
+    // the thread behind the sheet and briefly highlights it, same
+    // scroll+pulse convention as the quoted-message-reply jump above.
+    dialog.querySelectorAll('.pinned-sheet-item').forEach(row => {
+      row.addEventListener('click', () => {
+        const itemId = row.dataset.itemId;
+        overlay.remove();
+        const selector = threadType === 'channel'
+          ? `.post-card[data-post-id="${itemId}"]`
+          : `.message-bubble[data-message-id="${itemId}"]`;
+        const targetEl = document.querySelector(selector);
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          targetEl.classList.add('highlight-pulse');
+          setTimeout(() => targetEl.classList.remove('highlight-pulse'), 1500);
+        }
+      });
     });
   }
 
@@ -7207,6 +7406,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ? `<div class="post-card-time post-failed" data-retry-post-id="${post.id}">⚠️ Failed to send · Tap to retry</div>`
             : `<div class="post-card-time">${formatTimestamp(post.timestamp)}</div>`}
         </div>
+        ${renderPinBadge(post)}
         <div class="post-content${messageBubbleClass(post)}">${messageBodyHTML(post)}</div>
         <div class="post-reaction-chips">${postReactionChipsHTML(post)}</div>
         <div class="post-actions">${postActionsHTML(post)}</div>
@@ -7248,6 +7448,50 @@ document.addEventListener('DOMContentLoaded', () => {
       content.innerHTML = messageBodyHTML(post);
       content.className = `post-content${messageBubbleClass(post)}`;
     }
+  }
+
+  // Patch one card's pin badge in place after a pin/unpin, same in-place
+  // philosophy as refreshPostReactions/refreshPostContent above.
+  function refreshPostPin(channelId, postId) {
+    const channel = channels.find(c => c.id === channelId);
+    if (!channel) return;
+    const post = channel.posts.find(p => p.id === postId);
+    if (!post) return;
+
+    const card = pageContainer.querySelector(`.post-card[data-post-id="${postId}"]`);
+    if (!card) return;
+    const existingBadge = card.querySelector('.message-pin-badge');
+    if (post.isPinned && !existingBadge) {
+      const content = card.querySelector('.post-content');
+      if (content) content.insertAdjacentHTML('beforebegin', renderPinBadge(post));
+    } else if (!post.isPinned && existingBadge) {
+      existingBadge.remove();
+    }
+    refreshPinnedBanner(channel, 'channel');
+  }
+
+  // Persists a channel post pin/unpin server-side (owner-only -- channels have
+  // no admin role, see getChannelRole on the server; the entry point in
+  // showPostMenu is only rendered when isOwner) so it appears in the pinned
+  // banner/sheet and for every other viewer on their next poll.
+  function deliverPostPin(channelId, postId, pinned) {
+    fetch(`/api/messages/channel/${encodeURIComponent(channelId)}/${encodeURIComponent(postId)}/pin`, {
+      method: pinned ? 'POST' : 'DELETE',
+      headers: authHeaders()
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (!data) return;
+        const channel = channels.find(c => c.id === channelId);
+        const post = channel && channel.posts.find(p => p.id === postId);
+        if (post) {
+          post.isPinned = data.isPinned;
+          post.pinnedAt = data.pinnedAt || undefined;
+          post.pinnedByUsername = data.pinnedByUsername || undefined;
+        }
+        refreshPostPin(channelId, postId);
+      })
+      .catch(error => console.warn('Could not deliver channel post pin:', error));
   }
 
   // Message-level reactions reuse POST_REACTIONS/reactionCount/userReacted so
@@ -7302,6 +7546,29 @@ document.addEventListener('DOMContentLoaded', () => {
         refreshMessageReactions(thread, messageId);
       })
       .catch(error => console.warn(`Could not deliver ${apiType} message reaction:`, error));
+  }
+
+  // Persists a group message pin/unpin server-side (the menu item that
+  // triggers this is only shown to owners/admins -- see setupMessageLongPress
+  // -- and the server enforces the same check independently) so it appears in
+  // the pinned banner/sheet and for every other viewer on their next poll.
+  function deliverMessagePin(thread, messageId, pinned) {
+    fetch(`/api/messages/group/${encodeURIComponent(thread.id)}/${encodeURIComponent(messageId)}/pin`, {
+      method: pinned ? 'POST' : 'DELETE',
+      headers: authHeaders()
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (!data) return;
+        const msg = thread.messages && thread.messages.find(m => m.id === messageId);
+        if (msg) {
+          msg.isPinned = data.isPinned;
+          msg.pinnedAt = data.pinnedAt || undefined;
+          msg.pinnedByUsername = data.pinnedByUsername || undefined;
+        }
+        refreshPinnedBanner(thread, 'group');
+      })
+      .catch(error => console.warn('Could not deliver group message pin:', error));
   }
 
   function messageReactionChipsHTML(msg) {
@@ -7446,6 +7713,7 @@ document.addEventListener('DOMContentLoaded', () => {
           ${canShowMenu ? `<button class="menu-button" aria-label="More options">⋮</button>` : ''}
         </div>
         ${channelPreviewFollowersHTML}
+        ${(isOwner || isFollowing) ? pinnedBannerHTML(channel.posts) : ''}
         <div class="messages-area">
           <div class="channel-feed messages-container">
             ${postsList || `
@@ -7493,6 +7761,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelector('.back-button').addEventListener('click', () => {
       window.location.hash = groupChannelBackTarget;
     });
+
+    const channelPinnedBanner = document.querySelector('.pinned-messages-banner');
+    if (channelPinnedBanner) {
+      channelPinnedBanner.addEventListener('click', () => showPinnedMessagesSheet(channelId, 'channel'));
+    }
 
     // Menu button handler
     const menuButton = document.querySelector('.menu-button');
@@ -7958,6 +8231,10 @@ document.addEventListener('DOMContentLoaded', () => {
             <span class="option-icon">✏️</span>
             <span class="option-label">Edit Post</span>
           </button>
+          <button class="menu-option" id="pin-post-btn">
+            <span class="option-icon">📌</span>
+            <span class="option-label">${post.isPinned ? 'Unpin Post' : 'Pin Post'}</span>
+          </button>
           <button class="menu-option" id="delete-post-btn">
             <span class="option-icon">🗑️</span>
             <span class="option-label">Delete Post</span>
@@ -7997,6 +8274,18 @@ document.addEventListener('DOMContentLoaded', () => {
       editBtn.addEventListener('click', () => {
         overlay.remove();
         showEditPostDialog(channelId, postId);
+      });
+    }
+
+    const pinBtn = document.getElementById('pin-post-btn');
+    if (pinBtn) {
+      pinBtn.addEventListener('click', () => {
+        overlay.remove();
+        const nextPinned = !post.isPinned;
+        post.isPinned = nextPinned;
+        refreshPostPin(channelId, postId);
+        deliverPostPin(channelId, postId, nextPinned);
+        showToast(nextPinned ? 'Post pinned' : 'Post unpinned', { type: 'success' });
       });
     }
 
