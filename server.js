@@ -642,48 +642,58 @@ app.post('/api/groups/:groupId/join', async (req, res) => {
 
 // PUT /api/groups/:groupId/name - Update group name
 app.put('/api/groups/:groupId/name', async (req, res) => {
-  const { name } = req.body;
-  const { groupId } = req.params;
+  try {
+    const { name } = req.body;
+    const { groupId } = req.params;
 
-  if (!name || name.trim().length === 0) {
-    return res.status(400).json({ error: 'Group name is required' });
-  }
+    if (!name || name.trim().length === 0) {
+      return res.status(400).json({ error: 'Group name is required' });
+    }
 
-  if (name.length > 50) {
-    return res.status(400).json({ error: 'Group name must be 50 characters or less' });
-  }
+    if (name.length > 50) {
+      return res.status(400).json({ error: 'Group name must be 50 characters or less' });
+    }
 
-  const role = await getGroupRole(groupId, req.user.id);
-  if (role === null) {
-    return res.status(404).json({ error: 'Group not found' });
-  }
-  if (role !== 'owner' && role !== 'admin') {
-    return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
-  }
+    const role = await getGroupRole(groupId, req.user.id);
+    if (role === null) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+    if (role !== 'owner' && role !== 'admin') {
+      return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
+    }
 
-  await pool.query('UPDATE groups SET name = $1, updated_at = now() WHERE id = $2', [name.trim(), groupId]);
-  res.json({ id: groupId, name: name.trim() });
+    await pool.query('UPDATE groups SET name = $1, updated_at = now() WHERE id = $2', [name.trim(), groupId]);
+    res.json({ id: groupId, name: name.trim() });
+  } catch (err) {
+    console.error('[groups] name update failed:', err);
+    res.status(500).json({ error: 'Failed to update group name' });
+  }
 });
 
 // PUT /api/groups/:groupId/description - Update group description
 app.put('/api/groups/:groupId/description', async (req, res) => {
-  const { description } = req.body;
-  const { groupId } = req.params;
+  try {
+    const { description } = req.body;
+    const { groupId } = req.params;
 
-  if (description && description.length > 250) {
-    return res.status(400).json({ error: 'Description must be 250 characters or less' });
-  }
+    if (description && description.length > 250) {
+      return res.status(400).json({ error: 'Description must be 250 characters or less' });
+    }
 
-  const role = await getGroupRole(groupId, req.user.id);
-  if (role === null) {
-    return res.status(404).json({ error: 'Group not found' });
-  }
-  if (role !== 'owner' && role !== 'admin') {
-    return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
-  }
+    const role = await getGroupRole(groupId, req.user.id);
+    if (role === null) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+    if (role !== 'owner' && role !== 'admin') {
+      return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
+    }
 
-  await pool.query('UPDATE groups SET description = $1, updated_at = now() WHERE id = $2', [description || '', groupId]);
-  res.json({ id: groupId, description: description || '' });
+    await pool.query('UPDATE groups SET description = $1, updated_at = now() WHERE id = $2', [description || '', groupId]);
+    res.json({ id: groupId, description: description || '' });
+  } catch (err) {
+    console.error('[groups] description update failed:', err);
+    res.status(500).json({ error: 'Failed to update group description' });
+  }
 });
 
 // PUT /api/groups/:groupId/avatar - Update group avatar. The photo itself is
@@ -691,31 +701,36 @@ app.put('/api/groups/:groupId/description', async (req, res) => {
 // persists the returned URL/id (never image bytes) -- same contract as
 // PUT /api/profile.
 app.put('/api/groups/:groupId/avatar', async (req, res) => {
-  const { avatarUrl, avatarImageId } = req.body || {};
-  const { groupId } = req.params;
+  try {
+    const { avatarUrl, avatarImageId } = req.body || {};
+    const { groupId } = req.params;
 
-  if (avatarUrl != null && typeof avatarUrl !== 'string') {
-    return res.status(400).json({ error: 'avatarUrl must be a string or null' });
-  }
-  if (typeof avatarUrl === 'string' && !avatarUrl.startsWith('https://')) {
-    return res.status(400).json({ error: 'avatarUrl must be an https:// URL' });
-  }
+    if (avatarUrl != null && typeof avatarUrl !== 'string') {
+      return res.status(400).json({ error: 'avatarUrl must be a string or null' });
+    }
+    if (typeof avatarUrl === 'string' && !avatarUrl.startsWith('https://')) {
+      return res.status(400).json({ error: 'avatarUrl must be an https:// URL' });
+    }
 
-  const role = await getGroupRole(groupId, req.user.id);
-  if (role === null) {
-    return res.status(404).json({ error: 'Group not found' });
-  }
-  if (role !== 'owner' && role !== 'admin') {
-    return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
-  }
+    const role = await getGroupRole(groupId, req.user.id);
+    if (role === null) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+    if (role !== 'owner' && role !== 'admin') {
+      return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
+    }
 
-  const avatarUrlVal = typeof avatarUrl === 'string' ? avatarUrl : null;
-  const avatarImageIdVal = typeof avatarImageId === 'string' ? avatarImageId : null;
-  await pool.query(
-    'UPDATE groups SET avatar_url = $1, avatar_image_id = $2, updated_at = now() WHERE id = $3',
-    [avatarUrlVal, avatarImageIdVal, groupId]
-  );
-  res.json({ id: groupId, avatarUrl: avatarUrlVal, avatarImageId: avatarImageIdVal });
+    const avatarUrlVal = typeof avatarUrl === 'string' ? avatarUrl : null;
+    const avatarImageIdVal = typeof avatarImageId === 'string' ? avatarImageId : null;
+    await pool.query(
+      'UPDATE groups SET avatar_url = $1, avatar_image_id = $2, updated_at = now() WHERE id = $3',
+      [avatarUrlVal, avatarImageIdVal, groupId]
+    );
+    res.json({ id: groupId, avatarUrl: avatarUrlVal, avatarImageId: avatarImageIdVal });
+  } catch (err) {
+    console.error('[groups] avatar update failed:', err);
+    res.status(500).json({ error: 'Failed to update group avatar' });
+  }
 });
 
 // POST /api/groups/:groupId/members - Add members to group (owner/admin only)
@@ -815,43 +830,48 @@ app.delete('/api/groups/:groupId/members/:memberId', async (req, res) => {
 
 // PUT /api/groups/:groupId/members/:memberId/role - Promote/demote a member (owner only)
 app.put('/api/groups/:groupId/members/:memberId/role', async (req, res) => {
-  const { groupId, memberId } = req.params;
-  const { role } = req.body;
+  try {
+    const { groupId, memberId } = req.params;
+    const { role } = req.body;
 
-  if (role !== 'admin' && role !== 'member') {
-    return res.status(400).json({ error: 'Role must be "admin" or "member"' });
+    if (role !== 'admin' && role !== 'member') {
+      return res.status(400).json({ error: 'Role must be "admin" or "member"' });
+    }
+
+    const requesterRole = await getGroupRole(groupId, req.user.id);
+    if (requesterRole === null) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+    if (requesterRole !== 'owner') {
+      return res.status(403).json({ error: 'Only the group creator can change member roles' });
+    }
+
+    const targetRes = await pool.query('SELECT username, role FROM group_members WHERE group_id = $1 AND user_id = $2', [groupId, memberId]);
+    if (targetRes.rowCount === 0) {
+      return res.status(404).json({ error: 'Member not found in this group' });
+    }
+    const target = targetRes.rows[0];
+    if (target.role === 'owner') {
+      return res.status(400).json({ error: "Cannot change the group creator's role" });
+    }
+
+    await pool.query('UPDATE group_members SET role = $1 WHERE group_id = $2 AND user_id = $3', [role, groupId, memberId]);
+
+    const announcement = role === 'admin'
+      ? `${target.username} was made an admin`
+      : `${target.username} is no longer an admin`;
+    await insertMessage('group', groupId, { id: 'system', username: 'System' }, { text: announcement }, 'system');
+
+    res.json({
+      id: groupId,
+      memberId,
+      role,
+      message: 'Member role updated successfully'
+    });
+  } catch (err) {
+    console.error('[groups] member role update failed:', err);
+    res.status(500).json({ error: 'Failed to update member role' });
   }
-
-  const requesterRole = await getGroupRole(groupId, req.user.id);
-  if (requesterRole === null) {
-    return res.status(404).json({ error: 'Group not found' });
-  }
-  if (requesterRole !== 'owner') {
-    return res.status(403).json({ error: 'Only the group creator can change member roles' });
-  }
-
-  const targetRes = await pool.query('SELECT username, role FROM group_members WHERE group_id = $1 AND user_id = $2', [groupId, memberId]);
-  if (targetRes.rowCount === 0) {
-    return res.status(404).json({ error: 'Member not found in this group' });
-  }
-  const target = targetRes.rows[0];
-  if (target.role === 'owner') {
-    return res.status(400).json({ error: "Cannot change the group creator's role" });
-  }
-
-  await pool.query('UPDATE group_members SET role = $1 WHERE group_id = $2 AND user_id = $3', [role, groupId, memberId]);
-
-  const announcement = role === 'admin'
-    ? `${target.username} was made an admin`
-    : `${target.username} is no longer an admin`;
-  await insertMessage('group', groupId, { id: 'system', username: 'System' }, { text: announcement }, 'system');
-
-  res.json({
-    id: groupId,
-    memberId,
-    role,
-    message: 'Member role updated successfully'
-  });
 });
 
 // POST /api/groups/:groupId/leave - Leave the group. If the leaving member
@@ -1302,31 +1322,36 @@ app.delete('/api/channels/:channelId', async (req, res) => {
 // URL/id-only persistence contract as PUT /api/groups/:groupId/avatar; the
 // photo itself is uploaded client-side via window.usernode.uploadFile.
 app.put('/api/channels/:channelId/avatar', async (req, res) => {
-  const { avatarUrl, avatarImageId } = req.body || {};
-  const { channelId } = req.params;
+  try {
+    const { avatarUrl, avatarImageId } = req.body || {};
+    const { channelId } = req.params;
 
-  if (avatarUrl != null && typeof avatarUrl !== 'string') {
-    return res.status(400).json({ error: 'avatarUrl must be a string or null' });
-  }
-  if (typeof avatarUrl === 'string' && !avatarUrl.startsWith('https://')) {
-    return res.status(400).json({ error: 'avatarUrl must be an https:// URL' });
-  }
+    if (avatarUrl != null && typeof avatarUrl !== 'string') {
+      return res.status(400).json({ error: 'avatarUrl must be a string or null' });
+    }
+    if (typeof avatarUrl === 'string' && !avatarUrl.startsWith('https://')) {
+      return res.status(400).json({ error: 'avatarUrl must be an https:// URL' });
+    }
 
-  const role = await getChannelRole(channelId, req.user.id);
-  if (role === null) {
-    return res.status(404).json({ error: 'Channel not found' });
-  }
-  if (role !== 'owner') {
-    return res.status(403).json({ error: 'Only the channel creator can edit channel info' });
-  }
+    const role = await getChannelRole(channelId, req.user.id);
+    if (role === null) {
+      return res.status(404).json({ error: 'Channel not found' });
+    }
+    if (role !== 'owner') {
+      return res.status(403).json({ error: 'Only the channel creator can edit channel info' });
+    }
 
-  const avatarUrlVal = typeof avatarUrl === 'string' ? avatarUrl : null;
-  const avatarImageIdVal = typeof avatarImageId === 'string' ? avatarImageId : null;
-  await pool.query(
-    'UPDATE channels SET avatar_url = $1, avatar_image_id = $2, updated_at = now() WHERE id = $3',
-    [avatarUrlVal, avatarImageIdVal, channelId]
-  );
-  res.json({ id: channelId, avatarUrl: avatarUrlVal, avatarImageId: avatarImageIdVal });
+    const avatarUrlVal = typeof avatarUrl === 'string' ? avatarUrl : null;
+    const avatarImageIdVal = typeof avatarImageId === 'string' ? avatarImageId : null;
+    await pool.query(
+      'UPDATE channels SET avatar_url = $1, avatar_image_id = $2, updated_at = now() WHERE id = $3',
+      [avatarUrlVal, avatarImageIdVal, channelId]
+    );
+    res.json({ id: channelId, avatarUrl: avatarUrlVal, avatarImageId: avatarImageIdVal });
+  } catch (err) {
+    console.error('[channels] avatar update failed:', err);
+    res.status(500).json({ error: 'Failed to update channel avatar' });
+  }
 });
 
 // Conversation Management API Endpoints
@@ -3328,5 +3353,17 @@ async function shutdown(signal) {
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+// Safety net: an un-caught rejection/throw inside a request handler must not
+// take down the whole process (Node's default since v15 is to exit on an
+// unhandled rejection). Every route should already try/catch its own async
+// work, but this backstop keeps one missed case from taking every in-flight
+// request down with it.
+process.on('unhandledRejection', (err) => {
+  console.error('[process] unhandled rejection:', err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[process] uncaught exception:', err);
+});
 
 module.exports = app;
