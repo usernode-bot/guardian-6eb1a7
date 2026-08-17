@@ -146,6 +146,36 @@
       "expectText": "Clear Chat"
     },
     {
+      "name": "Conversation Info page opens for a DM and displays the peer's username",
+      "path": "/#/conversation/conv_staging-demo-user-5/info",
+      "expectText": "staging-demo-dedi"
+    },
+    {
+      "name": "Conversation Info page shows a delete-conversation icon",
+      "path": "/#/conversation/conv_staging-demo-user-5/info",
+      "expectSelector": ".delete-dm-button"
+    },
+    {
+      "name": "Conversation Info page displays the peer's bio",
+      "path": "/#/conversation/conv_staging-demo-user-5/info",
+      "expectText": "Building cool things on Usernode"
+    },
+    {
+      "name": "Conversation Info page falls back to \"No bio\" for a peer with no bio set",
+      "path": "/#/conversation/conv_staging-demo-user-9/info",
+      "expectText": "No bio"
+    },
+    {
+      "name": "Conversation Info page displays the peer's Usernode wallet address, shortened",
+      "path": "/#/conversation/conv_staging-demo-user-5/info",
+      "expectText": "0x8b2e...7d09"
+    },
+    {
+      "name": "Tapping the Usernode Address copies it and shows a confirmation toast, no separate Copy button (regression: share/copy icons appeared to do nothing when tapped)",
+      "path": "/?shot=dm-copy-address#/conversation/conv_staging-demo-user-5/info",
+      "expectText": "Address copied"
+    },
+    {
       "name": "Conversation list preview updates after clearing a DM chat",
       "path": "/?shot=dm-cleared",
       "expectText": "No messages yet"
@@ -384,6 +414,16 @@
       "name": "Group Info page shows Share Group button for every member",
       "path": "/#/group/group_staging_owned_1/info",
       "expectSelector": ".share-group-button"
+    },
+    {
+      "name": "Group Info page shows an Invite Link row",
+      "path": "/#/group/group_staging_owned_1/info",
+      "expectText": "Invite Link"
+    },
+    {
+      "name": "Tapping Share Group copies the invite link and shows a confirmation toast, no separate Copy button (regression: share icon appeared to do nothing when tapped)",
+      "path": "/?shot=group-copy-link#/group/group_staging_owned_1/info",
+      "expectText": "Link copied"
     },
     {
       "name": "Shared group link routes to the group's info via ?group= query",
@@ -771,9 +811,29 @@
       "expectSelector": "#add-channel-admins-button"
     },
     {
-      "name": "Non-admin viewer is redirected away from Channel Info",
+      "name": "Non-admin channel viewer can open Channel Info",
       "path": "/#/channel/channel_staging_1/info",
       "expectText": "Staging Demo Announcements"
+    },
+    {
+      "name": "Channel Info page shows a Share icon for every viewer",
+      "path": "/#/channel/channel_staging_1/info",
+      "expectSelector": ".share-channel-button"
+    },
+    {
+      "name": "Channel Info page shows the Members list to non-admin viewers",
+      "path": "/#/channel/channel_staging_1/info",
+      "expectText": "Members"
+    },
+    {
+      "name": "Channel Info page shows an Invite Link row",
+      "path": "/#/channel/channel_staging_owned_1/info",
+      "expectText": "Invite Link"
+    },
+    {
+      "name": "Tapping Share Channel copies the invite link and shows a confirmation toast, no separate Copy button (regression: share icon appeared to do nothing when tapped)",
+      "path": "/?shot=channel-copy-link#/channel/channel_staging_owned_1/info",
+      "expectText": "Link copied"
     },
     {
       "name": "Add Admins page loads for a channel owner",

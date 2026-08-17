@@ -18,6 +18,13 @@ const SERVER_BOOT_ID = Date.now().toString(36) + '-' + crypto.randomBytes(4).toS
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
+// Without this listener, an error on an idle pooled client (e.g. the backend
+// dropping a connection) is an unhandled EventEmitter 'error' and crashes the
+// whole process — taking down every route, not just the one that happened to
+// be running. Log and let the pool recover instead.
+pool.on('error', (err) => {
+  console.error('[pg pool] unexpected error on idle client', err);
+});
 
 function decodeUser(req) {
   const token = req.query.token || req.headers['x-usernode-token'];
@@ -154,6 +161,37 @@ app.get('/api/users/suggested', async (req, res) => {
   } catch (err) {
     console.error('[users] suggested failed:', err);
     res.status(500).json({ error: 'Failed to load suggested users' });
+  }
+});
+
+// GET /api/users/:userId/profile - a peer's public profile (username, bio,
+// wallet address, avatar). Same "not sensitive" directory data as shapeUser
+// above, plus the self-authored bio -- used by the DM Info screen to show
+// who you're talking to.
+app.get('/api/users/:userId/profile', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, username, usernode_pubkey, bio, avatar_url, avatar_image_id
+         FROM users WHERE id = $1`,
+      [req.params.userId]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json({
+      profile: {
+        id: row.id,
+        username: row.username,
+        bio: row.bio || '',
+        avatarUrl: row.avatar_url || null,
+        avatarImageId: row.avatar_image_id || null,
+        walletAddress: row.usernode_pubkey || null
+      }
+    });
+  } catch (err) {
+    console.error('[users] peer profile fetch failed:', err);
+    res.status(500).json({ error: 'Failed to load user profile' });
   }
 });
 
@@ -604,48 +642,58 @@ app.post('/api/groups/:groupId/join', async (req, res) => {
 
 // PUT /api/groups/:groupId/name - Update group name
 app.put('/api/groups/:groupId/name', async (req, res) => {
-  const { name } = req.body;
-  const { groupId } = req.params;
+  try {
+    const { name } = req.body;
+    const { groupId } = req.params;
 
-  if (!name || name.trim().length === 0) {
-    return res.status(400).json({ error: 'Group name is required' });
-  }
+    if (!name || name.trim().length === 0) {
+      return res.status(400).json({ error: 'Group name is required' });
+    }
 
-  if (name.length > 50) {
-    return res.status(400).json({ error: 'Group name must be 50 characters or less' });
-  }
+    if (name.length > 50) {
+      return res.status(400).json({ error: 'Group name must be 50 characters or less' });
+    }
 
-  const role = await getGroupRole(groupId, req.user.id);
-  if (role === null) {
-    return res.status(404).json({ error: 'Group not found' });
-  }
-  if (role !== 'owner' && role !== 'admin') {
-    return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
-  }
+    const role = await getGroupRole(groupId, req.user.id);
+    if (role === null) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+    if (role !== 'owner' && role !== 'admin') {
+      return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
+    }
 
-  await pool.query('UPDATE groups SET name = $1, updated_at = now() WHERE id = $2', [name.trim(), groupId]);
-  res.json({ id: groupId, name: name.trim() });
+    await pool.query('UPDATE groups SET name = $1, updated_at = now() WHERE id = $2', [name.trim(), groupId]);
+    res.json({ id: groupId, name: name.trim() });
+  } catch (err) {
+    console.error('[groups] name update failed:', err);
+    res.status(500).json({ error: 'Failed to update group name' });
+  }
 });
 
 // PUT /api/groups/:groupId/description - Update group description
 app.put('/api/groups/:groupId/description', async (req, res) => {
-  const { description } = req.body;
-  const { groupId } = req.params;
+  try {
+    const { description } = req.body;
+    const { groupId } = req.params;
 
-  if (description && description.length > 250) {
-    return res.status(400).json({ error: 'Description must be 250 characters or less' });
-  }
+    if (description && description.length > 250) {
+      return res.status(400).json({ error: 'Description must be 250 characters or less' });
+    }
 
-  const role = await getGroupRole(groupId, req.user.id);
-  if (role === null) {
-    return res.status(404).json({ error: 'Group not found' });
-  }
-  if (role !== 'owner' && role !== 'admin') {
-    return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
-  }
+    const role = await getGroupRole(groupId, req.user.id);
+    if (role === null) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+    if (role !== 'owner' && role !== 'admin') {
+      return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
+    }
 
-  await pool.query('UPDATE groups SET description = $1, updated_at = now() WHERE id = $2', [description || '', groupId]);
-  res.json({ id: groupId, description: description || '' });
+    await pool.query('UPDATE groups SET description = $1, updated_at = now() WHERE id = $2', [description || '', groupId]);
+    res.json({ id: groupId, description: description || '' });
+  } catch (err) {
+    console.error('[groups] description update failed:', err);
+    res.status(500).json({ error: 'Failed to update group description' });
+  }
 });
 
 // PUT /api/groups/:groupId/avatar - Update group avatar. The photo itself is
@@ -653,31 +701,36 @@ app.put('/api/groups/:groupId/description', async (req, res) => {
 // persists the returned URL/id (never image bytes) -- same contract as
 // PUT /api/profile.
 app.put('/api/groups/:groupId/avatar', async (req, res) => {
-  const { avatarUrl, avatarImageId } = req.body || {};
-  const { groupId } = req.params;
+  try {
+    const { avatarUrl, avatarImageId } = req.body || {};
+    const { groupId } = req.params;
 
-  if (avatarUrl != null && typeof avatarUrl !== 'string') {
-    return res.status(400).json({ error: 'avatarUrl must be a string or null' });
-  }
-  if (typeof avatarUrl === 'string' && !avatarUrl.startsWith('https://')) {
-    return res.status(400).json({ error: 'avatarUrl must be an https:// URL' });
-  }
+    if (avatarUrl != null && typeof avatarUrl !== 'string') {
+      return res.status(400).json({ error: 'avatarUrl must be a string or null' });
+    }
+    if (typeof avatarUrl === 'string' && !avatarUrl.startsWith('https://')) {
+      return res.status(400).json({ error: 'avatarUrl must be an https:// URL' });
+    }
 
-  const role = await getGroupRole(groupId, req.user.id);
-  if (role === null) {
-    return res.status(404).json({ error: 'Group not found' });
-  }
-  if (role !== 'owner' && role !== 'admin') {
-    return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
-  }
+    const role = await getGroupRole(groupId, req.user.id);
+    if (role === null) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+    if (role !== 'owner' && role !== 'admin') {
+      return res.status(403).json({ error: 'Only the group creator or an admin can edit group info' });
+    }
 
-  const avatarUrlVal = typeof avatarUrl === 'string' ? avatarUrl : null;
-  const avatarImageIdVal = typeof avatarImageId === 'string' ? avatarImageId : null;
-  await pool.query(
-    'UPDATE groups SET avatar_url = $1, avatar_image_id = $2, updated_at = now() WHERE id = $3',
-    [avatarUrlVal, avatarImageIdVal, groupId]
-  );
-  res.json({ id: groupId, avatarUrl: avatarUrlVal, avatarImageId: avatarImageIdVal });
+    const avatarUrlVal = typeof avatarUrl === 'string' ? avatarUrl : null;
+    const avatarImageIdVal = typeof avatarImageId === 'string' ? avatarImageId : null;
+    await pool.query(
+      'UPDATE groups SET avatar_url = $1, avatar_image_id = $2, updated_at = now() WHERE id = $3',
+      [avatarUrlVal, avatarImageIdVal, groupId]
+    );
+    res.json({ id: groupId, avatarUrl: avatarUrlVal, avatarImageId: avatarImageIdVal });
+  } catch (err) {
+    console.error('[groups] avatar update failed:', err);
+    res.status(500).json({ error: 'Failed to update group avatar' });
+  }
 });
 
 // POST /api/groups/:groupId/members - Add members to group (owner/admin only)
@@ -777,43 +830,48 @@ app.delete('/api/groups/:groupId/members/:memberId', async (req, res) => {
 
 // PUT /api/groups/:groupId/members/:memberId/role - Promote/demote a member (owner only)
 app.put('/api/groups/:groupId/members/:memberId/role', async (req, res) => {
-  const { groupId, memberId } = req.params;
-  const { role } = req.body;
+  try {
+    const { groupId, memberId } = req.params;
+    const { role } = req.body;
 
-  if (role !== 'admin' && role !== 'member') {
-    return res.status(400).json({ error: 'Role must be "admin" or "member"' });
+    if (role !== 'admin' && role !== 'member') {
+      return res.status(400).json({ error: 'Role must be "admin" or "member"' });
+    }
+
+    const requesterRole = await getGroupRole(groupId, req.user.id);
+    if (requesterRole === null) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+    if (requesterRole !== 'owner') {
+      return res.status(403).json({ error: 'Only the group creator can change member roles' });
+    }
+
+    const targetRes = await pool.query('SELECT username, role FROM group_members WHERE group_id = $1 AND user_id = $2', [groupId, memberId]);
+    if (targetRes.rowCount === 0) {
+      return res.status(404).json({ error: 'Member not found in this group' });
+    }
+    const target = targetRes.rows[0];
+    if (target.role === 'owner') {
+      return res.status(400).json({ error: "Cannot change the group creator's role" });
+    }
+
+    await pool.query('UPDATE group_members SET role = $1 WHERE group_id = $2 AND user_id = $3', [role, groupId, memberId]);
+
+    const announcement = role === 'admin'
+      ? `${target.username} was made an admin`
+      : `${target.username} is no longer an admin`;
+    await insertMessage('group', groupId, { id: 'system', username: 'System' }, { text: announcement }, 'system');
+
+    res.json({
+      id: groupId,
+      memberId,
+      role,
+      message: 'Member role updated successfully'
+    });
+  } catch (err) {
+    console.error('[groups] member role update failed:', err);
+    res.status(500).json({ error: 'Failed to update member role' });
   }
-
-  const requesterRole = await getGroupRole(groupId, req.user.id);
-  if (requesterRole === null) {
-    return res.status(404).json({ error: 'Group not found' });
-  }
-  if (requesterRole !== 'owner') {
-    return res.status(403).json({ error: 'Only the group creator can change member roles' });
-  }
-
-  const targetRes = await pool.query('SELECT username, role FROM group_members WHERE group_id = $1 AND user_id = $2', [groupId, memberId]);
-  if (targetRes.rowCount === 0) {
-    return res.status(404).json({ error: 'Member not found in this group' });
-  }
-  const target = targetRes.rows[0];
-  if (target.role === 'owner') {
-    return res.status(400).json({ error: "Cannot change the group creator's role" });
-  }
-
-  await pool.query('UPDATE group_members SET role = $1 WHERE group_id = $2 AND user_id = $3', [role, groupId, memberId]);
-
-  const announcement = role === 'admin'
-    ? `${target.username} was made an admin`
-    : `${target.username} is no longer an admin`;
-  await insertMessage('group', groupId, { id: 'system', username: 'System' }, { text: announcement }, 'system');
-
-  res.json({
-    id: groupId,
-    memberId,
-    role,
-    message: 'Member role updated successfully'
-  });
 });
 
 // POST /api/groups/:groupId/leave - Leave the group. If the leaving member
@@ -1126,6 +1184,36 @@ app.get('/api/channels/:channelId', async (req, res) => {
   }
 });
 
+// GET /api/channels/:channelId/followers - full follower roster (id/username/
+// avatar) for the Channel Info page's Members list. channel_followers only
+// stores user_id, so usernames/avatars come from a LEFT JOIN against users;
+// a follower with no matching users row (e.g. a seeded id) falls back to its
+// raw id as the display name.
+app.get('/api/channels/:channelId/followers', async (req, res) => {
+  try {
+    const chRes = await pool.query('SELECT id FROM channels WHERE id = $1', [req.params.channelId]);
+    if (chRes.rowCount === 0) return res.status(404).json({ error: 'Channel not found' });
+
+    const result = await pool.query(
+      `SELECT f.user_id, u.username, u.avatar_url FROM channel_followers f
+        LEFT JOIN users u ON u.id = f.user_id
+       WHERE f.channel_id = $1
+       ORDER BY f.followed_at ASC
+       LIMIT 200`,
+      [req.params.channelId]
+    );
+    const followers = result.rows.map((row) => ({
+      id: row.user_id,
+      username: row.username || row.user_id,
+      avatarUrl: row.avatar_url || null
+    }));
+    res.json({ followers });
+  } catch (err) {
+    console.error('[channels] followers fetch failed:', err);
+    res.status(500).json({ error: 'Failed to load followers' });
+  }
+});
+
 // POST /api/channels - Create a new channel with the creator auto-followed.
 app.post('/api/channels', async (req, res) => {
   const { name, description, avatar, avatarUrl, avatarImageId } = req.body || {};
@@ -1234,31 +1322,36 @@ app.delete('/api/channels/:channelId', async (req, res) => {
 // URL/id-only persistence contract as PUT /api/groups/:groupId/avatar; the
 // photo itself is uploaded client-side via window.usernode.uploadFile.
 app.put('/api/channels/:channelId/avatar', async (req, res) => {
-  const { avatarUrl, avatarImageId } = req.body || {};
-  const { channelId } = req.params;
+  try {
+    const { avatarUrl, avatarImageId } = req.body || {};
+    const { channelId } = req.params;
 
-  if (avatarUrl != null && typeof avatarUrl !== 'string') {
-    return res.status(400).json({ error: 'avatarUrl must be a string or null' });
-  }
-  if (typeof avatarUrl === 'string' && !avatarUrl.startsWith('https://')) {
-    return res.status(400).json({ error: 'avatarUrl must be an https:// URL' });
-  }
+    if (avatarUrl != null && typeof avatarUrl !== 'string') {
+      return res.status(400).json({ error: 'avatarUrl must be a string or null' });
+    }
+    if (typeof avatarUrl === 'string' && !avatarUrl.startsWith('https://')) {
+      return res.status(400).json({ error: 'avatarUrl must be an https:// URL' });
+    }
 
-  const role = await getChannelRole(channelId, req.user.id);
-  if (role === null) {
-    return res.status(404).json({ error: 'Channel not found' });
-  }
-  if (role !== 'owner') {
-    return res.status(403).json({ error: 'Only the channel creator can edit channel info' });
-  }
+    const role = await getChannelRole(channelId, req.user.id);
+    if (role === null) {
+      return res.status(404).json({ error: 'Channel not found' });
+    }
+    if (role !== 'owner') {
+      return res.status(403).json({ error: 'Only the channel creator can edit channel info' });
+    }
 
-  const avatarUrlVal = typeof avatarUrl === 'string' ? avatarUrl : null;
-  const avatarImageIdVal = typeof avatarImageId === 'string' ? avatarImageId : null;
-  await pool.query(
-    'UPDATE channels SET avatar_url = $1, avatar_image_id = $2, updated_at = now() WHERE id = $3',
-    [avatarUrlVal, avatarImageIdVal, channelId]
-  );
-  res.json({ id: channelId, avatarUrl: avatarUrlVal, avatarImageId: avatarImageIdVal });
+    const avatarUrlVal = typeof avatarUrl === 'string' ? avatarUrl : null;
+    const avatarImageIdVal = typeof avatarImageId === 'string' ? avatarImageId : null;
+    await pool.query(
+      'UPDATE channels SET avatar_url = $1, avatar_image_id = $2, updated_at = now() WHERE id = $3',
+      [avatarUrlVal, avatarImageIdVal, channelId]
+    );
+    res.json({ id: channelId, avatarUrl: avatarUrlVal, avatarImageId: avatarImageIdVal });
+  } catch (err) {
+    console.error('[channels] avatar update failed:', err);
+    res.status(500).json({ error: 'Failed to update channel avatar' });
+  }
 });
 
 // Conversation Management API Endpoints
@@ -1707,7 +1800,7 @@ app.get('/api/direct-conversations', async (req, res) => {
     const conversations = [];
     for (const row of result.rows) {
       const isSelfA = row.user_id_a === req.user.id || row.user_id_a === 'user_self'
-        || (row.a_username && row.a_username.toLowerCase() === req.user.username.toLowerCase());
+        || (row.a_username && req.user.username && row.a_username.toLowerCase() === req.user.username.toLowerCase());
       const peerId = isSelfA ? row.user_id_b : row.user_id_a;
       // The peer may not have a `users` row yet (they've never loaded the app
       // in this environment) -- that must NOT hide an otherwise valid,
@@ -3013,7 +3106,8 @@ async function seedStagingUsers() {
     { id: 'staging-demo-user-2', username: 'staging-demo-ana', pubkey: '0x3e5c7d9f1b3a5c7e9f1b3d5a7c9e1f3b5d7a9c1e', offset: '1 hour', avatarUrl: 'https://picsum.photos/seed/staging-demo-ana/200' },
     { id: 'staging-demo-user-3', username: 'staging-demo-budi', pubkey: '0x7a9c1e3f5b7d9a1c3e5f7b9d1a3c5e7f9b1d3a5c', offset: '90 minutes', avatarUrl: 'https://picsum.photos/seed/staging-demo-budi/200' },
     { id: 'staging-demo-user-4', username: 'staging-demo-citra', pubkey: '0x1f3a9c2e7b5d44680a9f0c1e2d3b4a5968f7e6d5', offset: '5 minutes' },
-    { id: 'staging-demo-user-5', username: 'staging-demo-dedi', pubkey: '0x8b2e4f6a1c9d3e5b7a0f2c4e6d8b9a1f3e5c7d09', offset: '2 hours' },
+    // Has a bio set -- fixture for the DM Info page's peer bio/address display.
+    { id: 'staging-demo-user-5', username: 'staging-demo-dedi', pubkey: '0x8b2e4f6a1c9d3e5b7a0f2c4e6d8b9a1f3e5c7d09', offset: '2 hours', bio: 'Building cool things on Usernode' },
     // Regression fixture peer for SHOT_PERSIST_REMOVAL -- a real group/channel/DM
     // the shot creates and then leaves/unfollows/hides, to prove the removal
     // survives a simulated app restart. Needs a `users` row of its own so the
@@ -3049,10 +3143,15 @@ async function seedStagingUsers() {
   try {
     for (const seed of seeds) {
       await pool.query(
-        `INSERT INTO users (id, username, usernode_pubkey, last_seen_at, avatar_url)
-         VALUES ($1, $2, $3, now() - $4::interval, $5)
-         ON CONFLICT (id) DO NOTHING`,
-        [seed.id, seed.username, seed.pubkey, seed.offset, seed.avatarUrl || null]
+        `INSERT INTO users (id, username, usernode_pubkey, last_seen_at, avatar_url, bio)
+         VALUES ($1, $2, $3, now() - $4::interval, $5, $6)
+         ON CONFLICT (id) DO UPDATE SET
+           username = EXCLUDED.username,
+           usernode_pubkey = EXCLUDED.usernode_pubkey,
+           last_seen_at = EXCLUDED.last_seen_at,
+           avatar_url = EXCLUDED.avatar_url,
+           bio = EXCLUDED.bio`,
+        [seed.id, seed.username, seed.pubkey, seed.offset, seed.avatarUrl || null, seed.bio || '']
       );
     }
     console.log('Staging demo users seeded');
@@ -3205,6 +3304,39 @@ async function seedStagingDirectConversations() {
        ON CONFLICT (id) DO NOTHING`
     );
 
+    // Reload-order regression fixtures (SHOT_DM_RELOAD_LO/HI in app.js) --
+    // seeded here rather than relying solely on the shot-flag's own live
+    // POST to have already landed by the time the plain-reload check runs.
+    // The "insert" check and the "plain reload" check are separate dapp.json
+    // entries with no ordering/timing guarantee between them, and the
+    // reload check's render gate requires the peer to already be present in
+    // GET /api/direct-conversations -- so without a seeded row, a reload
+    // that happens to run before the insert check's fetch lands finds no
+    // conversation yet and bounces to /messages.
+    await pool.query(
+      `INSERT INTO direct_conversations (id, user_id_a, user_id_b, status, requested_by_user_id, created_at)
+       VALUES ('dm_staging_reload_lo_1', '0000-reload-order-lo', 'user_self', 'accepted', '0000-reload-order-lo', now() - '5 minutes'::interval)
+       ON CONFLICT (user_id_a, user_id_b) DO NOTHING`
+    );
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+       VALUES ('msg_staging_reload_lo_1', 'direct', 'dm_staging_reload_lo_1', '0000-reload-order-lo', 'staging-demo-zero',
+               'Shot reload order check', now() - '5 minutes'::interval)
+       ON CONFLICT (id) DO NOTHING`
+    );
+
+    await pool.query(
+      `INSERT INTO direct_conversations (id, user_id_a, user_id_b, status, requested_by_user_id, created_at)
+       VALUES ('dm_staging_reload_hi_1', 'user_self', 'zzzz-reload-order-hi', 'accepted', 'zzzz-reload-order-hi', now() - '5 minutes'::interval)
+       ON CONFLICT (user_id_a, user_id_b) DO NOTHING`
+    );
+    await pool.query(
+      `INSERT INTO messages (id, conversation_type, conversation_id, sender_user_id, sender_username, text, created_at)
+       VALUES ('msg_staging_reload_hi_1', 'direct', 'dm_staging_reload_hi_1', 'zzzz-reload-order-hi', 'staging-demo-zulu',
+               'Shot reload order check', now() - '5 minutes'::interval)
+       ON CONFLICT (id) DO NOTHING`
+    );
+
     console.log('Staging demo direct conversations seeded');
   } catch (err) {
     console.error('Staging direct conversation seed error:', err);
@@ -3254,5 +3386,17 @@ async function shutdown(signal) {
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+// Safety net: an un-caught rejection/throw inside a request handler must not
+// take down the whole process (Node's default since v15 is to exit on an
+// unhandled rejection). Every route should already try/catch its own async
+// work, but this backstop keeps one missed case from taking every in-flight
+// request down with it.
+process.on('unhandledRejection', (err) => {
+  console.error('[process] unhandled rejection:', err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[process] uncaught exception:', err);
+});
 
 module.exports = app;
