@@ -75,6 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_MESSAGE_REACTIONS = SHOT === 'message-reactions';
   const SHOT_POST_MENU = SHOT === 'post-menu';
   const SHOT_POST_EDIT = SHOT === 'post-edit';
+  const SHOT_POST_PIN_TOGGLE = SHOT === 'post-pin-toggle';
   const SHOT_CREATE_GROUP_PUBLIC = SHOT === 'create-group-public';
   const SHOT_CREATE_GROUP_ONE_MEMBER = SHOT === 'create-group-one-member';
   const SHOT_CREATE_GROUP_ZERO_MEMBERS = SHOT === 'create-group-zero-members';
@@ -8187,6 +8188,25 @@ document.addEventListener('DOMContentLoaded', () => {
     if (SHOT_POST_MENU) {
       feed?.querySelector('.post-card .post-menu-button')?.click();
     }
+    // Screenshot-state: exercises the real Pin Post/Unpin Post click handler
+    // (not just the menu render) by toggling the first card's pin twice --
+    // once to flip it, once to flip it back -- so the deep link is safe to
+    // hit repeatedly against seeded staging data without drifting the
+    // pinned count fixtures. A third menu-open lands on a stable, persistent
+    // state to assert against (a toast fades on its own timer, which races
+    // the checker's settle/poll window) -- the toggle clicks are what
+    // actually exercise the buggy handler; a console error from them fails
+    // the check regardless of what this final assertion looks for.
+    if (SHOT_POST_PIN_TOGGLE) {
+      const firstCard = feed?.querySelector('.post-card');
+      if (firstCard) {
+        firstCard.querySelector('.post-menu-button')?.click();
+        document.getElementById('pin-post-btn')?.click();
+        firstCard.querySelector('.post-menu-button')?.click();
+        document.getElementById('pin-post-btn')?.click();
+        firstCard.querySelector('.post-menu-button')?.click();
+      }
+    }
     if (SHOT_POST_EDIT) {
       feed?.querySelector('.post-card .post-menu-button')?.click();
       document.getElementById('edit-post-btn')?.click();
@@ -8400,8 +8420,8 @@ document.addEventListener('DOMContentLoaded', () => {
         overlay.remove();
         const nextPinned = !post.isPinned;
         post.isPinned = nextPinned;
-        refreshPostPin(channelId, postId);
-        deliverPostPin(channelId, postId, nextPinned);
+        refreshPostPin(channel.id, postId);
+        deliverPostPin(channel.id, postId, nextPinned);
         showToast(nextPinned ? 'Post pinned' : 'Post unpinned', { type: 'success' });
       });
     }

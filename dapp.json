@@ -596,6 +596,16 @@
       "expectSelector": "#delete-post-btn"
     },
     {
+      "name": "Owner post menu offers Unpin Post for an already-pinned post",
+      "path": "/?shot=post-menu#/channel/channel_staging_owned_1",
+      "expectText": "Unpin Post"
+    },
+    {
+      "name": "Pin Post/Unpin Post click handler in the channel post menu runs without a JS error",
+      "path": "/?shot=post-pin-toggle#/channel/channel_staging_owned_1",
+      "expectSelector": "#pin-post-btn"
+    },
+    {
       "name": "Edit Post dialog opens prefilled with the post text",
       "path": "/?shot=post-edit#/channel/channel_staging_owned_1",
       "expectSelector": ".edit-post-dialog .edit-post-input"
