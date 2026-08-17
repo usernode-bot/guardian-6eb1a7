@@ -3268,6 +3268,17 @@ async function seedStagingOwnedEntities(currentUser) {
       );
     }
 
+    // "Published channel post persists after a reload" fixture -- seeded here
+    // rather than relying solely on the channel-send-stay shot flow's own live
+    // POST having already landed by the time the plain-reload check runs (same
+    // reasoning as the dm-reload-lo/hi fixtures below: those two dapp.json
+    // entries share no ordering/timing guarantee, and checks sharing an exact
+    // URL are evaluated against one shared page load, so the reload check can
+    // run before the send-stay group ever fires). Fixed id, ON CONFLICT DO
+    // NOTHING, and deliberately left unpinned so it doesn't shift the "8
+    // pinned messages" banner count.
+    await insertMessage('channel', channelId, me, { id: `msg_${channelId}_shot_send_stay`, text: 'Shot send stay check' });
+
     // Pin/unread state is per-user real data (conversation_user_state), keyed
     // by the CLIENT-synthesized conversation id and the real caller's own id
     // -- so unlike the fixed group/channel ids above, this needs no
