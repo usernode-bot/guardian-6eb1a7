@@ -16,7 +16,8 @@
     {
       "key": "NODE_RPC_URL",
       "description": "http://usernode-node:3000",
-      "private": true
+      "private": true,
+      "staging_default": "http://usernode-node:3000"
     }
   ],
   "tests": [
