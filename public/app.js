@@ -3158,6 +3158,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Keep the conversation list preview in sync — every message is now
     // hidden for this user, so the list should read as empty.
     conv.lastMessage = 'No messages yet';
+    renderMessagesPage();
 
     const peerId = directPeerId(conv.id);
     if (peerId) {
