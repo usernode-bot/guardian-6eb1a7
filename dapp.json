@@ -133,7 +133,7 @@
     },
     {
       "name": "A direct message that fails to deliver shows a Failed to send indicator",
-      "path": "/?shot=send-fail#/conversation/conv_1",
+      "path": "/?shot=send-fail#/conversation/conv_staging-demo-user-5",
       "expectSelector": ".message-failed"
     },
     {

@@ -966,7 +966,19 @@ document.addEventListener('DOMContentLoaded', () => {
           conversations.unshift(conv);
           changed = true;
         }
-        if (dc.lastMessage !== null && (dc.lastMessageAt || 0) >= (conv.serverLastMessageAt || 0)) {
+        if (dc.lastMessage === null) {
+          // The server has no visible last message for this user (never
+          // messaged, or every message just got cleared/hidden) -- this is
+          // authoritative and must win even over a still-fresh
+          // serverLastMessageAt, otherwise a poll response that lands right
+          // after a Clear Chat call can never turn the preview back to
+          // empty: skipping the update here (as this used to) left the
+          // stale pre-clear text in place forever, since no later response
+          // gets a chance to fix it once skipped.
+          if (conv.lastMessage !== 'No messages yet') changed = true;
+          conv.lastMessage = 'No messages yet';
+          conv.serverLastMessageAt = 0;
+        } else if ((dc.lastMessageAt || 0) >= (conv.serverLastMessageAt || 0)) {
           if (conv.lastMessage !== truncateText(dc.lastMessage, 100) || conv.timestamp !== (dc.lastMessageAt || conv.timestamp)) changed = true;
           conv.lastMessage = truncateText(dc.lastMessage, 100);
           conv.timestamp = dc.lastMessageAt || conv.timestamp;
