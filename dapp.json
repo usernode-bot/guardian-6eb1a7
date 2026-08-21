@@ -1,5 +1,5 @@
 {
-  "name": "Guardian",
+  "name": "NodeChat",
   "secrets": [
     {
       "key": "PLATFORM_BASE_URL",
