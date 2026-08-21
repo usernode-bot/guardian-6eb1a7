@@ -643,7 +643,7 @@ app.post('/api/groups/:groupId/join', async (req, res) => {
 // PUT /api/groups/:groupId/name - Update group name
 app.put('/api/groups/:groupId/name', async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name } = req.body || {};
     const { groupId } = req.params;
 
     if (!name || name.trim().length === 0) {
@@ -673,7 +673,7 @@ app.put('/api/groups/:groupId/name', async (req, res) => {
 // PUT /api/groups/:groupId/description - Update group description
 app.put('/api/groups/:groupId/description', async (req, res) => {
   try {
-    const { description } = req.body;
+    const { description } = req.body || {};
     const { groupId } = req.params;
 
     if (description && description.length > 250) {
@@ -832,7 +832,7 @@ app.delete('/api/groups/:groupId/members/:memberId', async (req, res) => {
 app.put('/api/groups/:groupId/members/:memberId/role', async (req, res) => {
   try {
     const { groupId, memberId } = req.params;
-    const { role } = req.body;
+    const { role } = req.body || {};
 
     if (role !== 'admin' && role !== 'member') {
       return res.status(400).json({ error: 'Role must be "admin" or "member"' });
@@ -879,8 +879,9 @@ app.put('/api/groups/:groupId/members/:memberId/role', async (req, res) => {
 // member); if they were the last member, the group is deleted entirely.
 app.post('/api/groups/:groupId/leave', async (req, res) => {
   const { groupId } = req.params;
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
 
     const groupRes = await client.query('SELECT id FROM groups WHERE id = $1', [groupId]);
@@ -933,11 +934,13 @@ app.post('/api/groups/:groupId/leave', async (req, res) => {
       message: 'You have left the group'
     });
   } catch (err) {
-    try { await client.query('ROLLBACK'); } catch (_) {}
+    if (client) {
+      try { await client.query('ROLLBACK'); } catch (_) {}
+    }
     console.error('[groups] leave failed:', err);
     res.status(500).json({ error: 'Failed to leave group' });
   } finally {
-    client.release();
+    if (client) client.release();
   }
 });
 
@@ -1767,8 +1770,12 @@ app.get('/api/direct-conversations', async (req, res) => {
                 THEN dc.user_id_b ELSE dc.user_id_a END
          )
          LEFT JOIN LATERAL (
-           SELECT text, sender_user_id, created_at, forwarded_from_channel_id FROM messages
-            WHERE conversation_type = 'direct' AND conversation_id = dc.id
+           SELECT text, sender_user_id, created_at, forwarded_from_channel_id FROM messages m
+            WHERE m.conversation_type = 'direct' AND m.conversation_id = dc.id
+              AND NOT EXISTS (
+                SELECT 1 FROM message_hidden_for mhf
+                 WHERE mhf.message_id = m.id AND mhf.user_id = $1
+              )
             ORDER BY created_at DESC LIMIT 1
          ) lm ON true
          LEFT JOIN conversation_user_state cus
@@ -1778,10 +1785,14 @@ app.get('/api/direct-conversations', async (req, res) => {
               )
           AND cus.user_id = $1
          LEFT JOIN LATERAL (
-           SELECT count(*)::int AS count FROM messages
-            WHERE conversation_type = 'direct' AND conversation_id = dc.id
-              AND sender_user_id != $1
-              AND (cus.last_read_at IS NULL OR created_at > cus.last_read_at)
+           SELECT count(*)::int AS count FROM messages m2
+            WHERE m2.conversation_type = 'direct' AND m2.conversation_id = dc.id
+              AND m2.sender_user_id != $1
+              AND (cus.last_read_at IS NULL OR m2.created_at > cus.last_read_at)
+              AND NOT EXISTS (
+                SELECT 1 FROM message_hidden_for mhf2
+                 WHERE mhf2.message_id = m2.id AND mhf2.user_id = $1
+              )
          ) unread ON true
         WHERE (dc.user_id_a = $1 OR dc.user_id_b = $1 OR dc.user_id_a = 'user_self' OR dc.user_id_b = 'user_self'
                OR lower(ua.username) = lower($2) OR lower(ub.username) = lower($2))
@@ -3014,6 +3025,12 @@ async function seedStagingOwnedEntities(currentUser) {
     );
     if (groupHasMessages.rowCount === 0) {
       await insertMessage('group', groupId, me, { id: `msg_${groupId}_1`, text: 'This group is owned by you, for testing owner-only actions.' });
+      // Inserted here (before the photo message) so the photo ends up as the
+      // group's true last message chronologically -- otherwise the
+      // unconditional "member added" insert below always lands after it and
+      // permanently shadows it as the Messages-list preview.
+      await insertMessage('group', groupId, { id: 'system', username: 'System' },
+        { id: `msg_${groupId}_3`, text: `${helper.username} was added to the group` }, 'system');
       await insertMessage('group', groupId, helper, {
         id: `msg_${groupId}_2`, text: 'Staging demo photo',
         imageUrl: 'https://picsum.photos/seed/staging-demo-owned-group/400/300', imageId: 'staging-demo-image-owned-group'
