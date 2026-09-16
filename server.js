@@ -5,7 +5,9 @@ const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const PLATFORM_BASE_URL = process.env.PLATFORM_BASE_URL || 'https://social-vibecoding.usernodelabs.org';
+// Explicit override first, then the platform-injected origin (#2047); never a
+// hostname written here.
+const PLATFORM_BASE_URL = (process.env.PLATFORM_BASE_URL || process.env.USERNODE_PLATFORM_ORIGIN || '').replace(/\/+$/, '');
 const APP_SLUG = process.env.APP_SLUG || 'guardian';
 const USERNODE_JWT_PUBLIC_KEY = process.env.USERNODE_JWT_PUBLIC_KEY;
 const IS_STAGING = process.env.USERNODE_ENV === 'staging';
