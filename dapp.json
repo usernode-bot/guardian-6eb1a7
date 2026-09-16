@@ -3,9 +3,9 @@
   "secrets": [
     {
       "key": "PLATFORM_BASE_URL",
-      "description": "Base URL of the Usernode Social Vibecoding platform shell, used to build chromeless deep-link redirects for shared links.",
+      "description": "Base URL of the Usernode Social Vibecoding platform shell, used to build chromeless deep-link redirects for shared links. Leave unset to use the platform-injected USERNODE_PLATFORM_ORIGIN.",
       "required": false,
-      "default": "https://social-vibecoding.usernodelabs.org"
+      "default": ""
     },
     {
       "key": "APP_SLUG",
