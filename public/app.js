@@ -37,7 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
   //   ?shot=channel-send-stay publishes one post on load (owned channel only) → post must render
   //   ?shot=message-deleted   marks the open group's last message deleted    → placeholder must render
   //   ?shot=dm-menu           clicks the DM header's ⋮ button on load          → options menu must render
-  //   ?shot=dm-cleared        clears the first real DM's chat via the real Clear Chat fn → list preview must read "No messages yet"
+  //   ?shot=dm-cleared        clears its own fixture DM via the real Clear Chat fn → list preview must read "No messages yet"
   //   ?shot=post-reactions    long-presses the first post card                  → reaction picker must render
   //   ?shot=forward-sheet     ⋯ menu → Forward on the first post              → target rows + enabled Send must render
   //   ?shot=post-menu         opens the first post's ⋯ menu                    → Forward / Copy text (+ owner items) must render
@@ -70,6 +70,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const SHOT_CHANNEL_SEND_STAY = SHOT === 'channel-send-stay';
   const SHOT_DM_MENU = SHOT === 'dm-menu';
   const SHOT_DM_CLEARED = SHOT === 'dm-cleared';
+  // Its own peer, not "the first DM in the list": clearing hides a thread's
+  // messages server-side for this viewer, and checks run concurrently, so the
+  // first DM was whichever one another check had just messaged — usually
+  // staging-demo-user-5, whose seeded photo and link other checks then
+  // could not find.
+  const SHOT_DM_CLEARED_PEER_ID = 'staging-demo-clear-peer';
+  const SHOT_DM_CLEARED_TEXT = 'Shot clear check';
   const SHOT_POST_REACTIONS = SHOT === 'post-reactions';
   const SHOT_FORWARD_SHEET = SHOT === 'forward-sheet';
   const SHOT_MESSAGE_REACTIONS = SHOT === 'message-reactions';
@@ -10046,6 +10053,17 @@ document.addEventListener('DOMContentLoaded', () => {
             console.warn('Could not deliver shot dm-username-dup messages:', error);
           }
         }
+        if (SHOT_DM_CLEARED) {
+          try {
+            await fetch(`/api/messages/direct/${SHOT_DM_CLEARED_PEER_ID}`, {
+              method: 'POST',
+              headers: authHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({ id: `shot_clear_${Date.now()}`, text: SHOT_DM_CLEARED_TEXT })
+            });
+          } catch (error) {
+            console.warn('Could not deliver shot dm-cleared message:', error);
+          }
+        }
         if (SHOT_DM_DELETE) {
           try {
             await fetch(`/api/messages/direct/${SHOT_DM_DELETE_PEER_ID}`, {
@@ -10158,7 +10176,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // function, so "no messages yet" is reachable from a plain deep link on
     // whichever real/staging-seeded DM this account has, not a fixture id.
     if (SHOT_DM_CLEARED) {
-      const target = conversations.find(c => c.type === 'direct');
+      const target = conversations.find(c => c.id === 'conv_' + SHOT_DM_CLEARED_PEER_ID);
       if (target) clearDMChat(target.id);
     }
 
